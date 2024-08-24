@@ -35,7 +35,8 @@ jobs:
         with:
           images: ghcr.io/k-wa-wa/pechka-api-prototype
           tags: |
-            type=sha,format=short
+            type=raw,value=latest
+            type=sha,prefix=,format=short
 
       - name: Build and push
         uses: docker/build-push-action@v6
