@@ -29,10 +29,18 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/k-wa-wa/pechka-api-prototype
+          tags: |
+            type=sha,format=short
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           push: true
           context: api/prototype
           platforms: linux/amd64,linux/arm64
-          tags: ghcr.io/k-wa-wa/pechka-api-prototype:latest
+          tags: ${{ steps.meta.outputs.tags }}
