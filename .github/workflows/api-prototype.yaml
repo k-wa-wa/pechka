@@ -7,10 +7,6 @@ on:
     paths:
       - api/prototype/*
 
-defaults:
-      run:
-        working-directory: api/prototype
-
 jobs:
   publish_docker_image:
     runs-on: ubuntu-20.04
@@ -37,5 +33,6 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           push: true
+          context: api/prototype
           platforms: linux/amd64,linux/arm64
           tags: pechka-api-prototype:latest
