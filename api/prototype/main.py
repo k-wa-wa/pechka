@@ -1,5 +1,7 @@
+import asyncio
 from pydantic import BaseModel
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from langchain_core.messages import HumanMessage
 from langgraph.prebuilt import create_react_agent
@@ -9,7 +11,7 @@ from langgraph.checkpoint.memory import MemorySaver
 
 
 memory = MemorySaver()
-model = ChatGoogleGenerativeAI(model="gemini-1.5-pro", temperature=0)
+model = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0)
 tools = [DuckDuckGoSearchRun()]
 agent_executor = create_react_agent(model, tools, checkpointer=memory)
 
@@ -57,6 +59,15 @@ async def chat(message: str):
 
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class Message(BaseModel):
@@ -83,6 +94,27 @@ async def post_chat(req: Request):
     async def generate_chat():
         message = "\n".join([m.content for m in reqBody.messages])
         async for m in chat(message):
+            res = PostChatRes(model="", created_at="", message=Message(role="assistant", content=m), done=False)
+            yield f"{res.model_dump_json()}\n\n"
+        res = PostChatRes(model="", created_at="", message=Message(role="model", content=""), done=True)
+        yield f"{res.model_dump_json()}\n\n"
+
+    return StreamingResponse(content=generate_chat(), media_type="application/x-ndjson")
+
+
+async def mock_chat(message):
+    for s in message:
+        await asyncio.sleep(0.01)
+        yield s
+
+
+@app.post("/mock/api/chat")
+async def mock_post_chat(req: Request):
+    reqBody = PostChatReq.model_validate_json(await req.body())
+
+    async def generate_chat():
+        message = "\n".join([m.content for m in reqBody.messages])
+        async for m in mock_chat(message):
             res = PostChatRes(model="", created_at="", message=Message(role="assistant", content=m), done=False)
             yield f"{res.model_dump_json()}\n\n"
         res = PostChatRes(model="", created_at="", message=Message(role="model", content=""), done=True)
