@@ -91,7 +91,7 @@ async def post_chat(req: Request):
     return StreamingResponse(content=generate_chat(), media_type="application/x-ndjson")
 
 
-@app.get("/api/tags")
+@app.get("/api/tags")  # OpenWebUI でデバッグできるよう、一時的に作成
 async def get_tags():
     return JSONResponse(content={
         "models": [
