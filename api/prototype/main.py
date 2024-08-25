@@ -87,7 +87,7 @@ class PostChatRes(BaseModel):
     done: bool
 
 
-@app.post("/api/chat")
+@app.post("/pechka/api/chat")
 async def post_chat(req: Request):
     reqBody = PostChatReq.model_validate_json(await req.body())
 
@@ -108,7 +108,7 @@ async def mock_chat(message):
         yield s
 
 
-@app.post("/mock/api/chat")
+@app.post("/pechka/mock/api/chat")
 async def mock_post_chat(req: Request):
     reqBody = PostChatReq.model_validate_json(await req.body())
 
@@ -123,7 +123,7 @@ async def mock_post_chat(req: Request):
     return StreamingResponse(content=generate_chat(), media_type="application/x-ndjson")
 
 
-@app.get("/api/tags")  # OpenWebUI でデバッグできるよう、一時的に作成
+@app.get("/pechka/api/tags")  # OpenWebUI でデバッグできるよう、一時的に作成
 async def get_tags():
     return JSONResponse(content={
         "models": [
