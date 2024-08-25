@@ -87,7 +87,7 @@ class PostChatRes(BaseModel):
     done: bool
 
 
-@app.post("/pechka/api/chat")
+@app.post("/pechka/proto/api/chat")
 async def post_chat(req: Request):
     reqBody = PostChatReq.model_validate_json(await req.body())
 
@@ -121,25 +121,3 @@ async def mock_post_chat(req: Request):
         yield f"{res.model_dump_json()}\n\n"
 
     return StreamingResponse(content=generate_chat(), media_type="application/x-ndjson")
-
-
-@app.get("/pechka/api/tags")  # OpenWebUI でデバッグできるよう、一時的に作成
-async def get_tags():
-    return JSONResponse(content={
-        "models": [
-            {
-                "name": "llama3:latest",
-                "model": "llama3:latest",
-                "modified_at": "2023-12-07T09:32:18.757212583-08:00",
-                "size": 3825819519,
-                "digest": "fe938a131f40e6f6d40083c9f0f430a515233eb2edaa6d72eb85c50d64f2300e",
-                "details": {
-                    "format": "gguf",
-                    "family": "llama",
-                    "families": None,
-                    "parameter_size": "7B",
-                    "quantization_level": "Q4_0"
-                }
-            }
-        ]
-    })
