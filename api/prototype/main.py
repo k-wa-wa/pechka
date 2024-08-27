@@ -87,7 +87,7 @@ class PostChatRes(BaseModel):
     done: bool
 
 
-@app.post("/pechka/proto/api/chat")
+@app.post("/api/chat")
 async def post_chat(req: Request):
     reqBody = PostChatReq.model_validate_json(await req.body())
 
@@ -108,7 +108,7 @@ async def mock_chat(message):
         yield s
 
 
-@app.post("/pechka/mock/api/chat")
+@app.post("/mock/api/chat")
 async def mock_post_chat(req: Request):
     reqBody = PostChatReq.model_validate_json(await req.body())
 
