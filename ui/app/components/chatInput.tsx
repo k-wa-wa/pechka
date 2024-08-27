@@ -1,5 +1,5 @@
 import { Flex, Textarea, ActionIcon } from "@mantine/core"
-import { IoSend } from "react-icons/io5"
+import { IoMic, IoSend } from "react-icons/io5"
 
 type Props = {
   inputMessage: string
@@ -17,6 +17,17 @@ export default function ChatInput({
     }
   }
 
+/*   function useSpeechRecognition() {
+    const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)()
+    recognition.onresult = async function (e) {
+      const transcript = e.results[0][0].transcript
+
+      setInputMessage(transcript)
+    }
+
+    recognition.start()
+  } */
+
   return (
     <Flex align="center" gap="sm">
       <Textarea
@@ -26,6 +37,9 @@ export default function ChatInput({
         onChange={(e) => setInputMessage(e.target.value)}
         onKeyDown={onKeyDown}
       />
+      <ActionIcon disabled>
+        <IoMic />
+      </ActionIcon>
       <ActionIcon onClick={onSendMessage}>
         <IoSend />
       </ActionIcon>

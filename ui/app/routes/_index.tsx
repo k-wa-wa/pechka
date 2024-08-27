@@ -20,7 +20,7 @@ function TabItem({ tabValue, icon }: { tabValue: string; icon: ReactNode }) {
   )
 }
 
-export default function Demo() {
+export default function Index() {
   return (
     <>
       <Center h="100%">
