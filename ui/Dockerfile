@@ -5,14 +5,28 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
-COPY .env.production eslint.config.js index.html postcss.config.js tailwind.config.js \
-  tsconfig.app.json tsconfig.json tsconfig.node.json vite.config.ts ./
-COPY src/ ./src/
+COPY .env.production postcss.config.cjs tsconfig.json vite.config.ts ./
+COPY public/ ./public/
+COPY app/ ./app/
 
 RUN npm run build
 
 
-FROM nginx:1.27.1-alpine-slim as runner
+FROM node:21.7.3-bookworm-slim as production-deps
 
-COPY server.conf /etc/nginx/conf.d/default.conf
-COPY --from=builder /app/dist /usr/share/nginx/html
+WORKDIR /app
+
+COPY --from=builder /app/node_modules /app/node_modules
+COPY package.json package-lock.json ./
+RUN npm prune --omit=dev
+
+
+FROM node:21.7.3-bookworm-slim as runner
+
+WORKDIR /app
+COPY --from=production-deps /app/node_modules /app/node_modules
+COPY --from=builder /app/build /app/build
+COPY --from=builder /app/public /app/public
+COPY package.json ./
+
+CMD [ "npm", "start" ]
