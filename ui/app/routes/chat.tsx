@@ -8,7 +8,6 @@ import { IoChevronBack } from "react-icons/io5"
 import { useNavigate } from "@remix-run/react"
 
 function generateId() {
-  //return crypto.randomUUID()
   return uuidv4()
 }
 
@@ -88,14 +87,8 @@ export default function ChatPage() {
   }
 
   return (
-    <Flex
-      direction="column"
-      style={{ height: "100%" }}
-      px="xs"
-      pb="xs"
-      gap="sm"
-    >
-      <Container w="100%" h="40px" style={{ position: "relative" }}>
+    <Flex direction="column" px="xs" gap="sm" h="100%">
+      <Container w="100%" h="40px" style={{ position: "sticky", top: 0 }}>
         <IoChevronBack
           size="20px"
           style={{
@@ -129,7 +122,13 @@ export default function ChatPage() {
         <ChatMessages messages={messages} />
       </Container>
 
-      <Container w="100%" p="0">
+      <Container
+        w="100%"
+        p="0"
+        pb="xs"
+        style={{ position: "sticky", bottom: 0 }}
+        bg="white"
+      >
         <ChatInput
           inputMessage={inputMessage}
           setInputMessage={setInputMessage}
