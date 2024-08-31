@@ -21,6 +21,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Meta />
         <Links />
         <ColorSchemeScript />
+        <link rel="manifest" href="manifest.json" />
       </head>
       <body style={{ height: "100%" }}>
         <MantineProvider>{children}</MantineProvider>
