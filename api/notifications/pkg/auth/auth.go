@@ -12,9 +12,9 @@ import (
 )
 
 var (
-	apiKey      = os.Getenv("API_KEY")
-	allowedURLs = []*regexp.Regexp{
-		regexp.MustCompile("^/api/webhook/switch-bot$"),
+	apiKey        = os.Getenv("API_KEY")
+	protectedURLs = []*regexp.Regexp{
+		regexp.MustCompile("^/api/auth/.*$"),
 	}
 	AuthConfig = keyauth.New(keyauth.Config{
 		Next:      AuthFilter,
@@ -36,10 +36,10 @@ func ValidateAPIKey(c *fiber.Ctx, key string) (bool, error) {
 
 func AuthFilter(c *fiber.Ctx) bool {
 	originalURL := strings.ToLower(c.OriginalURL())
-	for _, pattern := range allowedURLs {
+	for _, pattern := range protectedURLs {
 		if pattern.MatchString(originalURL) {
-			return true
+			return false
 		}
 	}
-	return false
+	return true
 }

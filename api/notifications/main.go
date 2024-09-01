@@ -2,10 +2,15 @@ package main
 
 import (
 	"bufio"
-	"log"
+	"log/slog"
+	"os"
 	"pechka/api-notifications/pkg/auth"
+	"pechka/api-notifications/pkg/customLogger"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/log"
+	"github.com/gofiber/fiber/v2/middleware/healthcheck"
+	"github.com/gofiber/fiber/v2/middleware/requestid"
 	"github.com/google/uuid"
 )
 
@@ -19,13 +24,22 @@ type NotificationChan struct {
 }
 
 func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
+
 	app := fiber.New()
 
+	app.Use(requestid.New())
+	app.Use(customLogger.NewLogMiddleware())
 	app.Use(auth.AuthConfig)
+	app.Use(healthcheck.New(healthcheck.Config{
+		LivenessEndpoint:  "/live",
+		ReadinessEndpoint: "/ready",
+	}))
 
 	notificationChannels := map[string]*NotificationChan{}
 
-	app.Get("/api/notifications", func(c *fiber.Ctx) error {
+	app.Get("/api/auth/notifications", func(c *fiber.Ctx) error {
 		ch := make(chan *NotificationData)
 		connectionId := uuid.New().String()
 		notificationChannels[connectionId] = &NotificationChan{
