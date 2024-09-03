@@ -5,7 +5,7 @@ on:
     branches:
       - master
     paths:
-      - api/notifications/*
+      - api/notifications/**/*
 
 jobs:
   publish_docker_image:

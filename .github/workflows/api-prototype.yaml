@@ -5,7 +5,7 @@ on:
     branches:
       - master
     paths:
-      - api/prototype/*
+      - api/prototype/**/*
 
 jobs:
   publish_docker_image:
