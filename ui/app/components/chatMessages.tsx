@@ -1,5 +1,4 @@
 import {
-  ScrollArea,
   Flex,
   Avatar,
   Paper,
@@ -47,10 +46,10 @@ const RenderMessage = memo(function RenderMessage({
 
 export default function ChatMessages({ messages }: Props) {
   return (
-    <ScrollArea h="100%">
+    <Flex h="100%" direction="column" gap="sm">
       {messages.map((message) => (
         <RenderMessage key={message._id} message={message} />
       ))}
-    </ScrollArea>
+    </Flex>
   )
 }
