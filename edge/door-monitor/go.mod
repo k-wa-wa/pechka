@@ -4,6 +4,7 @@ go 1.22.6
 
 require (
 	github.com/jackc/pgx/v5 v5.7.1
+	golang.org/x/crypto/x509roots/fallback v0.0.0-20241127184453-8c4e668694cc
 	tinygo.org/x/bluetooth v0.10.0
 )
 

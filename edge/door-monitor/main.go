@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	_ "golang.org/x/crypto/x509roots/fallback"
 	"tinygo.org/x/bluetooth"
 
 	"k-wa-wa/door-monitor/internal/domain"
@@ -37,7 +38,7 @@ func main() {
 			}
 		},
 		onDoorOpened: func(sensorMessage *domain.ContactSensorMessage) {
-			if slack.PostMessage("door-opened:" + sensorMessage.SensorMac); err != nil {
+			if err := slack.PostMessage("door-opened:" + sensorMessage.SensorMac); err != nil {
 				slog.Error(err.Error())
 			}
 
