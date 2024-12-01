@@ -1,13 +1,13 @@
 package persistence
 
 import (
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type DB struct {
-	conn *pgx.Conn
+	pool *pgxpool.Pool
 }
 
-func NewDB(conn *pgx.Conn) *DB {
-	return &DB{conn}
+func NewDB(pool *pgxpool.Pool) *DB {
+	return &DB{pool}
 }

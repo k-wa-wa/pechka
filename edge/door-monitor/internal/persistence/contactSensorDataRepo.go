@@ -14,7 +14,13 @@ func NewContactSensorDataRepo(db *DB) *contactSensorDataRepo {
 }
 
 func (csd *contactSensorDataRepo) Insert(contactSensor *domain.ContactSensorMessage) error {
-	if _, err := csd.db.conn.Exec(
+	conn, err := csd.db.pool.Acquire(context.Background())
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+
+	if _, err := conn.Exec(
 		context.Background(),
 		`INSERT INTO contact_sensor_data VALUES (
 			$1, $2, $3, $4

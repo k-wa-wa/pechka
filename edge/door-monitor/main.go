@@ -5,37 +5,47 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"tinygo.org/x/bluetooth"
 
 	"k-wa-wa/door-monitor/internal/domain"
 	"k-wa-wa/door-monitor/internal/env"
 	"k-wa-wa/door-monitor/internal/persistence"
+	"k-wa-wa/door-monitor/internal/slack"
 )
 
 var adapter = bluetooth.DefaultAdapter
 
 type DoorMonitor struct {
-	onStateChanged func(newSensorMessage *domain.ContactSensorMessage) error
+	onStateChanged func(newSensorMessage *domain.ContactSensorMessage)
+	onDoorOpened   func(sensorMessage *domain.ContactSensorMessage)
 }
 
 func main() {
-	dm := DoorMonitor{
-		onStateChanged: func(sensorMessage *domain.ContactSensorMessage) error {
-			// 書き込み頻度が高くないため、毎回コネクションを張る実装とする
-			conn, err := pgx.Connect(context.Background(), env.DATABASE_URL)
-			if err != nil {
-				return err
-			}
-			defer conn.Close(context.Background())
+	dbPool, err := pgxpool.New(context.Background(), env.DATABASE_URL)
+	if err != nil {
+		panic(err)
+	}
+	defer dbPool.Close()
 
-			db := persistence.NewDB(conn)
+	dm := DoorMonitor{
+		onStateChanged: func(sensorMessage *domain.ContactSensorMessage) {
+			db := persistence.NewDB(dbPool)
 			sensorMessageDataRepo := persistence.NewContactSensorDataRepo(db)
 			if err := sensorMessageDataRepo.Insert(sensorMessage); err != nil {
-				return err
+				slog.Error(err.Error())
+			}
+		},
+		onDoorOpened: func(sensorMessage *domain.ContactSensorMessage) {
+			if slack.PostMessage("door-opened:" + sensorMessage.SensorMac); err != nil {
+				slog.Error(err.Error())
 			}
 
-			return nil
+			db := persistence.NewDB(dbPool)
+			sensorQueueRepo := persistence.NewSensorQueueRepo(db)
+			if err := sensorQueueRepo.Insert("door-opened:" + sensorMessage.SensorMac); err != nil {
+				slog.Error(err.Error())
+			}
 		},
 	}
 	if err := dm.Run(); err != nil {
@@ -56,11 +66,13 @@ func (dm *DoorMonitor) Run() error {
 
 				if domain.ContactSensorMessageHasChanged(&prevSensorMessage, sensorMessage) {
 					slog.Info(fmt.Sprintf("%+v", sensorMessage))
-					go func() {
-						if err := dm.onStateChanged(sensorMessage); err != nil {
-							slog.Error(fmt.Sprint(err))
-						}
-					}()
+
+					// ドアが開いた時
+					if prevSensorMessage.HalState != 1 && sensorMessage.HalState == 1 {
+						go dm.onDoorOpened(sensorMessage)
+					}
+
+					go dm.onStateChanged(sensorMessage)
 					prevSensorMessage = *sensorMessage
 				}
 
