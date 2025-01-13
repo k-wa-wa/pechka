@@ -9,10 +9,10 @@ RUN go mod download
 COPY internal ./internal
 COPY main.go ./
 RUN go build
+CMD ["go", "run", "main.go"]
 
-
-FROM scratch as runner
-
-WORKDIR /app
-COPY --from=builder /app/file-server .
-CMD [ "/app/file-server" ]
+#FROM scratch as runner
+#
+#WORKDIR /app
+#COPY --from=builder /app/file-server .
+#CMD [ "/app/file-server" ]
