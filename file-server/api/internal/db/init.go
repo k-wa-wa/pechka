@@ -33,7 +33,7 @@ var (
 func InitDB() (*pgx.Conn, error) {
 	dbCfg := newDBConfig()
 	connStr := fmt.Sprintf(
-		"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+		"host=%s port=%s user=%s password=%s dbname=%s sslmode=require",
 		dbCfg.Host, dbCfg.Port, dbCfg.User, dbCfg.Password, dbCfg.DBName,
 	)
 
