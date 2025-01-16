@@ -12,6 +12,12 @@ jobs:
     runs-on: ubuntu-20.04
     permissions:
       packages: write
+    strategy:
+      matrix:
+        target:
+          - api
+          - data-importer
+
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v4
@@ -33,7 +39,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/k-wa-wa/pechka-file-server-api
+          images: ghcr.io/k-wa-wa/pechka-file-server-${{ matrix.target }}
           tags: |
             type=raw,value=latest
             type=sha,prefix=,format=short
@@ -45,3 +51,5 @@ jobs:
           context: file-server/api
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            TARGET=${{ matrix.target }}

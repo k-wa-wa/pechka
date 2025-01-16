@@ -1,0 +1,61 @@
+version: "3"
+services:
+  db:
+    image: postgres:16.6-bookworm
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: database
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./db:/docker-entrypoint-initdb.d
+
+  data-importer:
+    build:
+      context: ./api
+      args:
+        - TARGET=data-importer
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=secret
+      - DB_NAME=database
+      - HLS_RESOURCE_DIR=/app
+    volumes:
+      - ./tests:/app/tests
+    depends_on:
+      - db
+
+  api:
+    build:
+      context: ./api
+      args:
+        - TARGET=api
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=secret
+      - DB_NAME=database
+      - HLS_RESOURCE_DIR=./
+    volumes:
+      - ./tests:/app/tests
+  ui:
+    build:
+      context: ./ui
+    ports:
+      - "3000:3000"
+    environment:
+      - API_URL=http://api:8000
+    depends_on:
+      - api
+
+volumes:
+  db_data:

@@ -1,5 +1,13 @@
-import type { Metadata } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
+
+import "@mantine/core/styles.css"
+
+import React, { ReactNode } from "react"
+import {
+  ColorSchemeScript,
+  mantineHtmlProps,
+  MantineProvider,
+} from "@mantine/core"
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -11,21 +19,24 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 })
 
-export const metadata: Metadata = {
-  title: "pechka-file-server",
+export const metadata = {
+  title: "Pechka File Server",
 }
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode
-}>) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="ja">
+    <html lang="ja" {...mantineHtmlProps}>
+      <head>
+        <ColorSchemeScript />
+        <meta
+          name="viewport"
+          content="minimum-scale=1, initial-scale=1, width=device-width, user-scalable=no"
+        />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        <MantineProvider>{children}</MantineProvider>
       </body>
     </html>
   )
