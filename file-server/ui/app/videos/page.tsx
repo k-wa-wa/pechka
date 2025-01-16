@@ -1,4 +1,6 @@
 import {
+  Anchor,
+  Breadcrumbs,
   Card,
   CardSection,
   Flex,
@@ -19,22 +21,45 @@ export default async function VideosPage() {
 
   return (
     <Stack gap="lg">
+      <Breadcrumbs>
+        {[
+          {
+            title: "Top",
+            href: "/",
+          },
+          {
+            title: "Videos",
+            href: "/videos",
+          },
+        ].map(({ title, href }) => (
+          <Anchor key={title} href={href}>
+            {title}
+          </Anchor>
+        ))}
+      </Breadcrumbs>
+
       {playlists.map(({ title, videos }) => (
         <Stack key={title}>
           <Title order={2}>{title}</Title>
-          <Flex wrap="wrap" gap="sm">
+          <Flex wrap="wrap" gap="sm" justify="center">
             {videos.map(({ id, title, description, url }) => (
-              <Card key={id} shadow="sm" padding="lg" radius="md" withBorder>
+              <Card
+                key={id}
+                shadow="sm"
+                padding="lg"
+                radius="md"
+                withBorder
+                maw="400px"
+              >
+                {/* TODO: サムネは画面いっぱいに広げたい */}
                 <CardSection>
                   <Player src={url} />
                 </CardSection>
-
                 <Group mt="md">
                   <Text fw={500}>
                     <Link href={`/videos/${id}`}>{title}</Link>
                   </Text>
                 </Group>
-
                 <Text size="sm" c="dimmed">
                   {description}
                 </Text>

@@ -5,9 +5,12 @@ import "@mantine/core/styles.css"
 import React, { ReactNode } from "react"
 import {
   ColorSchemeScript,
+  Container,
   mantineHtmlProps,
   MantineProvider,
+  Space,
 } from "@mantine/core"
+import Header from "@/components/Header"
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -36,7 +39,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <MantineProvider>{children}</MantineProvider>
+        <MantineProvider>
+          <Header />
+          <Space h="md" />
+          <Container size="xl">{children}</Container>
+        </MantineProvider>
       </body>
     </html>
   )
