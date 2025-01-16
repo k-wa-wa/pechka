@@ -21,6 +21,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY public ./public
 COPY package.json next.config.ts postcss.config.mjs tailwind.config.ts tsconfig.json ./
 COPY app ./app
+COPY components ./components
 
 EXPOSE 3000
 
