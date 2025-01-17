@@ -42,7 +42,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <MantineProvider>
           <Header />
           <Space h="md" />
-          <Container size="xl">{children}</Container>
+          <Container size="xl" p={{base: "sm", sm: "md"}}>{children}</Container>
         </MantineProvider>
       </body>
     </html>

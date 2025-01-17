@@ -23,6 +23,7 @@ services:
       - DB_USER=postgres
       - DB_PASSWORD=secret
       - DB_NAME=database
+      - SSL_MODE=disable
       - HLS_RESOURCE_DIR=/app
     volumes:
       - ./tests:/app/tests
@@ -44,6 +45,7 @@ services:
       - DB_USER=postgres
       - DB_PASSWORD=secret
       - DB_NAME=database
+      - SSL_MODE=disable
       - HLS_RESOURCE_DIR=./
     volumes:
       - ./tests:/app/tests

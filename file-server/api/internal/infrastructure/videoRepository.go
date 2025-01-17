@@ -20,7 +20,8 @@ type VideoEntity struct {
 
 type VideoRepo interface {
 	SelectLatest() ([]*VideoEntity, error)
-	Select(string) (*VideoEntity, error)
+	Select(id string) (*VideoEntity, error)
+	Update(id, title, description string) (*VideoEntity, error)
 }
 
 type VideoRepoImpl struct {
@@ -57,6 +58,25 @@ func (vri *VideoRepoImpl) SelectLatest() ([]*VideoEntity, error) {
 func (vri *VideoRepoImpl) Select(id string) (*VideoEntity, error) {
 	var videoEntity VideoEntity
 	if err := vri.Db.QueryRow(context.Background(), `select * from videos where id = $1`, id).Scan(
+		&videoEntity.Id,
+		&videoEntity.Fullpath,
+		&videoEntity.Title,
+		&videoEntity.Description,
+		&videoEntity.Url,
+		&videoEntity.CreatedAt,
+		&videoEntity.UpdatedAt,
+	); err != nil {
+		return nil, err
+	}
+
+	return &videoEntity, nil
+}
+
+func (vri *VideoRepoImpl) Update(id, title, description string) (*VideoEntity, error) {
+	var videoEntity VideoEntity
+	if err := vri.Db.QueryRow(
+		context.Background(),
+		`UPDATE videos SET title = $1, description = $2 where id = $3 RETURNING *`, title, description, id).Scan(
 		&videoEntity.Id,
 		&videoEntity.Fullpath,
 		&videoEntity.Title,

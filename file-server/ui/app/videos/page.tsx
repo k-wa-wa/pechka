@@ -3,7 +3,8 @@ import {
   Breadcrumbs,
   Card,
   CardSection,
-  Flex,
+  Grid,
+  GridCol,
   Group,
   Stack,
   Text,
@@ -41,31 +42,26 @@ export default async function VideosPage() {
       {playlists.map(({ title, videos }) => (
         <Stack key={title}>
           <Title order={2}>{title}</Title>
-          <Flex wrap="wrap" gap="sm" justify="center">
+          <Grid>
             {videos.map(({ id, title, description, url }) => (
-              <Card
-                key={id}
-                shadow="sm"
-                padding="lg"
-                radius="md"
-                withBorder
-                maw="400px"
-              >
-                {/* TODO: サムネは画面いっぱいに広げたい */}
-                <CardSection>
-                  <Player src={url} />
-                </CardSection>
-                <Group mt="md">
-                  <Text fw={500}>
-                    <Link href={`/videos/${id}`}>{title}</Link>
+              <GridCol key={id} span={{ base: 6, sm: 4, md: 3 }}>
+                <Card shadow="sm" padding="lg" radius="md" withBorder w="100%">
+                  {/* TODO: サムネは画面いっぱいに広げたい */}
+                  <CardSection>
+                    <Player src={url} />
+                  </CardSection>
+                  <Group mt="md">
+                    <Text fw={500}>
+                      <Link href={`/videos/${id}`}>{title}</Link>
+                    </Text>
+                  </Group>
+                  <Text size="sm" c="dimmed">
+                    {description}
                   </Text>
-                </Group>
-                <Text size="sm" c="dimmed">
-                  {description}
-                </Text>
-              </Card>
+                </Card>
+              </GridCol>
             ))}
-          </Flex>
+          </Grid>
         </Stack>
       ))}
     </Stack>

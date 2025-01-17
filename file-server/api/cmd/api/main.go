@@ -56,6 +56,21 @@ func main() {
 		}
 		return c.JSON(video)
 	})
+	app.Put("/api/videos/:id", func(c *fiber.Ctx) error {
+		id := c.Params("id")
+		var body service.VideoPutAbleModel
+		if err := c.BodyParser(&body); err != nil {
+			return c.SendStatus(400)
+		}
+
+		video, err := videoService.Put(id, &body)
+		if err != nil {
+			log.Println(err)
+			return c.SendStatus(400)
+		}
+
+		return c.JSON(video)
+	})
 
 	log.Fatal(app.Listen(":8000"))
 }

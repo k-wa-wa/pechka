@@ -17,6 +17,7 @@ type dBConfig struct {
 	User     string `env:"DB_USER"`
 	Password string `env:"DB_PASSWORD"`
 	DBName   string `env:"DB_NAME"`
+	SslMode  string `env:"SSL_MODE" envDefault:"require"`
 }
 
 func newDBConfig() *dBConfig {
@@ -33,8 +34,8 @@ var (
 func InitDB() (*pgx.Conn, error) {
 	dbCfg := newDBConfig()
 	connStr := fmt.Sprintf(
-		"host=%s port=%s user=%s password=%s dbname=%s sslmode=require",
-		dbCfg.Host, dbCfg.Port, dbCfg.User, dbCfg.Password, dbCfg.DBName,
+		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+		dbCfg.Host, dbCfg.Port, dbCfg.User, dbCfg.Password, dbCfg.DBName, dbCfg.SslMode,
 	)
 
 	var err error

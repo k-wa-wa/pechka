@@ -1,6 +1,6 @@
 import { Video } from "@/app/types"
-import { Stack, Title, Text, Breadcrumbs, Anchor } from "@mantine/core"
-import Player from "next-video/player"
+import { Stack, Breadcrumbs, Anchor } from "@mantine/core"
+import VideoView from "@/components/VideoView"
 
 export default async function VideoPage({
   params,
@@ -23,7 +23,7 @@ export default async function VideoPage({
           },
           {
             title: "Videos",
-            href: "/videos"
+            href: "/videos",
           },
           {
             title: video.title,
@@ -36,10 +36,7 @@ export default async function VideoPage({
         ))}
       </Breadcrumbs>
 
-      <Player src={video.url} />
-
-      <Title order={2}>{video.title}</Title>
-      <Text>{video.description}</Text>
+      <VideoView video={video} />
     </Stack>
   )
 }
