@@ -1,14 +1,16 @@
 "use client"
 
-import { Video } from "@/app/types"
+import { Video, VideoTimestamp } from "@/app/types"
 import { Text } from "@mantine/core"
-import Player from "next-video/player"
 import EditableTitle from "@/components/EditableTitle"
+import HlsPlayer from "@/components/HlsPlayer"
+import TimestampView from "./TimestampView"
 
 type Props = {
   video: Video
+  timestamps: VideoTimestamp[]
 }
-export default function VideoView({ video }: Props) {
+export default function VideoView({ video, timestamps }: Props) {
   async function onUpdateTitle(title: string) {
     const res = await fetch(`/api/videos/${video.id}`, {
       method: "PUT",
@@ -22,11 +24,13 @@ export default function VideoView({ video }: Props) {
 
   return (
     <>
-      <Player src={video.url} />
+      <HlsPlayer id={video.id} src={video.url} />
 
       <EditableTitle title={video.title} onUpdateTitle={onUpdateTitle} />
 
       <Text>{video.description}</Text>
+
+      <TimestampView videoId={video.id} timestamps={timestamps} />
     </>
   )
 }

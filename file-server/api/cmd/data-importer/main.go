@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 )
 
 func main() {
@@ -26,7 +25,7 @@ func main() {
 	}
 }
 
-func importHlsData(hlsResourceDir string, db *pgx.Conn) error {
+func importHlsData(hlsResourceDir string, db db.DB) error {
 	hlsResourceDirFullPath, err := filepath.Abs(hlsResourceDir)
 	if err != nil {
 		return err

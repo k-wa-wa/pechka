@@ -10,9 +10,9 @@ import {
   Text,
   Title,
 } from "@mantine/core"
-import Player from "next-video/player"
 import Link from "next/link"
 import { Playlist } from "@/app/types"
+import HlsPlayer from "@/components/HlsPlayer"
 
 export default async function VideosPage() {
   const data = await fetch(`${process.env.API_URL}/api/playlists`, {
@@ -48,7 +48,7 @@ export default async function VideosPage() {
                 <Card shadow="sm" padding="lg" radius="md" withBorder w="100%">
                   {/* TODO: サムネは画面いっぱいに広げたい */}
                   <CardSection>
-                    <Player src={url} />
+                    <HlsPlayer id={id} src={url} />
                   </CardSection>
                   <Group mt="md">
                     <Text fw={500}>

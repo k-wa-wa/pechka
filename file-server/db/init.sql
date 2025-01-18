@@ -8,3 +8,10 @@ CREATE TABLE videos (
     created_at  TIMESTAMP    DEFAULT NOW(),
     updated_at  TIMESTAMP    DEFAULT NOW()
 );
+
+CREATE TABLE video_timestamps (
+    timestamp_id VARCHAR(36)  PRIMARY KEY,
+    video_id     VARCHAR(36)  NOT NULL,
+    timestamp    CHAR(8)      NOT NULL,
+    description  VARCHAR(255)
+);

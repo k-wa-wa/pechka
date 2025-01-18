@@ -10,11 +10,11 @@
   },
   "dependencies": {
     "@mantine/core": "^7.16.0",
+    "@mantine/dates": "^7.16.0",
     "@mantine/hooks": "^7.16.0",
     "@tabler/icons-react": "^3.28.1",
-    "glob": "^11.0.1",
+    "hls.js": "^1.5.19",
     "next": "15.1.4",
-    "next-video": "^2.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

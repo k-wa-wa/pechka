@@ -2,10 +2,10 @@ package infrastructure
 
 import (
 	"context"
+	"pechka/file-server/internal/db"
 	"time"
 
 	"github.com/gofiber/fiber/v2/log"
-	"github.com/jackc/pgx/v5"
 )
 
 type VideoEntity struct {
@@ -14,8 +14,8 @@ type VideoEntity struct {
 	Title       string     `json:"title"`
 	Description string     `json:"description"`
 	Url         string     `json:"url"`
-	CreatedAt   *time.Time `json:"created_at"`
-	UpdatedAt   *time.Time `json:"updated_at"`
+	CreatedAt   *time.Time `json:"createdAt"`
+	UpdatedAt   *time.Time `json:"updatedAt"`
 }
 
 type VideoRepo interface {
@@ -25,7 +25,7 @@ type VideoRepo interface {
 }
 
 type VideoRepoImpl struct {
-	Db *pgx.Conn
+	Db db.DB
 }
 
 func (vri *VideoRepoImpl) SelectLatest() ([]*VideoEntity, error) {

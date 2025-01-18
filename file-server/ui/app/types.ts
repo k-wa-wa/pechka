@@ -9,3 +9,10 @@ export type Playlist = {
   title: string
   videos: Video[]
 }
+
+export type VideoTimestamp = {
+  timestampId: string
+  videoId: string
+  timestamp: string
+  description: string
+}

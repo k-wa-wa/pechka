@@ -7,11 +7,13 @@ import (
 
 	"github.com/caarlos0/env"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var DB *pgx.Conn
+var Pool *pgxpool.Pool
 
-type dBConfig struct {
+type dbConfig struct {
 	Host     string `env:"DB_HOST"`
 	Port     string `env:"DB_PORT"`
 	User     string `env:"DB_USER"`
@@ -20,8 +22,8 @@ type dBConfig struct {
 	SslMode  string `env:"SSL_MODE" envDefault:"require"`
 }
 
-func newDBConfig() *dBConfig {
-	DBCfg := &dBConfig{}
+func newDBConfig() *dbConfig {
+	DBCfg := &dbConfig{}
 	env.Parse(DBCfg)
 	return DBCfg
 }
@@ -31,7 +33,13 @@ var (
 	retryInterval = 2 * time.Second
 )
 
-func InitDB() (*pgx.Conn, error) {
+type DB interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+}
+
+func InitDB() (DB, error) {
 	dbCfg := newDBConfig()
 	connStr := fmt.Sprintf(
 		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
@@ -40,7 +48,7 @@ func InitDB() (*pgx.Conn, error) {
 
 	var err error
 	for i := 0; i < maxRetries; i++ {
-		DB, err = pgx.Connect(context.Background(), connStr)
+		Pool, err = pgxpool.New(context.Background(), connStr)
 		if err == nil {
 			break
 		}
@@ -51,10 +59,10 @@ func InitDB() (*pgx.Conn, error) {
 		return nil, err
 	}
 
-	err = DB.Ping(context.Background())
+	err = Pool.Ping(context.Background())
 	if err != nil {
 		return nil, err
 	}
 
-	return DB, nil
+	return Pool, nil
 }

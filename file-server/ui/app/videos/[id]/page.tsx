@@ -1,6 +1,23 @@
-import { Video } from "@/app/types"
+import { Video, VideoTimestamp } from "@/app/types"
 import { Stack, Breadcrumbs, Anchor } from "@mantine/core"
 import VideoView from "@/components/VideoView"
+
+async function fetchVideoData(videoId: string): Promise<Video> {
+  const data = await fetch(`${process.env.API_URL}/api/videos/${videoId}`, {
+    next: { revalidate: 0 },
+  })
+  return await data.json()
+}
+
+async function fetchVideoTimestamps(videoId: string): Promise<VideoTimestamp[]> {
+  const data = await fetch(
+    `${process.env.API_URL}/api/video-timestamps/${videoId}`,
+    {
+      next: { revalidate: 0 },
+    }
+  )
+  return await data.json()
+}
 
 export default async function VideoPage({
   params,
@@ -8,10 +25,10 @@ export default async function VideoPage({
   params: Promise<{ id: string }>
 }) {
   const videoId = (await params).id
-  const data = await fetch(`${process.env.API_URL}/api/videos/${videoId}`, {
-    next: { revalidate: 0 },
-  })
-  const video: Video = await data.json()
+  const [video, timestamps] = await Promise.all([
+    fetchVideoData(videoId),
+    fetchVideoTimestamps(videoId),
+  ])
 
   return (
     <Stack>
@@ -36,7 +53,7 @@ export default async function VideoPage({
         ))}
       </Breadcrumbs>
 
-      <VideoView video={video} />
+      <VideoView video={video} timestamps={timestamps} />
     </Stack>
   )
 }
