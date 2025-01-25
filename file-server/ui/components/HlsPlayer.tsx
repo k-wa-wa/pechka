@@ -11,11 +11,11 @@ export default function HlsPlayer({ id, src }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
 
   useEffect(() => {
+    if (!videoRef.current) return
+
     const hls = new Hls()
     hls.loadSource(src)
-    if (videoRef.current) {
-      hls.attachMedia(videoRef.current)
-    }
+    hls.attachMedia(videoRef.current)
 
     hls.on(Hls.Events.ERROR, (event, data) => {
       if (data.fatal) {
@@ -39,7 +39,6 @@ export default function HlsPlayer({ id, src }: Props) {
       hls.destroy()
     }
   }, [src])
-
 
   return <video id={id} ref={videoRef} controls width="100%" />
 }

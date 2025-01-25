@@ -22,6 +22,7 @@ COPY public ./public
 COPY package.json next.config.ts postcss.config.mjs tailwind.config.ts tsconfig.json ./
 COPY app ./app
 COPY components ./components
+COPY utils ./utils
 
 EXPOSE 3000
 

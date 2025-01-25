@@ -58,6 +58,12 @@ export default function TimestampView({
       (Number(h) || 0) * 3600 + (Number(m) || 0) * 60 + (Number(s) || 0)
   }
 
+  function getCurrentTimestamp() {
+    return (
+      window?.document?.getElementById(videoId) as HTMLVideoElement | null
+    )?.currentTime
+  }
+
   return (
     <Stack gap="2">
       {timestamps.map(({ timestampId, timestamp, description }) => (
@@ -76,7 +82,10 @@ export default function TimestampView({
       ))}
 
       <Space h="xs" />
-      <NewTimestampInput onAddTimestamp={onAddTimestamp} />
+      <NewTimestampInput
+        onAddTimestamp={onAddTimestamp}
+        getCurrentTimestamp={getCurrentTimestamp}
+      />
     </Stack>
   )
 }
