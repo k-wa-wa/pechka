@@ -1,7 +1,7 @@
 "use client"
 
 import { timeToHHMMSS } from "@/utils/time"
-import { ActionIcon, Button, Group, TextInput } from "@mantine/core"
+import { ActionIcon, Group, Stack, TextInput, Text } from "@mantine/core"
 import { useForm } from "@mantine/form"
 import { IconCheck } from "@tabler/icons-react"
 
@@ -37,33 +37,48 @@ export default function NewTimestampInput({
       })}
     >
       <Group align="flex-start">
-        <TextInput
-          key={form.key("newTimestamp")}
-          {...form.getInputProps("newTimestamp")}
-          w="100px"
-          placeholder="タイムスタンプ"
-        />
+        <Stack gap="4px">
+          <TextInput
+            key={form.key("newTimestamp")}
+            {...form.getInputProps("newTimestamp")}
+            description="タイムスタンプ"
+            w="150px"
+          />
+          <Group gap="0">
+            <Text ml="xs" size="xs" c="dimmed">
+              (
+            </Text>
+            <Text
+              size="xs"
+              c="dimmed"
+              td="underline"
+              onClick={() => {
+                const currentTimestamp = getCurrentTimestamp()
+                if (!currentTimestamp) return
+                form.setFieldValue(
+                  "newTimestamp",
+                  timeToHHMMSS(currentTimestamp)
+                )
+              }}
+              style={{ cursor: "pointer" }}
+            >
+              再生位置を取得
+            </Text>
+            <Text size="xs" c="dimmed">
+              )
+            </Text>
+          </Group>
+        </Stack>
         <TextInput
           key={form.key("newDescription")}
           {...form.getInputProps("newDescription")}
-          placeholder="説明"
+          description="説明"
         />
-        <Group mt="4">
+
+        <Group mt="22px">
           <ActionIcon color="green" type="submit">
             <IconCheck />
           </ActionIcon>
-
-          <Button
-            size="xs"
-            variant="outline"
-            onClick={() => {
-              const currentTimestamp = getCurrentTimestamp()
-              if (!currentTimestamp) return
-              form.setFieldValue("newTimestamp", timeToHHMMSS(currentTimestamp))
-            }}
-          >
-            再生位置を取得
-          </Button>
         </Group>
       </Group>
     </form>
