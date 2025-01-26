@@ -9,3 +9,8 @@ export function timeToHHMMSS(time: number): string {
 
   return `${pad(hours)}:${pad(minutes)}:${pad(secs)}`
 }
+
+export function HHMMSStoTime(HHMMSS: string): number {
+  const [h, m, s] = HHMMSS.split(":")
+  return (Number(h) || 0) * 3600 + (Number(m) || 0) * 60 + (Number(s) || 0)
+}

@@ -1,9 +1,27 @@
 "use client"
 
 import { VideoTimestamp } from "@/app/types"
-import { Badge, Group, Space, Stack, Text } from "@mantine/core"
+import {
+  Badge,
+  Card,
+  CardSection,
+  Group,
+  Menu,
+  MenuDropdown,
+  MenuItem,
+  MenuTarget,
+  ScrollAreaAutosize,
+  Stack,
+  Text,
+} from "@mantine/core"
 import { useState } from "react"
 import NewTimestampInput from "./NewTimestampInput"
+import { HHMMSStoTime } from "@/utils/time"
+import {
+  IconClockRecord,
+  IconDotsVertical,
+  IconTrash,
+} from "@tabler/icons-react"
 
 type Props = {
   videoId: string
@@ -50,12 +68,23 @@ export default function TimestampView({
     ])
   }
 
+  async function onDeleteTimestamp(timestampId: string) {
+    await fetch(`/api/video-timestamps/${timestampId}`, {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    }).then((res) => res.json())
+
+    setTimestamps([
+      ...timestamps.filter(({ timestampId: id }) => id != timestampId),
+    ])
+  }
+
   function onTimestampSelected(target: string) {
     const video = window?.document?.getElementById(videoId)
     if (!video) return
-    const [h, m, s] = target.split(":")
-    ;(video as HTMLVideoElement).currentTime =
-      (Number(h) || 0) * 3600 + (Number(m) || 0) * 60 + (Number(s) || 0)
+    ;(video as HTMLVideoElement).currentTime = HHMMSStoTime(target)
   }
 
   function getCurrentTimestamp() {
@@ -65,27 +94,60 @@ export default function TimestampView({
   }
 
   return (
-    <Stack gap="2">
-      {timestamps.map(({ timestampId, timestamp, description }) => (
-        <Group key={timestampId} gap="8">
-          <Badge
-            variant="outline"
-            color="gray"
-            size="sm"
-            style={{ cursor: "pointer" }}
-            onClick={() => onTimestampSelected(timestamp)}
-          >
-            {timestamp}
-          </Badge>
-          <Text>{description}</Text>
+    <Card shadow="sm" padding="md" radius="md" withBorder>
+      <CardSection withBorder inheritPadding py="xs" bg="gray.1">
+        <Group gap="xs">
+          <Text fw={500}>タイムスタンプ</Text>
+          <IconClockRecord size="20" />
         </Group>
-      ))}
+      </CardSection>
 
-      <Space h="xs" />
-      <NewTimestampInput
-        onAddTimestamp={onAddTimestamp}
-        getCurrentTimestamp={getCurrentTimestamp}
-      />
-    </Stack>
+      <Stack>
+        <ScrollAreaAutosize mah={250}>
+          <Stack gap="2" mt="4">
+            {timestamps
+              .sort(
+                (a, b) => HHMMSStoTime(a.timestamp) - HHMMSStoTime(b.timestamp)
+              )
+              .map(({ timestampId, timestamp, description }) => (
+                <Group key={timestampId} gap="8">
+                  <Group gap="4">
+                    <Menu trigger="click-hover" position="left-start">
+                      <MenuTarget>
+                        <IconDotsVertical size="16px" />
+                      </MenuTarget>
+                      <MenuDropdown>
+                        <MenuItem
+                          color="red"
+                          leftSection={<IconTrash size="16px" />}
+                          onClick={() => onDeleteTimestamp(timestampId)}
+                        >
+                          削除
+                        </MenuItem>
+                      </MenuDropdown>
+                    </Menu>
+                    <Badge
+                      variant="outline"
+                      color="gray"
+                      size="sm"
+                      style={{ cursor: "pointer" }}
+                      onClick={() => onTimestampSelected(timestamp)}
+                    >
+                      {timestamp}
+                    </Badge>
+                  </Group>
+
+                  <Text>{description}</Text>
+                </Group>
+              ))}
+          </Stack>
+        </ScrollAreaAutosize>
+
+        <NewTimestampInput
+          onAddTimestamp={onAddTimestamp}
+          getCurrentTimestamp={getCurrentTimestamp}
+        />
+      </Stack>
+    </Card>
   )
 }
