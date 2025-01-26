@@ -31,7 +31,6 @@ export default function EditableTitle(props: Props) {
           <Input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && onUpdateTitle()}
             w="480px"
           />
           <ActionIcon color="green" variant="outline">
