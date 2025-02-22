@@ -19,8 +19,8 @@ type VideoEntity struct {
 }
 
 type VideoRepo interface {
-	SelectLatest() ([]*VideoEntity, error)
-	Select(id string) (*VideoEntity, error)
+	Select(playlistId, fromId string, limit int) ([]*VideoEntity, error)
+	SelectOne(id string) (*VideoEntity, error)
 	Update(id, title, description string) (*VideoEntity, error)
 }
 
@@ -28,8 +28,30 @@ type VideoRepoImpl struct {
 	Db db.DB
 }
 
-func (vri *VideoRepoImpl) SelectLatest() ([]*VideoEntity, error) {
-	rows, err := vri.Db.Query(context.Background(), `select * from videos order by updated_at desc limit 10`)
+/* playlistIdは未実装 */
+func (vri *VideoRepoImpl) Select(playlistId, fromId string, limit int) ([]*VideoEntity, error) {
+	query := `
+		WITH from_video AS (
+			SELECT id, updated_at
+			FROM videos
+			WHERE id = $1
+		)
+		SELECT *
+		FROM videos
+		WHERE
+			NOT EXISTS (SELECT 1 FROM from_video)
+			OR (
+				updated_at < (SELECT updated_at FROM from_video)
+				OR (
+					updated_at = (SELECT updated_at FROM from_video)
+					AND id >= (SELECT id FROM from_video)
+				)
+			)
+		ORDER BY updated_at DESC, id ASC
+		LIMIT $2
+	`
+
+	rows, err := vri.Db.Query(context.Background(), query, fromId, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +77,7 @@ func (vri *VideoRepoImpl) SelectLatest() ([]*VideoEntity, error) {
 	return videos, nil
 }
 
-func (vri *VideoRepoImpl) Select(id string) (*VideoEntity, error) {
+func (vri *VideoRepoImpl) SelectOne(id string) (*VideoEntity, error) {
 	var videoEntity VideoEntity
 	if err := vri.Db.QueryRow(context.Background(), `select * from videos where id = $1`, id).Scan(
 		&videoEntity.Id,

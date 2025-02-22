@@ -1,6 +1,8 @@
 package service
 
-import "pechka/file-server/internal/infrastructure"
+import (
+	"pechka/file-server/internal/infrastructure"
+)
 
 type VideoService struct {
 	VideoRepo infrastructure.VideoRepo
@@ -18,13 +20,36 @@ func videoEntitiesToVideoModel(videoEntities []*infrastructure.VideoEntity) []*V
 	return videoModels
 }
 
-func (vs *VideoService) Get(id string) (*VideoModel, error) {
-	videoEntity, err := vs.VideoRepo.Select(id)
+func (vs *VideoService) GetOne(id string) (*VideoModel, error) {
+	videoEntity, err := vs.VideoRepo.SelectOne(id)
 	if err != nil {
 		return nil, err
 	}
 
 	return &VideoModel{VideoEntity: videoEntity}, nil
+}
+
+type GetRes struct {
+	Videos []*VideoModel `json:"videos"`
+	NextId string        `json:"nextId"`
+}
+
+func (vs *VideoService) Get(playlistId, fromId string) (*GetRes, error) {
+	limit := 10
+
+	videoEntities, err := vs.VideoRepo.Select(playlistId, fromId, limit+1)
+	if err != nil {
+		return nil, err
+	}
+
+	res := &GetRes{}
+	if len(videoEntities) > limit {
+		res.NextId = videoEntities[limit].Id
+		videoEntities = videoEntities[:limit]
+	}
+	res.Videos = videoEntitiesToVideoModel(videoEntities)
+
+	return res, nil
 }
 
 type VideoModelForPut struct {

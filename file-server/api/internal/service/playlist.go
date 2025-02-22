@@ -19,7 +19,7 @@ func (ps *PlaylistService) Get() ([]*PlaylistModel, error) {
 	playlists := []*PlaylistModel{}
 
 	// latest
-	latestVideos, err := ps.VideoRepo.SelectLatest()
+	latestVideos, err := ps.VideoRepo.Select("", "", 10)
 	if err != nil {
 		log.Warn(err)
 	} else {

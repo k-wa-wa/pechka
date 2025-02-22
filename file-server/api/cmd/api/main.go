@@ -47,9 +47,18 @@ func main() {
 	})
 
 	videoService := service.VideoService{VideoRepo: videoRepo}
+	app.Get("/api/videos", func(c *fiber.Ctx) error {
+		res, err := videoService.Get(c.Query("playlist-id"), c.Query("from-id"))
+		if err != nil {
+			log.Warn(err)
+			return c.SendStatus(400)
+		}
+		return c.JSON(res)
+	})
+
 	app.Get("/api/videos/:id", func(c *fiber.Ctx) error {
 		id := c.Params("id")
-		video, err := videoService.Get(id)
+		video, err := videoService.GetOne(id)
 		if err != nil {
 			log.Warn(err)
 			return c.SendStatus(400)
