@@ -13,6 +13,7 @@ COPY internal/ ./internal/
 ARG TARGET
 RUN go build -o bin ./cmd/${TARGET}
 
+
 FROM scratch AS runner
 
 WORKDIR /app
