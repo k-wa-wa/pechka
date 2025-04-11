@@ -30,6 +30,22 @@ services:
     depends_on:
       - db
 
+  refresh-latest-playlist:
+    build:
+      context: ./api
+      args:
+        - TARGET=refresh-latest-playlist
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=secret
+      - DB_NAME=database
+      - SSL_MODE=disable
+    depends_on:
+      - db
+      - data-importer
+
   api:
     build:
       context: ./api

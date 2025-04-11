@@ -1,5 +1,4 @@
-FROM golang:1.22.6-bookworm as builder
-ARG TARGET
+FROM golang:1.24.2-bookworm AS builder
 
 WORKDIR /app
 ENV CGO_ENABLED=0
@@ -10,9 +9,11 @@ RUN go mod download
 COPY cmd/ ./cmd/
 COPY pkg/ ./pkg/
 COPY internal/ ./internal/
+
+ARG TARGET
 RUN go build -o bin ./cmd/${TARGET}
 
-FROM scratch as runner
+FROM scratch AS runner
 
 WORKDIR /app
 COPY --from=builder /app/bin .

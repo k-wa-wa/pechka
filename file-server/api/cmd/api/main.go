@@ -3,8 +3,10 @@ package main
 import (
 	"log/slog"
 	"os"
+	"pechka/file-server/cmd/api/handler"
 	"pechka/file-server/internal/config"
 	"pechka/file-server/internal/db"
+
 	"pechka/file-server/internal/infrastructure"
 	"pechka/file-server/internal/service"
 
@@ -35,85 +37,17 @@ func main() {
 
 	app.Static("/resources/hls", cfg.HlsResourceDir)
 
-	videoRepo := &infrastructure.VideoRepoImpl{Db: db}
-	playlistService := service.PlaylistService{VideoRepo: videoRepo}
-	app.Get("/api/playlists", func(c *fiber.Ctx) error {
-		playlists, err := playlistService.Get()
-		if err != nil {
-			log.Warn(err)
-			return c.SendStatus(400)
-		}
-		return c.JSON(playlists)
-	})
+	playlistRepo := infrastructure.NewPlaylistRepo(db)
+	videoRepo := infrastructure.NewVideoRepo(db)
+	videoTimestampRepo := infrastructure.NewVideoTimestampRepo(db)
 
-	videoService := service.VideoService{VideoRepo: videoRepo}
-	app.Get("/api/videos", func(c *fiber.Ctx) error {
-		res, err := videoService.Get(c.Query("playlist-id"), c.Query("from-id"))
-		if err != nil {
-			log.Warn(err)
-			return c.SendStatus(400)
-		}
-		return c.JSON(res)
-	})
+	playlistService := &service.PlaylistService{PlaylistRepo: playlistRepo}
+	videoService := &service.VideoService{VideoRepo: videoRepo}
+	videoTimestampService := &service.VideoTimestampService{VideoTimestampRepo: videoTimestampRepo}
 
-	app.Get("/api/videos/:id", func(c *fiber.Ctx) error {
-		id := c.Params("id")
-		video, err := videoService.GetOne(id)
-		if err != nil {
-			log.Warn(err)
-			return c.SendStatus(400)
-		}
-		return c.JSON(video)
-	})
-	app.Put("/api/videos/:id", func(c *fiber.Ctx) error {
-		id := c.Params("id")
-		var body service.VideoModelForPut
-		if err := c.BodyParser(&body); err != nil {
-			return c.SendStatus(400)
-		}
-
-		video, err := videoService.Put(id, &body)
-		if err != nil {
-			log.Warn(err)
-			return c.SendStatus(400)
-		}
-
-		return c.JSON(video)
-	})
-
-	videoTimestampRepo := &infrastructure.VideoTimestampRepoImpl{Db: db}
-	videoTimestampService := service.VideoTimestampService{VideoTimestampRepo: videoTimestampRepo}
-	app.Get("/api/video-timestamps/:id", func(c *fiber.Ctx) error {
-		videoId := c.Params("id")
-		timestamps, err := videoTimestampService.Get(videoId)
-		if err != nil {
-			log.Warn(err)
-			return c.SendStatus(400)
-		}
-		return c.JSON(timestamps)
-	})
-	app.Post("/api/video-timestamps/:id", func(c *fiber.Ctx) error {
-		videoId := c.Params("id")
-		var body service.VideoTimestampModelForPost
-		if err := c.BodyParser(&body); err != nil {
-			return c.SendStatus(400)
-		}
-
-		timestamp, err := videoTimestampService.Post(videoId, &body)
-		if err != nil {
-			log.Warn(err)
-			return c.SendStatus(400)
-		}
-		return c.JSON(timestamp)
-	})
-	app.Delete("/api/video-timestamps/:id", func(c *fiber.Ctx) error {
-		timestampId := c.Params("id")
-		if err := videoTimestampService.Delete(timestampId); err != nil {
-			log.Warn(err)
-			return c.SendStatus(400)
-		}
-		return c.JSON(map[string]interface{}{})
-	})
+	handler.PlaylistHandler(app, playlistService)
+	handler.VideoHandler(app, videoService)
+	handler.VideoTimestampHandler(app, videoTimestampService)
 
 	log.Fatal(app.Listen(":8000"))
 }

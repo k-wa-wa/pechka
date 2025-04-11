@@ -6,8 +6,6 @@ import (
 	"time"
 
 	"github.com/caarlos0/env"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -33,13 +31,7 @@ var (
 	retryInterval = 2 * time.Second
 )
 
-type DB interface {
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-}
-
-func InitDB() (DB, error) {
+func InitDB() (*pgxpool.Pool, error) {
 	dbCfg := newDBConfig()
 	connStr := fmt.Sprintf(
 		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
@@ -47,7 +39,7 @@ func InitDB() (DB, error) {
 	)
 
 	var err error
-	for i := 0; i < maxRetries; i++ {
+	for range maxRetries {
 		Pool, err = pgxpool.New(context.Background(), connStr)
 		if err == nil {
 			break
