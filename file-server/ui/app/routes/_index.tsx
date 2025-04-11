@@ -1,7 +1,7 @@
-import { Anchor, Breadcrumbs, Stack, Title } from "@mantine/core"
+import { Anchor, Breadcrumbs, Flex, Stack, Title } from "@mantine/core"
 import { Playlist, Video } from "@/src/types"
 import Videos from "@/src/components/Videos"
-import { useLoaderData } from "@remix-run/react"
+import { Link, useLoaderData } from "@remix-run/react"
 
 export const loader = async () => {
   const data = await fetch(`${process.env.API_URL}/api/playlists`)
@@ -14,10 +14,13 @@ export default function VideosPage() {
 
   return (
     <Stack gap="lg">
-      {playlists.map(({ title, videos }) => (
+      {playlists.map(({ playlist: { title, id }, videos }) => (
         <Stack key={title}>
-          <Title order={2}>{title}</Title>
-          <Videos videos={videos} />
+          <Flex gap="md" align="flex-end">
+            <Title order={2}>{title}</Title>
+            <Link to={`/playlists/${id}`}>more</Link>
+          </Flex>
+          <Videos videos={videos.slice(0, 8)} />
         </Stack>
       ))}
     </Stack>

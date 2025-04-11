@@ -4,7 +4,7 @@ import { LoaderFunctionArgs } from "@remix-run/node"
 import { useLoaderData } from "@remix-run/react"
 import Videos from "@/src/components/Videos"
 
-const limit = 4
+const limit = 8
 
 export const loader = async ({ params, request }: LoaderFunctionArgs) => {
   const playlistId = params.id || ""
@@ -21,7 +21,12 @@ export const loader = async ({ params, request }: LoaderFunctionArgs) => {
 }
 
 export default function PlaylistPage() {
-  const { title, videos, currentPageN } = useLoaderData<typeof loader>()
+  const {
+    playlist: { title },
+    videos,
+    numVideos,
+    currentPageN,
+  } = useLoaderData<typeof loader>()
 
   return (
     <Stack>
@@ -42,7 +47,7 @@ export default function PlaylistPage() {
       <Videos videos={videos} />
 
       <Pagination
-        total={10} // TODO
+        total={Math.ceil(numVideos / limit)}
         defaultValue={currentPageN}
         getItemProps={(page) => ({
           component: "a",

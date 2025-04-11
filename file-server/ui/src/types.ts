@@ -6,8 +6,12 @@ export type Video = {
 }
 
 export type Playlist = {
-  title: string
+  playlist: {
+    id: string
+    title: string
+  }
   videos: Video[]
+  numVideos: number
 }
 
 export type VideoTimestamp = {
