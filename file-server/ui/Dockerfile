@@ -19,7 +19,7 @@ WORKDIR /app
 COPY --from=deps /app/node_modules /app/node_modules
 
 COPY public ./public
-COPY package.json postcss.config.mjs tsconfig.json vite.config.ts ./
+COPY package.json postcss.config.cjs tsconfig.json vite.config.ts ./
 COPY app ./app
 COPY src ./src
 RUN npm run build
