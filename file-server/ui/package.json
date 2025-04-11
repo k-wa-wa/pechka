@@ -1,35 +1,36 @@
 {
   "name": "file-server-ui",
-  "version": "0.1.0",
   "private": true,
+  "type": "module",
+  "sideEffects": false,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint"
+    "build": "remix vite:build",
+    "dev": "remix vite:dev",
+    "lint": "eslint --ignore-path .gitignore .",
+    "start": "API_URL=http://localhost:8000 NODE_OPTIONS=--no-warnings remix-serve ./build/server/index.js",
+    "typecheck": "tsc"
   },
   "dependencies": {
-    "@mantine/core": "^7.16.0",
-    "@mantine/dates": "^7.16.0",
-    "@mantine/form": "^7.16.1",
-    "@mantine/hooks": "^7.16.0",
-    "@tabler/icons-react": "^3.28.1",
-    "hls.js": "^1.5.19",
-    "next": "15.1.4",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "@mantine/core": "^7.17.4",
+    "@mantine/form": "^7.17.4",
+    "@remix-run/node": "latest",
+    "@remix-run/react": "latest",
+    "@remix-run/serve": "latest",
+    "@tabler/icons-react": "^3.31.0",
+    "hls.js": "^1.6.1",
+    "isbot": "^4.1.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "^3",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "eslint": "^9",
-    "eslint-config-next": "15.1.4",
-    "postcss": "^8.5.1",
+    "@remix-run/dev": "latest",
+    "@types/react": "^18.2.20",
+    "@types/react-dom": "^18.2.7",
+    "eslint": "^8.23.1",
+    "postcss": "^8.5.3",
     "postcss-preset-mantine": "^1.17.0",
     "postcss-simple-vars": "^7.0.1",
-    "tailwindcss": "^3.4.1",
-    "typescript": "^5"
+    "typescript": "^5.1.6",
+    "vite": "^6.0.0"
   }
 }

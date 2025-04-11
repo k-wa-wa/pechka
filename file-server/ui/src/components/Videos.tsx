@@ -1,7 +1,6 @@
 import { Card, CardSection, Grid, GridCol, Group, Text } from "@mantine/core"
-import Link from "next/link"
-import { Video } from "@/app/types"
-import HlsPlayer from "@/components/HlsPlayer"
+import { Video } from "@/src/types"
+import HlsPlayer from "@/src/components/HlsPlayer"
 
 type Props = {
   videos: Video[]
@@ -18,7 +17,7 @@ export default function Videos({ videos }: Props) {
             </CardSection>
             <Group mt="md">
               <Text fw={500}>
-                <Link href={`/videos/${id}`}>{title}</Link>
+                <a href={`/videos/${id}`}>{title}</a>
               </Text>
             </Group>
             <Text size="sm" c="dimmed">

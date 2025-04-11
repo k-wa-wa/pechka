@@ -1,6 +1,4 @@
-"use client"
-
-import { VideoTimestamp } from "@/app/types"
+import { VideoTimestamp } from "@/src/types"
 import {
   Badge,
   Card,
@@ -16,7 +14,7 @@ import {
 } from "@mantine/core"
 import { useState } from "react"
 import NewTimestampInput from "./NewTimestampInput"
-import { HHMMSStoTime } from "@/utils/time"
+import { HHMMSStoTime } from "@/src/utils/time"
 import {
   IconClockRecord,
   IconDotsVertical,
@@ -45,7 +43,7 @@ export default function TimestampView({
         description,
       },
     ])
-    const res = await fetch(`/api/video-timestamps/${videoId}`, {
+    const res = await fetch(`/api/videos/${videoId}/timestamps`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -69,7 +67,7 @@ export default function TimestampView({
   }
 
   async function onDeleteTimestamp(timestampId: string) {
-    await fetch(`/api/video-timestamps/${timestampId}`, {
+    await fetch(`/api/videos/videoid/timestamps/${timestampId}`, {
       method: "DELETE",
       headers: {
         "Content-Type": "application/json",

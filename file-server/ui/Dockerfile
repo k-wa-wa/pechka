@@ -1,29 +1,36 @@
-FROM node:18-alpine AS base
+FROM node:23-bullseye-slim as base
 
-FROM base AS deps
+ENV NODE_ENV production
 
-RUN apk add --no-cache libc6-compat
+RUN apt-get update && apt-get install -y openssl
+
+FROM base as deps
+
+ENV NODE_ENV development
 WORKDIR /app
 
 COPY package.json package-lock.json ./
 RUN npm ci
 
-FROM base AS runner
-
-ENV NODE_ENV=production
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
-USER nextjs
+FROM base as build
 
 WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
+
+COPY --from=deps /app/node_modules /app/node_modules
 
 COPY public ./public
-COPY package.json next.config.ts postcss.config.mjs tailwind.config.ts tsconfig.json ./
+COPY package.json postcss.config.mjs tsconfig.json vite.config.ts ./
 COPY app ./app
-COPY components ./components
-COPY utils ./utils
+COPY src ./src
+RUN npm run build
 
-EXPOSE 3000
+FROM base
 
-CMD [ "/bin/sh", "-c", "npm run build && npm run start" ]
+WORKDIR /app
+
+COPY --from=build /app/node_modules /app/node_modules
+
+COPY --from=build /app/build /app/build
+COPY --from=build /app/public /app/public
+
+CMD ["npm", "start"]

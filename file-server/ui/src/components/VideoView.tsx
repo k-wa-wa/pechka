@@ -1,9 +1,7 @@
-"use client"
-
-import { Video, VideoTimestamp } from "@/app/types"
+import { Video, VideoTimestamp } from "@/src/types"
 import { Text } from "@mantine/core"
-import EditableTitle from "@/components/EditableTitle"
-import HlsPlayer from "@/components/HlsPlayer"
+import EditableTitle from "@/src/components/EditableTitle"
+import HlsPlayer from "@/src/components/HlsPlayer"
 import TimestampView from "./TimestampView"
 
 type Props = {

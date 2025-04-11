@@ -1,6 +1,4 @@
-"use client"
-
-import { timeToHHMMSS } from "@/utils/time"
+import { timeToHHMMSS } from "@/src/utils/time"
 import { ActionIcon, Group, Stack, TextInput, Text } from "@mantine/core"
 import { useForm } from "@mantine/form"
 import { IconCheck } from "@tabler/icons-react"

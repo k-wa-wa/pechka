@@ -1,5 +1,3 @@
-"use client"
-
 import { Title, Group, Input, ActionIcon } from "@mantine/core"
 import { IconCheck, IconPencilMinus, IconX } from "@tabler/icons-react"
 import { useState } from "react"
