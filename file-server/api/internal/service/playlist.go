@@ -12,7 +12,7 @@ type PlaylistService struct {
 type PlaylistModel struct {
 	Playlist  *model.PlaylistEntity `json:"playlist"`
 	Videos    []*model.VideoEntity  `json:"videos"`
-	NumVideos int                   `json:"num_videos"`
+	NumVideos int                   `json:"numVideos"`
 }
 
 /* TODO: latest以外も追加する */
