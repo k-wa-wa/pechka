@@ -17,6 +17,7 @@ jobs:
         target:
           - api
           - data-importer
+          - refresh-latest-playlist
 
     steps:
       - name: Checkout Repo
