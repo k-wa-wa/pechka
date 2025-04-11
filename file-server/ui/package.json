@@ -7,7 +7,8 @@
     "build": "remix vite:build",
     "dev": "remix vite:dev",
     "lint": "eslint --ignore-path .gitignore .",
-    "start": "API_URL=http://localhost:8000 NODE_OPTIONS=--no-warnings remix-serve ./build/server/index.js",
+    "start:local": "API_URL=http://localhost:8000 remix-serve ./build/server/index.js",
+    "start": "remix-serve ./build/server/index.js",
     "typecheck": "tsc"
   },
   "dependencies": {
