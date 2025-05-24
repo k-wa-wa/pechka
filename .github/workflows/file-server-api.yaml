@@ -9,7 +9,7 @@ on:
 
 jobs:
   publish_api_docker_image:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     permissions:
       packages: write
     strategy:

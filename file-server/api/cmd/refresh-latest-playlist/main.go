@@ -45,7 +45,6 @@ func refreshLatestPlaylist(ctx context.Context, db *pgxpool.Pool) error {
 		SELECT $1, id
 		FROM videos
 		ORDER BY updated_at DESC
-		LIMIT 10;
 	`, latestPlaylistId); err != nil {
 		tx.Rollback(ctx)
 		return err
