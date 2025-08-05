@@ -1,11 +1,12 @@
 FROM node:24-bookworm-slim as base
 
-ENV NODE_ENV production
+ENV NODE_ENV=production
 
 RUN apt-get update && apt-get install -y openssl
 
 FROM base as deps
 
+ENV NODE_ENV=development
 WORKDIR /app
 
 COPY package.json ./
