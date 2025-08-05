@@ -18,6 +18,7 @@
     "@remix-run/react": "latest",
     "@remix-run/serve": "latest",
     "@tabler/icons-react": "^3.31.0",
+    "axios": "^1.11.0",
     "hls.js": "^1.6.1",
     "isbot": "^4.1.0",
     "react": "^18.2.0",
