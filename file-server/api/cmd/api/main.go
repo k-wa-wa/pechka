@@ -1,8 +1,6 @@
 package main
 
 import (
-	"log/slog"
-	"os"
 	"pechka/file-server/cmd/api/handler"
 	"pechka/file-server/internal/config"
 	"pechka/file-server/internal/db"
@@ -13,7 +11,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/log"
 	"github.com/gofiber/fiber/v2/middleware/healthcheck"
-	"github.com/gofiber/fiber/v2/middleware/requestid"
+	"github.com/gofiber/fiber/v2/middleware/logger"
 )
 
 func main() {
@@ -24,12 +22,13 @@ func main() {
 		panic(err)
 	}
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	slog.SetDefault(logger)
-
 	app := fiber.New()
+	app.Use(logger.New(logger.Config{
+		//`:remote-addr - :remote-user [:date[clf]] ":method :url HTTP/:http-version" :status :res[content-length] ":referrer" ":user-agent"`
+		Format:     "${ip} - - [${time}] \"${method} ${path} ${protocol}\" ${status} ${bytesSent} \"${referer}\" \"${ua}\" \"${locals:requestid}\"\n",
+		TimeFormat: "02/Jan/2006:15:04:05 -0700",
+	}))
 
-	app.Use(requestid.New())
 	app.Use(healthcheck.New(healthcheck.Config{
 		LivenessEndpoint:  "/live",
 		ReadinessEndpoint: "/ready",
