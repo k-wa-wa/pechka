@@ -4,6 +4,7 @@ import (
 	"context"
 	"pechka/file-server/internal/domain/model"
 	"pechka/file-server/internal/domain/repository"
+	"time"
 
 	"github.com/gofiber/fiber/v2/log"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -56,6 +57,7 @@ func (pri *playlistRepoImpl) SelectVideos(playlistId string, limit, offset int) 
 		OFFSET $3
 	`
 
+	log.Info(time.Now())
 	rows, err := pri.db.Query(context.Background(), query, playlistId, limit, offset)
 	if err != nil {
 		return nil, err
@@ -78,6 +80,7 @@ func (pri *playlistRepoImpl) SelectVideos(playlistId string, limit, offset int) 
 		}
 		videos = append(videos, &videoEntity)
 	}
+	log.Info(time.Now())
 
 	return videos, nil
 }
