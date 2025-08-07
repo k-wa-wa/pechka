@@ -57,7 +57,7 @@ func (pri *playlistRepoImpl) SelectVideos(playlistId string, limit, offset int) 
 		OFFSET $3
 	`
 
-	log.Info(time.Now())
+	start := time.Now()
 	rows, err := pri.db.Query(context.Background(), query, playlistId, limit, offset)
 	if err != nil {
 		return nil, err
@@ -80,7 +80,8 @@ func (pri *playlistRepoImpl) SelectVideos(playlistId string, limit, offset int) 
 		}
 		videos = append(videos, &videoEntity)
 	}
-	log.Info(time.Now())
+	end := time.Now()
+	log.Info(end.Sub(start))
 
 	return videos, nil
 }

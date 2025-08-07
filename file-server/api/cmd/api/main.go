@@ -24,8 +24,7 @@ func main() {
 
 	app := fiber.New()
 	app.Use(logger.New(logger.Config{
-		//`:remote-addr - :remote-user [:date[clf]] ":method :url HTTP/:http-version" :status :res[content-length] ":referrer" ":user-agent"`
-		Format:     "${ip} - - [${time}] \"${method} ${path} ${protocol}\" ${status} ${bytesSent} \"${referer}\" \"${ua}\" \"${locals:requestid}\"\n",
+		Format:     "${ip} - - [${time}] \"${method} ${path} ${protocol}\" ${status} ${bytesSent} \"${referer}\" \"${ua}\" \"${reqHeader:x-request-id}\" ${latency}\n",
 		TimeFormat: "02/Jan/2006:15:04:05 -0700",
 	}))
 
