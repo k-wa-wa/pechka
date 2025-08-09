@@ -4,6 +4,8 @@ import (
 	"pechka/file-server/cmd/api/handler"
 	"pechka/file-server/internal/config"
 	"pechka/file-server/internal/db"
+	"regexp"
+	"strings"
 
 	"pechka/file-server/internal/infrastructure"
 	"pechka/file-server/internal/service"
@@ -24,7 +26,7 @@ func main() {
 
 	app := fiber.New()
 	app.Use(logger.New(logger.Config{
-		Format:     "${ip} - - [${time}] \"${method} ${path} ${protocol}\" ${status} ${bytesSent} \"${referer}\" \"${ua}\" \"${reqHeader:x-request-id}\" ${latency}\n",
+		Format:     logFormat(),
 		TimeFormat: "02/Jan/2006:15:04:05 -0700",
 	}))
 
@@ -48,4 +50,26 @@ func main() {
 	handler.VideoTimestampHandler(app, videoTimestampService)
 
 	log.Fatal(app.Listen(":8000"))
+}
+
+func logFormat() string {
+	format := `{
+		"timestamp": "${time}",
+		"remote_ip": "${ip}",
+		"request_id": "${reqHeader:x-request-id}",
+		"host": "${host}",
+		"request": {
+			"method": "${method}",
+			"path": "${path}",
+			"protocol": "${protocol}"
+		},
+		"status": ${status},
+		"bytes": ${bytesSent},
+		"referer": "${referer}",
+		"user_agent": "${ua}",
+		"request_time_ms": "${latency}"
+	}`
+	format = strings.ReplaceAll(format, "\n", "")
+	re := regexp.MustCompile(`\s`)
+	return re.ReplaceAllString(format, "")
 }
