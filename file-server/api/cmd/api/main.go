@@ -27,7 +27,7 @@ func main() {
 	app := fiber.New()
 	app.Use(logger.New(logger.Config{
 		Format:     logFormat(),
-		TimeFormat: "02/Jan/2006:15:04:05 -0700",
+		TimeFormat: "2006-01-02T15:04:05-0700",
 	}))
 
 	app.Use(healthcheck.New(healthcheck.Config{
