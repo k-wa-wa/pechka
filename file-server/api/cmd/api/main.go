@@ -71,5 +71,5 @@ func logFormat() string {
 	}`
 	format = strings.ReplaceAll(format, "\n", "")
 	re := regexp.MustCompile(`\s`)
-	return re.ReplaceAllString(format, "")
+	return re.ReplaceAllString(format, "") + "\n"
 }
