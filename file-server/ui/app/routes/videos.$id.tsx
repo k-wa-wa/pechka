@@ -3,22 +3,19 @@ import { Stack, Breadcrumbs, Anchor } from "@mantine/core"
 import VideoView from "@/src/components/VideoView"
 import { LoaderFunction, LoaderFunctionArgs } from "@remix-run/node"
 import { useLoaderData } from "@remix-run/react"
-import axios from "axios"
 
 async function fetchVideoData(videoId: string): Promise<Video> {
-  return await axios
-    .get(`${process.env.API_URL}/api/videos/${videoId}`)
-    .then((res) => res.data)
-    .catch(e => console.log(e))
+  const data = await fetch(`${process.env.API_URL}/api/videos/${videoId}`)
+  return await data.json()
 }
 
 async function fetchVideoTimestamps(
   videoId: string
 ): Promise<VideoTimestamp[]> {
-  return await axios
-    .get(`${process.env.API_URL}/api/videos/${videoId}/timestamps`)
-    .then((res) => res.data)
-    .catch(e => console.log(e))
+  const data = await fetch(
+    `${process.env.API_URL}/api/videos/${videoId}/timestamps`
+  )
+  return await data.json()
 }
 
 export const loader = async ({ params }: LoaderFunctionArgs) => {
