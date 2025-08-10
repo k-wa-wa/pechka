@@ -1,22 +1,25 @@
 import { Anchor, Breadcrumbs, Flex, Stack, Title } from "@mantine/core"
 import { Playlist, Video } from "@/src/types"
 import Videos from "@/src/components/Videos"
-import { Link, useLoaderData } from "@remix-run/react"
+import { data, Link, useLoaderData } from "@remix-run/react"
 import { LoaderFunctionArgs } from "@remix-run/node"
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const requestId = request.headers.get("x-request-id") || `ui_${crypto.randomUUID()}`
-  const data = await fetch(`${process.env.API_URL}/api/playlists`, {
+  const requestId =
+    request.headers.get("x-request-id") || `ui_${crypto.randomUUID()}`
+  const res = await fetch(`${process.env.API_URL}/api/playlists`, {
     headers: {
       "x-request-id": requestId,
     },
   })
-  const playlists: Playlist[] = await data.json()
-  return playlists
+
+  return data((await res.json()) as Playlist[], {
+    headers: { "Cache-Control": "public, max-age=10, s-maxage=10" },
+  })
 }
 
 export default function VideosPage() {
-  const playlists = useLoaderData<typeof loader>()
+  const { data: playlists } = useLoaderData<typeof loader>()
 
   return (
     <Stack gap="lg">
