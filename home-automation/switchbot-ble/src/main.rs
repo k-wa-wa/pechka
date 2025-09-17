@@ -3,6 +3,7 @@ mod switchbot_devices;
 use btleplug::api::{Central, Manager as _, Peripheral, ScanFilter};
 use btleplug::platform::Manager;
 use switchbot_devices::{MeterProCo2Scanner, SwitchBotDeviceScanner};
+use std::env;
 use tokio::time::{sleep, Duration};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -20,6 +21,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-        sleep(Duration::from_secs(1)).await;
+        let sleep_duration_secs = env::var("SWITCHBOT_SCAN_INTERVAL_SECS")
+            .unwrap_or_else(|_| "1".to_string())
+            .parse::<u64>()
+            .unwrap_or(1);
+        sleep(Duration::from_secs(sleep_duration_secs)).await;
     }
 }
