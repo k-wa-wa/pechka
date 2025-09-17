@@ -1,16 +1,10 @@
+
+
 use btleplug::api::PeripheralProperties;
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
-
-const SERVICE_UUID_STR: &str = "0000fd3d-0000-1000-8000-00805f9b34fb";
-
-pub trait SwitchBotDeviceScanner<T>
-where
-    T: Serialize,
-{
-    fn scan(properties: &PeripheralProperties) -> Result<Option<T>, Box<dyn std::error::Error>>;
-}
+use crate::switchbot::switchbot_device_scanner::{SwitchBotDeviceScanner, SERVICE_UUID_STR};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MeterProCo2Data {

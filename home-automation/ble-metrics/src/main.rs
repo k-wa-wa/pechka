@@ -1,14 +1,20 @@
-mod switchbot_devices;
+mod switchbot;
 
 use btleplug::api::{Central, Manager as _, Peripheral, ScanFilter};
 use btleplug::platform::Manager;
-use switchbot_devices::{MeterProCo2Scanner, SwitchBotDeviceScanner};
 use std::env;
+use switchbot::meter_pro_co2_scanner::MeterProCo2Scanner;
+use crate::switchbot::switchbot_device_scanner::SwitchBotDeviceScanner;
 use tokio::time::{sleep, Duration};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let manager = Manager::new().await?;
-    let central = manager.adapters().await?.into_iter().next().unwrap();
+    let central = manager
+        .adapters()
+        .await?
+        .into_iter()
+        .next()
+        .ok_or("No Bluetooth adapter found")?;
 
     central.start_scan(ScanFilter::default()).await?;
 
