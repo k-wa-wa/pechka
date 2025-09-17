@@ -7,6 +7,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libbluetooth-dev \
+    libdbus-1-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy Cargo.toml and Cargo.lock first to leverage Docker cache
