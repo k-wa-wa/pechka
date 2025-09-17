@@ -1,5 +1,6 @@
 mod switchbot;
 
+use crate::switchbot::contact_sensor_scanner::ContactSensorScanner;
 use crate::switchbot::meter_plus::MeterPlusScanner;
 use crate::switchbot::switchbot_device_scanner::SwitchBotDeviceScanner;
 use btleplug::api::{Central, Manager as _, Peripheral, ScanFilter};
@@ -13,6 +14,7 @@ struct Config {
     scan_interval_secs: u64,
     enable_meter_pro_co2_scanner: bool,
     enable_meter_plus_scanner: bool,
+    enable_contact_sensor_scanner: bool,
 }
 
 impl Config {
@@ -33,11 +35,14 @@ impl Config {
             target_devices.is_empty() || target_devices.contains("meterproco2scanner");
         let enable_meter_plus_scanner =
             target_devices.is_empty() || target_devices.contains("meterplus");
+        let enable_contact_sensor_scanner =
+            target_devices.is_empty() || target_devices.contains("contact_sensor");
 
         Config {
             scan_interval_secs,
             enable_meter_pro_co2_scanner,
             enable_meter_plus_scanner,
+            enable_contact_sensor_scanner,
         }
     }
 }
@@ -67,6 +72,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 if config.enable_meter_plus_scanner {
                     if let Some(data) = MeterPlusScanner::scan(&properties)? {
+                        println!("{}", serde_json::to_string(&data)?);
+                    }
+                }
+                if config.enable_contact_sensor_scanner {
+                    if let Some(data) = ContactSensorScanner::scan(&properties)? {
                         println!("{}", serde_json::to_string(&data)?);
                     }
                 }
