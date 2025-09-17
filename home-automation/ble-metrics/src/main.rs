@@ -4,6 +4,7 @@ use btleplug::api::{Central, Manager as _, Peripheral, ScanFilter};
 use btleplug::platform::Manager;
 use std::env;
 use switchbot::meter_pro_co2_scanner::MeterProCo2Scanner;
+use crate::switchbot::meter_plus::MeterPlusScanner;
 use crate::switchbot::switchbot_device_scanner::SwitchBotDeviceScanner;
 use tokio::time::{sleep, Duration};
 #[tokio::main]
@@ -23,6 +24,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         for device in devices {
             if let Ok(Some(properties)) = device.properties().await {
                 if let Some(data) = MeterProCo2Scanner::scan(&properties)? {
+                    println!("{}", serde_json::to_string(&data)?);
+                }
+                if let Some(data) = MeterPlusScanner::scan(&properties)? {
                     println!("{}", serde_json::to_string(&data)?);
                 }
             }
