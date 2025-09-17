@@ -1,8 +1,8 @@
+use crate::switchbot::switchbot_device_scanner::{SwitchBotDeviceScanner, SERVICE_UUID_STR};
 use btleplug::api::PeripheralProperties;
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
-use crate::switchbot::switchbot_device_scanner::{SwitchBotDeviceScanner, SERVICE_UUID_STR};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MeterPlusData {
