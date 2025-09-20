@@ -32,6 +32,7 @@ WORKDIR /app
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     libbluetooth3 \
+    libdbus-1-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the compiled binary from the builder stage
