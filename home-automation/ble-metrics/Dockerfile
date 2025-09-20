@@ -16,7 +16,7 @@ COPY Cargo.toml Cargo.lock ./
 # Build dummy project to cache dependencies
 RUN mkdir src && echo "fn main() {println!(\"Hello\");}" > src/main.rs
 RUN cargo build --release
-RUN rm -rf src
+RUN rm -rf src target
 
 # Copy the actual source code
 COPY src ./src
