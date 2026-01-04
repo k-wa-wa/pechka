@@ -54,7 +54,7 @@ func transformMkv2Hls(mkvFilepath string, outputDir string, mode string) error {
 	case "audio":
 		args = append(
 			args,
-			"-video_disable",
+			"-vn",
 			"-codec:a", "aac",
 			"-b:a", "128k",
 		)
