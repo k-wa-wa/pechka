@@ -108,14 +108,27 @@ services:
       - MINIO_BUCKET=assets
       - CDN_BASE_URL=/assets
       - NFS_SCAN_PATH=/mnt/nfs
+      - THUMBNAIL_ANALYZER_URL=http://thumbnail-analyzer:8000
     volumes:
-      - ./tests/nfs_data:/mnt/nfs:ro
+      - ./tests/nfs_data:/mnt/nfs:rw
     depends_on:
       db:
         condition: service_healthy
       minio:
         condition: service_started
+      thumbnail-analyzer:
+        condition: service_started
     restart: "no"
+
+  thumbnail-analyzer:
+    build:
+      context: ./batch/thumbnail-analyzer
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./tests/nfs_data:/mnt/nfs:rw
+    restart: unless-stopped
+
 
   auth-service:
     build:

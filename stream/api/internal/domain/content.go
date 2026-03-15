@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"context"
 	"time"
 
 	"github.com/google/uuid"
@@ -61,3 +62,12 @@ type Asset struct {
 	S3Key     string    `json:"s3_key"`
 	PublicURL string    `json:"public_url"`
 }
+
+type ScorerResult struct {
+	BestTimestamp float64 `json:"best_timestamp"`
+}
+
+type ThumbnailScorer interface {
+	Analyze(ctx context.Context, path string, points []float64) (*ScorerResult, error)
+}
+

@@ -14,6 +14,8 @@ graph TD
     Frontend["Frontend Service (Next.js)"]
     Catalog["Catalog Service"]
     Metadata["Metadata Service"]
+    Auth["Auth Service"]
+    
     DB_PG[("PostgreSQL")]
     DB_Mongo[("MongoDB")]
     DB_Redis[("Redis")]
@@ -24,10 +26,28 @@ graph TD
     
     Gateway -- /api/catalog/* --> Catalog
     Gateway -- /api/metadata/* --> Metadata
+    Gateway -- /api/auth/* --> Auth
     
     Catalog --> DB_Mongo
     Catalog --> DB_Redis
     Metadata --> DB_PG
+    Auth --> DB_PG
+
+    subgraph Batch Layer
+        NFS[("NFS Server (Video Source)")]
+        Importer["Batch NFS Importer (Go)"]
+        Analyzer["Thumbnail Analyzer (Python/Sidecar)"]
+        SyncBatch["Sync Batch (Go)"]
+        
+        NFS -- Scan/Read --> Importer
+        Importer -- Analyze Request (HTTP) --> Analyzer
+        Importer -- S3 Upload --> MinIO[("MinIO (S3)")]
+        Importer -- Write --> DB_PG
+        
+        SyncBatch -- Read --> DB_PG
+        SyncBatch -- Sync --> DB_Mongo
+        SyncBatch -- Sync --> DB_Redis
+    end
 ```
 
 ### Data Flow (Development)
@@ -46,9 +66,7 @@ graph TD
 ### 2.2 Metadata Service (メタデータ管理API)
 - **役割**: 映像作品(Title)、エピソード、ジャンル、タグなどのマスターデータ(CRUD)と、アセットパス(S3バケットキー)を管理する。
 - **データストア**: PostgreSQL (リレーショナル・トランザクション処理)
-- **ID設計方針**: 
-  - **Internal ID (UUID v7)**: DB内でのリレーション管理に使用。外部APIやURLパラメータには**絶対に露出させない**。
-  - **Short ID (表示用ID)**: NanoID(`nano_id` 等)を用いて生成され、クライアントへのレスポンスやURL(例: `/title/hO9xK3`)で使用される。
+  - **Short ID (表示用ID)**: Snowflake IDを用いて生成され、クライアントへのレスポンスやURL(例: `/title/7214567890`)で使用される。分散環境での一意性と順序性を両立する。
 - **同期処理 (Sync Strategy A - 同期呼出し)**:
   - Adminからのメタデータ更新（INSERT/UPDATE）処理完了時、Metadata ServiceはCatalog Serviceの「データ同期用API」を内部呼び出し(HTTP/gRPC)し、即座に更新を反映させる。
   - シンプルさを重視し、まずは非同期MQ(RabbitMQ等)は導入せず、同期によるAPI連携で開始する。
@@ -64,6 +82,13 @@ graph TD
 - **コンテンツ・画像管理**: アプリケーションサーバーやローカルディスクは利用せず、**MinIO (S3互換・セルフホスト可能)** を利用する。
 - **高速配信**: 画像とHLSセグメントファイル(`.ts`, `.m3u8`)はCDNエッジでキャッシュ。アプリケーションバックエンドにはアクセスさせず、シーク・ローディング時のレイテンシを極小化する。
 
+### 2.5 Batch Services & Sidecars
+- **Batch NFS Importer (Go)**: NFS上のHLSファイルをスキャンし、MinIOへのアップロードとメタデータ登録を行う。
+- **Thumbnail Analyzer (Python/FastAPI)**: Importerから呼び出されるサイドカーコンテナ。動画の輝度・音量などの重い解析ロジックを担当。
+- **Sync Batch (Go)**: PostgreSQLのマスターデータ（Write系）を MongoDB/Redis（Read系）へ同期・パージするバッチプロセス。
+
+- **設計方針**: 解析などのリソース消費が激しい処理や、Pythonのエコシステム（AI/画像処理）を活用したい処理をサイドカーとして分離することで、メインのバッチ処理の安定性と拡張性を確保する。また、書き込み系（RDB）と参照系（NoSQL/Cache）を分離するCQRS構成において、同期漏れを補完するための結果整合性をバッチ処理によって担保する。
+
 ## 3. データベーススキーマ設計方針 (PostgreSQL)
 
 以下に代表的なテーブルの概要（UUIDとShortIDの分離を考慮した形）を示す。
@@ -75,7 +100,7 @@ graph TD
 **`contents` (全コンテンツ共通のベーステーブル: Metadata Service管轄)**
 全てのドキュメントに共通する「ID」「タイトル」「公開状態」などの基本情報を管理する。
 - `id` (UUID, PK) - 内部リレーション用
-- `short_id` (String, Unique, Indexed) - **【外部公開用】**(NanoID)
+- `short_id` (String, Unique, Indexed) - **【外部公開用】**(Snowflake ID)
 - `content_type` (Enum: `video`, `image_gallery`, `ebook`...) - 子テーブルの種別判定用
 - `title` (String) - タイトル名
 - `description` (Text) - あらすじや説明
