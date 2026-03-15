@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import Hls from "hls.js";
-import { Play, Pause, Volume2, VolumeX, Maximize, ChevronLeft } from "lucide-react";
+import { Play, Pause, Volume2, VolumeX, Maximize, ChevronLeft, Settings, ChevronsLeft, ChevronsRight, RotateCcw, RotateCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 
@@ -20,6 +20,18 @@ export const VideoPlayer = ({ src }: VideoPlayerProps) => {
   const [showControls, setShowControls] = useState(true);
   const router = useRouter();
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const [skipDuration, setSkipDuration] = useState(10);
+  const [showSettings, setShowSettings] = useState(false);
+  const [skipIndicator, setSkipIndicator] = useState<{ show: boolean; type: 'forward' | 'backward' } | null>(null);
+  const skipTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastTapTimeRef = useRef<number>(0);
+  const tapTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('pechka_skip_duration');
+    if (saved) setSkipDuration(Number(saved));
+  }, []);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -47,7 +59,7 @@ export const VideoPlayer = ({ src }: VideoPlayerProps) => {
     return () => video.removeEventListener("timeupdate", updateProgress);
   }, [src]);
 
-  const togglePlay = () => {
+  const togglePlay = useCallback(() => {
     if (videoRef.current?.paused) {
       videoRef.current.play();
       setIsPlaying(true);
@@ -55,14 +67,110 @@ export const VideoPlayer = ({ src }: VideoPlayerProps) => {
       videoRef.current?.pause();
       setIsPlaying(false);
     }
-  };
+  }, []);
 
-  const toggleMute = () => {
+  const handleSkip = useCallback((direction: 'forward' | 'backward') => {
+    if (videoRef.current) {
+      const delta = direction === 'forward' ? skipDuration : -skipDuration;
+      videoRef.current.currentTime = Math.max(0, Math.min(videoRef.current.currentTime + delta, videoRef.current.duration));
+      setProgress((videoRef.current.currentTime / videoRef.current.duration) * 100);
+      
+      setSkipIndicator({ show: true, type: direction });
+      if (skipTimeoutRef.current) clearTimeout(skipTimeoutRef.current);
+      skipTimeoutRef.current = setTimeout(() => setSkipIndicator(null), 500);
+    }
+  }, [skipDuration]);
+
+  const toggleMute = useCallback(() => {
     if (videoRef.current) {
       videoRef.current.muted = !isMuted;
       setIsMuted(!isMuted);
     }
+  }, [isMuted]);
+
+  const toggleFullscreen = useCallback(() => {
+    if (containerRef.current?.requestFullscreen) {
+      containerRef.current.requestFullscreen();
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if user is typing in an input (not directly relevant here but good practice)
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
+
+      switch(e.key.toLowerCase()) {
+        case ' ':
+          e.preventDefault();
+          togglePlay();
+          break;
+        case 'arrowleft':
+          e.preventDefault();
+          handleSkip('backward');
+          break;
+        case 'arrowright':
+          e.preventDefault();
+          handleSkip('forward');
+          break;
+        case 'arrowup':
+          e.preventDefault();
+          if (videoRef.current) {
+            videoRef.current.volume = Math.min(1, videoRef.current.volume + 0.1);
+            setVolume(videoRef.current.volume);
+          }
+          break;
+        case 'arrowdown':
+          e.preventDefault();
+          if (videoRef.current) {
+            videoRef.current.volume = Math.max(0, videoRef.current.volume - 0.1);
+            setVolume(videoRef.current.volume);
+          }
+          break;
+        case 'f':
+          toggleFullscreen();
+          break;
+        case 'm':
+          toggleMute();
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [togglePlay, handleSkip, toggleFullscreen, toggleMute]);
+
+  const handleDurationChange = (val: number) => {
+    setSkipDuration(val);
+    localStorage.setItem('pechka_skip_duration', val.toString());
+    setShowSettings(false);
   };
+
+  const handleVideoAreaClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const currentTime = new Date().getTime();
+    const timeDiff = currentTime - lastTapTimeRef.current;
+    
+    if (timeDiff < 300) {
+      // Double tap
+      if (tapTimeoutRef.current) clearTimeout(tapTimeoutRef.current);
+      const rect = e.currentTarget.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      if (clickX < rect.width / 2) {
+        handleSkip('backward');
+      } else {
+        handleSkip('forward');
+      }
+      lastTapTimeRef.current = 0;
+    } else {
+      // Single tap
+      lastTapTimeRef.current = currentTime;
+      tapTimeoutRef.current = setTimeout(() => {
+        togglePlay();
+        lastTapTimeRef.current = 0;
+      }, 300);
+    }
+  };
+
+  // Original toggleMute removed because it's replaced by useCallback
 
   const handleMouseMove = () => {
     setShowControls(true);
@@ -80,24 +188,29 @@ export const VideoPlayer = ({ src }: VideoPlayerProps) => {
     }
   };
 
-  const toggleFullscreen = () => {
-    if (containerRef.current?.requestFullscreen) {
-      containerRef.current.requestFullscreen();
-    }
-  };
-
   return (
     <div 
       ref={containerRef}
       className="relative w-full h-full bg-black flex items-center justify-center group"
       onMouseMove={handleMouseMove}
-      onClick={togglePlay}
+      onClick={handleVideoAreaClick}
     >
       <video
         ref={videoRef}
         className="w-full max-h-screen"
         playsInline
       />
+
+      {/* Skip Indicator */}
+      {skipIndicator?.show && (
+        <div className={cn(
+          "absolute top-1/2 -translate-y-1/2 flex flex-col items-center justify-center p-6 md:p-8 rounded-full bg-black/60 text-white pointer-events-none animate-in fade-in zoom-in duration-200 z-50",
+          skipIndicator.type === 'backward' ? "left-1/4 -translate-x-1/2" : "right-1/4 translate-x-1/2"
+        )}>
+          {skipIndicator.type === 'backward' ? <ChevronsLeft className="w-8 h-8 md:w-12 md:h-12" /> : <ChevronsRight className="w-8 h-8 md:w-12 md:h-12" />}
+          <span className="text-sm md:text-base font-bold mt-2">{skipDuration}s</span>
+        </div>
+      )}
 
       {/* Overlays */}
       <div className={cn(
@@ -138,9 +251,17 @@ export const VideoPlayer = ({ src }: VideoPlayerProps) => {
 
            <div className="flex items-center justify-between">
               <div className="flex items-center gap-6">
-                <button onClick={togglePlay} className="hover:text-primary transition-colors">
-                    {isPlaying ? <Pause fill="currentColor" /> : <Play fill="currentColor" />}
-                </button>
+                <div className="flex items-center gap-4">
+                  <button onClick={() => handleSkip('backward')} className="hover:text-primary transition-colors tooltip-trigger" title={`Skip Backward ${skipDuration}s`}>
+                    <RotateCcw className="w-5 h-5" />
+                  </button>
+                  <button onClick={togglePlay} className="hover:text-primary transition-colors w-8 h-8 flex items-center justify-center">
+                      {isPlaying ? <Pause fill="currentColor" /> : <Play fill="currentColor" />}
+                  </button>
+                  <button onClick={() => handleSkip('forward')} className="hover:text-primary transition-colors tooltip-trigger" title={`Skip Forward ${skipDuration}s`}>
+                    <RotateCw className="w-5 h-5" />
+                  </button>
+                </div>
                 <div className="flex items-center gap-2 group/volume">
                     <button onClick={toggleMute} className="hover:text-primary transition-colors">
                         {isMuted ? <VolumeX /> : <Volume2 />}
@@ -159,6 +280,28 @@ export const VideoPlayer = ({ src }: VideoPlayerProps) => {
               </div>
 
               <div className="flex items-center gap-6">
+                <div className="relative">
+                  <button onClick={() => setShowSettings(!showSettings)} className="hover:text-primary transition-colors pr-2">
+                      <Settings className="w-5 h-5" />
+                  </button>
+                  {showSettings && (
+                    <div className="absolute bottom-full right-0 mb-4 bg-black/90 border border-white/10 rounded-lg p-2 flex flex-col gap-1 min-w-[120px] shadow-xl z-50">
+                      <div className="text-xs text-white/50 px-2 py-1 uppercase tracking-wider font-semibold">Skip Duration</div>
+                      {[5, 10, 15, 30].map(val => (
+                        <button 
+                          key={val}
+                          onClick={() => handleDurationChange(val)}
+                          className={cn(
+                            "text-left px-3 py-2 text-sm rounded hover:bg-white/10 transition-colors",
+                            skipDuration === val ? "text-primary font-bold" : "text-white"
+                          )}
+                        >
+                          {val} seconds
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <button onClick={toggleFullscreen} className="hover:text-primary transition-colors">
                     <Maximize className="w-5 h-5" />
                 </button>
