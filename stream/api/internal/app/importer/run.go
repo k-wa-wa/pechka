@@ -119,14 +119,15 @@ func Run() {
 			return nil
 		}
 
-		var assets []domain.Asset
+		// Upload all relevant files in the directory to S3 if they don't exist
+		// This ensures all .m3u8 and .ts files are present for any video in this dir
 		for _, f := range files {
 			if f.IsDir() {
 				continue
 			}
 			fName := f.Name()
 			ext := filepath.Ext(fName)
-			if ext != ".m3u8" && ext != ".ts" {
+			if ext != ".m3u8" && ext != ".ts" && ext != ".m4s" {
 				continue
 			}
 
@@ -137,27 +138,34 @@ func Run() {
 				log.Printf("ERROR: Failed to upload %s: %v", fName, err)
 				return nil
 			}
-
-			if ext == ".m3u8" {
-				assets = append(assets, domain.Asset{
-					ID:        uuid.New(),
-					AssetRole: domain.AssetRoleHLSMaster,
-					S3Key:     s3Key,
-					PublicURL:  fmt.Sprintf("%s/%s", strings.TrimSuffix(cdnBaseURL, "/"), s3Key),
-				})
-			}
 		}
 
-		thumbnailKey := fmt.Sprintf("%s/thumbnail.jpg", s3Prefix)
+		// Only the current .m3u8 is the master for THIS Video entity
+		var assets []domain.Asset
+		assets = append(assets, domain.Asset{
+			ID:        uuid.New(),
+			AssetRole: domain.AssetRoleHLSMaster,
+			S3Key:     masterS3Key,
+			PublicURL: fmt.Sprintf("%s/%s", strings.TrimSuffix(cdnBaseURL, "/"), masterS3Key),
+		})
+
+		m3u8Base := strings.TrimSuffix(filepath.Base(path), ".m3u8")
+		thumbnailKey := fmt.Sprintf("%s/%s_thumb.jpg", s3Prefix, m3u8Base)
 		videoID := uuid.New() // Internal reference for temp file
 		thumbPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s_thumb.jpg", videoID.String()))
 		
 		var firstTS string
-		for _, f := range files {
-			fName := f.Name()
-			if filepath.Ext(fName) == ".ts" && !strings.HasPrefix(fName, ".") {
-				firstTS = filepath.Join(dir, fName)
-				break
+		m3u8Content, err := os.ReadFile(path)
+		if err != nil {
+			log.Printf("ERROR: Failed to read %s: %v", path, err)
+		} else {
+			lines := strings.Split(string(m3u8Content), "\n")
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if line != "" && !strings.HasPrefix(line, "#") {
+					firstTS = filepath.Join(dir, line)
+					break
+				}
 			}
 		}
 
