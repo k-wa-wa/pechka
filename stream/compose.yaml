@@ -92,7 +92,7 @@ services:
       redis:
         condition: service_started
       batch-nfs-importer:
-        condition: service_started
+        condition: service_completed_successfully
     restart: "no"
 
   batch-nfs-importer:
