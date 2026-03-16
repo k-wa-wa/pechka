@@ -3,3 +3,4 @@ resources:
 - mongodb
 - redis
 - minio
+- elasticsearch

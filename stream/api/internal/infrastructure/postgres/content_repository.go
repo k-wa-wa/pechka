@@ -38,8 +38,8 @@ func (r *contentRepository) CreateVideo(ctx context.Context, v *domain.Video) er
 	defer tx.Rollback(ctx)
 
 	query := `
-		INSERT INTO videos (id, short_id, title, description, rating, is_360, duration_seconds, director, published_at, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		INSERT INTO videos (id, short_id, title, description, rating, is_360, duration_seconds, director, published_at, created_at, updated_at, tags)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	`
 	now := time.Now()
 	v.CreatedAt = now
@@ -47,7 +47,7 @@ func (r *contentRepository) CreateVideo(ctx context.Context, v *domain.Video) er
 	_, err = tx.Exec(ctx, query,
 		v.ID, v.ShortID, v.Title, v.Description, v.Rating,
 		v.Is360, v.DurationSeconds, v.Director,
-		v.PublishedAt, v.CreatedAt, v.CreatedAt, // updated_at initially equals created_at
+		v.PublishedAt, v.CreatedAt, v.CreatedAt, v.Tags, // updated_at initially equals created_at
 	)
 	if err != nil {
 		return fmt.Errorf("failed to insert video: %w", err)
@@ -64,14 +64,14 @@ func (r *contentRepository) CreateVideo(ctx context.Context, v *domain.Video) er
 
 func (r *contentRepository) GetVideoByShortID(ctx context.Context, shortID string) (*domain.Video, error) {
 	query := `
-		SELECT id, short_id, title, description, rating, is_360, duration_seconds, director, published_at, created_at, updated_at
+		SELECT id, short_id, title, description, rating, is_360, duration_seconds, director, tags, published_at, created_at, updated_at
 		FROM videos
 		WHERE short_id = $1
 	`
 	var v domain.Video
 	err := r.pool.QueryRow(ctx, query, shortID).Scan(
 		&v.ID, &v.ShortID, &v.Title, &v.Description, &v.Rating,
-		&v.Is360, &v.DurationSeconds, &v.Director,
+		&v.Is360, &v.DurationSeconds, &v.Director, &v.Tags,
 		&v.PublishedAt, &v.CreatedAt, &v.UpdatedAt,
 	)
 	if err != nil {
@@ -91,14 +91,14 @@ func (r *contentRepository) GetVideoByShortID(ctx context.Context, shortID strin
 
 func (r *contentRepository) GetVideoByID(ctx context.Context, id uuid.UUID) (*domain.Video, error) {
 	query := `
-		SELECT id, short_id, title, description, rating, is_360, duration_seconds, director, published_at, created_at, updated_at
+		SELECT id, short_id, title, description, rating, is_360, duration_seconds, director, tags, published_at, created_at, updated_at
 		FROM videos
 		WHERE id = $1
 	`
 	var v domain.Video
 	err := r.pool.QueryRow(ctx, query, id).Scan(
 		&v.ID, &v.ShortID, &v.Title, &v.Description, &v.Rating,
-		&v.Is360, &v.DurationSeconds, &v.Director,
+		&v.Is360, &v.DurationSeconds, &v.Director, &v.Tags,
 		&v.PublishedAt, &v.CreatedAt, &v.UpdatedAt,
 	)
 	if err != nil {
@@ -119,17 +119,17 @@ func (r *contentRepository) GetVideoByID(ctx context.Context, id uuid.UUID) (*do
 func (r *contentRepository) UpdateVideo(ctx context.Context, v *domain.Video) error {
 	query := `
 		UPDATE videos
-		SET title = $1, description = $2, rating = $3, is_360 = $4, duration_seconds = $5, director = $6, published_at = $7
-		WHERE id = $8
+		SET title = $1, description = $2, rating = $3, is_360 = $4, duration_seconds = $5, director = $6, published_at = $7, tags = $8
+		WHERE id = $9
 	`
 	_, err := r.pool.Exec(ctx, query,
-		v.Title, v.Description, v.Rating, v.Is360, v.DurationSeconds, v.Director, v.PublishedAt, v.ID,
+		v.Title, v.Description, v.Rating, v.Is360, v.DurationSeconds, v.Director, v.PublishedAt, v.Tags, v.ID,
 	)
 	return err
 }
 
 func (r *contentRepository) ListVideos(ctx context.Context) ([]*domain.Video, error) {
-	query := `SELECT id, short_id, title, description, rating, is_360, duration_seconds, director, published_at, created_at, updated_at FROM videos ORDER BY created_at DESC`
+	query := `SELECT id, short_id, title, description, rating, is_360, duration_seconds, director, tags, published_at, created_at, updated_at FROM videos ORDER BY created_at DESC`
 	rows, err := r.pool.Query(ctx, query)
 	if err != nil {
 		return nil, err
@@ -141,7 +141,7 @@ func (r *contentRepository) ListVideos(ctx context.Context) ([]*domain.Video, er
 		var v domain.Video
 		if err := rows.Scan(
 			&v.ID, &v.ShortID, &v.Title, &v.Description, &v.Rating,
-			&v.Is360, &v.DurationSeconds, &v.Director,
+			&v.Is360, &v.DurationSeconds, &v.Director, &v.Tags,
 			&v.PublishedAt, &v.CreatedAt, &v.UpdatedAt,
 		); err != nil {
 			return nil, err
@@ -168,13 +168,13 @@ func (r *contentRepository) CreateGallery(ctx context.Context, g *domain.Gallery
 	defer tx.Rollback(ctx)
 
 	query := `
-		INSERT INTO galleries (id, short_id, title, description, rating, published_at, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO galleries (id, short_id, title, description, rating, tags, published_at, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`
 	now := time.Now()
 	g.CreatedAt = now
 
-	_, err = tx.Exec(ctx, query, g.ID, g.ShortID, g.Title, g.Description, g.Rating, g.PublishedAt, g.CreatedAt, g.CreatedAt)
+	_, err = tx.Exec(ctx, query, g.ID, g.ShortID, g.Title, g.Description, g.Rating, g.Tags, g.PublishedAt, g.CreatedAt, g.CreatedAt)
 	if err != nil {
 		return err
 	}
@@ -189,9 +189,9 @@ func (r *contentRepository) CreateGallery(ctx context.Context, g *domain.Gallery
 }
 
 func (r *contentRepository) GetGalleryByShortID(ctx context.Context, shortID string) (*domain.Gallery, error) {
-	query := `SELECT id, short_id, title, description, rating, published_at, created_at, updated_at FROM galleries WHERE short_id = $1`
+	query := `SELECT id, short_id, title, description, rating, tags, published_at, created_at, updated_at FROM galleries WHERE short_id = $1`
 	var g domain.Gallery
-	err := r.pool.QueryRow(ctx, query, shortID).Scan(&g.ID, &g.ShortID, &g.Title, &g.Description, &g.Rating, &g.PublishedAt, &g.CreatedAt, &g.UpdatedAt)
+	err := r.pool.QueryRow(ctx, query, shortID).Scan(&g.ID, &g.ShortID, &g.Title, &g.Description, &g.Rating, &g.Tags, &g.PublishedAt, &g.CreatedAt, &g.UpdatedAt)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, fmt.Errorf("gallery not found: %s", shortID)
@@ -208,9 +208,9 @@ func (r *contentRepository) GetGalleryByShortID(ctx context.Context, shortID str
 }
 
 func (r *contentRepository) GetGalleryByID(ctx context.Context, id uuid.UUID) (*domain.Gallery, error) {
-	query := `SELECT id, short_id, title, description, rating, published_at, created_at, updated_at FROM galleries WHERE id = $1`
+	query := `SELECT id, short_id, title, description, rating, tags, published_at, created_at, updated_at FROM galleries WHERE id = $1`
 	var g domain.Gallery
-	err := r.pool.QueryRow(ctx, query, id).Scan(&g.ID, &g.ShortID, &g.Title, &g.Description, &g.Rating, &g.PublishedAt, &g.CreatedAt, &g.UpdatedAt)
+	err := r.pool.QueryRow(ctx, query, id).Scan(&g.ID, &g.ShortID, &g.Title, &g.Description, &g.Rating, &g.Tags, &g.PublishedAt, &g.CreatedAt, &g.UpdatedAt)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, fmt.Errorf("gallery not found: %s", id)
@@ -227,23 +227,22 @@ func (r *contentRepository) GetGalleryByID(ctx context.Context, id uuid.UUID) (*
 }
 
 func (r *contentRepository) UpdateGallery(ctx context.Context, g *domain.Gallery) error {
-	query := `UPDATE galleries SET title = $1, description = $2, rating = $3, published_at = $4 WHERE id = $5`
-	_, err := r.pool.Exec(ctx, query, g.Title, g.Description, g.Rating, g.PublishedAt, g.ID)
+	query := `UPDATE galleries SET title = $1, description = $2, rating = $3, published_at = $4, tags = $5 WHERE id = $6`
+	_, err := r.pool.Exec(ctx, query, g.Title, g.Description, g.Rating, g.PublishedAt, g.Tags, g.ID)
 	return err
 }
 
 func (r *contentRepository) ListGalleries(ctx context.Context) ([]*domain.Gallery, error) {
-	query := `SELECT id, short_id, title, description, rating, published_at, created_at, updated_at FROM galleries ORDER BY created_at DESC`
+	query := `SELECT id, short_id, title, description, rating, tags, published_at, created_at, updated_at FROM galleries ORDER BY created_at DESC`
 	rows, err := r.pool.Query(ctx, query)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
 	var results []*domain.Gallery
 	for rows.Next() {
 		var g domain.Gallery
-		if err := rows.Scan(&g.ID, &g.ShortID, &g.Title, &g.Description, &g.Rating, &g.PublishedAt, &g.CreatedAt, &g.UpdatedAt); err != nil {
+		if err := rows.Scan(&g.ID, &g.ShortID, &g.Title, &g.Description, &g.Rating, &g.Tags, &g.PublishedAt, &g.CreatedAt, &g.UpdatedAt); err != nil {
 			return nil, err
 		}
 		

@@ -109,6 +109,18 @@ export const DetailView = ({ content }: DetailViewProps) => {
                         <span className="text-sm font-medium">{content.metadata.director}</span>
                     </div>
                  )}
+                 {content.tags && content.tags.length > 0 && (
+                    <div className="col-span-2 md:col-span-3">
+                        <label className="text-[10px] uppercase font-bold text-foreground/30 block mb-2">Tags</label>
+                        <div className="flex flex-wrap gap-2">
+                            {content.tags.map((tag: string) => (
+                                <span key={tag} className="px-3 py-1 bg-white/5 border border-white/10 rounded-full text-xs text-foreground/60 hover:text-primary hover:border-primary/50 transition-colors cursor-pointer">
+                                    #{tag}
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+                 )}
               </div>
            </section>
         </div>

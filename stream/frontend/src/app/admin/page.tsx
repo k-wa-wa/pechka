@@ -13,6 +13,7 @@ interface Content {
   description: string;
   rating: number | null;
   created_at: string;
+  tags: string[];
   assets: Array<{ asset_role: string; public_url: string }>;
 }
 
@@ -83,6 +84,7 @@ export default function AdminDashboard() {
           title: editTarget.title,
           description: editTarget.description,
           rating: editTarget.rating ? parseFloat(String(editTarget.rating)) : 0,
+          tags: editTarget.tags || [],
         }),
       });
       if (res.ok) {
@@ -399,11 +401,19 @@ export default function AdminDashboard() {
                     step="0.1"
                     min="0"
                     max="10"
-                    value={editTarget.rating ?? 0}
-                    onChange={(e) => setEditTarget({ ...editTarget, rating: parseFloat(e.target.value) })}
-                    className="w-full accent-red-600 mt-3"
                   />
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Tags (Comma separated)</label>
+                <input
+                  type="text"
+                  value={(editTarget.tags || []).join(", ")}
+                  onChange={(e) => setEditTarget({ ...editTarget, tags: e.target.value.split(",").map(t => t.trim()).filter(t => t !== "") })}
+                  placeholder="Action, Sci-Fi, Adventure"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white font-medium focus:outline-none focus:border-red-600 transition-colors"
+                />
               </div>
             </div>
 

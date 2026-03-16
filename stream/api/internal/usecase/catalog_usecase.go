@@ -71,6 +71,7 @@ func (u *catalogUseCase) SyncContent(ctx context.Context, shortID string, metaRe
 				"duration_seconds": video.DurationSeconds,
 			},
 			Assets:    make(map[string]string),
+			Tags:      video.Tags,
 			UpdatedAt: time.Now(),
 		}
 		for _, asset := range video.Assets {
@@ -95,6 +96,7 @@ func (u *catalogUseCase) SyncContent(ctx context.Context, shortID string, metaRe
 			Rating:      func() float64 { if gallery.Rating != nil { return *gallery.Rating }; return 0 }(),
 			Metadata:    make(map[string]interface{}),
 			Assets:      make(map[string]string),
+			Tags:        gallery.Tags,
 			UpdatedAt:   time.Now(),
 		}
 		for _, asset := range gallery.Assets {

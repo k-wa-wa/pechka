@@ -18,3 +18,4 @@ data:
   PYTHONUNBUFFERED: "1"
   NEXT_PUBLIC_API_URL: "http://localhost:8000"
   INTERNAL_API_URL: "http://nginx:80"
+  ELASTICSEARCH_URL: "http://elasticsearch:9200"

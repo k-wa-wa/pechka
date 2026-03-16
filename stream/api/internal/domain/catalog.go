@@ -15,6 +15,7 @@ type CatalogContent struct {
 	Rating      float64                `bson:"rating" json:"rating"`
 	Metadata    map[string]interface{} `bson:"metadata" json:"metadata"`
 	Assets      map[string]string      `bson:"assets" json:"assets"` // Role -> S3Key/URL
+	Tags        []string               `bson:"tags" json:"tags"`
 	UpdatedAt   time.Time              `bson:"updated_at" json:"updated_at"`
 }
 
@@ -23,6 +24,7 @@ type CatalogRepository interface {
 	Upsert(ctx context.Context, content *CatalogContent) error
 	GetByShortID(ctx context.Context, shortID string) (*CatalogContent, error)
 	Search(ctx context.Context, query string) ([]*CatalogContent, error)
+}// SearchRepository defines operations for the search index (Elasticsearch)
+type SearchRepository interface {
+	SearchIDs(ctx context.Context, query string, tags []string) ([]string, error)
 }
-
-

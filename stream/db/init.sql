@@ -11,6 +11,7 @@ CREATE TABLE videos (
     is_360           BOOLEAN      DEFAULT FALSE,
     duration_seconds INTEGER,
     director         VARCHAR(255),
+    tags             TEXT[]       DEFAULT '{}',
     published_at     TIMESTAMP WITH TIME ZONE,
     created_at       TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at       TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -24,6 +25,7 @@ CREATE TABLE galleries (
     title        VARCHAR(255) NOT NULL,
     description  TEXT,
     rating       DECIMAL(3,2),
+    tags         TEXT[]       DEFAULT '{}',
     published_at TIMESTAMP WITH TIME ZONE,
     created_at   TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at   TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -139,12 +141,12 @@ FOR EACH ROW EXECUTE PROCEDURE update_parent_gallery_updated_at();
 CREATE OR REPLACE VIEW content_sync_view AS
 SELECT 
     v.id, v.short_id, 'video' as type, v.title, v.description, v.rating, v.updated_at,
-    v.director, v.is_360, v.duration_seconds,
+    v.director, v.is_360, v.duration_seconds, v.tags,
     (SELECT json_object_agg(asset_role, COALESCE(NULLIF(public_url, ''), s3_key)) FROM video_assets WHERE video_id = v.id) as assets
 FROM videos v
 UNION ALL
 SELECT 
     g.id, g.short_id, 'gallery' as type, g.title, g.description, g.rating, g.updated_at,
-    NULL as director, NULL as is_360, NULL as duration_seconds,
+    NULL as director, NULL as is_360, NULL as duration_seconds, g.tags,
     (SELECT json_object_agg(asset_role, COALESCE(NULLIF(public_url, ''), s3_key)) FROM gallery_assets WHERE gallery_id = g.id) as assets
 FROM galleries g;

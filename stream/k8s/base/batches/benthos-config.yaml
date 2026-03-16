@@ -20,7 +20,8 @@ data:
                   key: last_sync
             result_map: 'root.last_sync = content().string()'
         - bloblang: |
-            root.last_sync = this.last_sync.string().trim() | "1970-01-01T00:00:00Z"
+            let checkpoint = this.last_sync.string().trim() | "1970-01-01T00:00:00Z"
+            root.last_sync = if $checkpoint == "null" || $checkpoint == "" { "1970-01-01T00:00:00Z" } else { $checkpoint }
 
         - sql_raw:
             driver: postgres
@@ -30,15 +31,26 @@ data:
               WHERE updated_at > $1 
               ORDER BY updated_at ASC;
             args_mapping: 'root = [ this.last_sync ]'
+        - bloblang: 'root = if this.type() == "array" && this.length() > 0 { this } else { deleted() }'
         - unarchive:
             format: json_array
         - bloblang: |
-            let id = this.id
-            let assets_obj = this.assets.parse_json()
+            let id_val = this.id | "missing-id"
+            let assets_raw = this.assets | "{}"
+            let assets_obj = if $assets_raw.type() == "string" { $assets_raw.parse_json() | {} } else { $assets_raw | {} }
             
             root = this
-            root._id = $id
+            root._id = $id_val
             root.assets = $assets_obj
+            
+            let t = this.tags
+            root.tags = if $t == null {
+              []
+            } else if $t.type() == "string" {
+              $t.re_replace_all("[{}]", "").split(",").filter(v -> v != "")
+            } else {
+              $t | []
+            }
             root.metadata = {
               "director": this.director | "",
               "is_360": this.is_360 | false,
@@ -55,17 +67,29 @@ data:
             value: '${! this.updated_at }'
 
     output:
-      mongodb:
-        url: ${MONGODB_URI}
-        database: ${MONGODB_DB}
-        collection: contents
-        operation: replace-one
-        upsert: true
-        filter_map: 'root._id = this._id'
-        document_map: 'root = this'
-        write_concern:
-          w: "1"
-          j: false
+      broker:
+        pattern: fan_out
+        outputs:
+          - mongodb:
+              url: ${MONGODB_URI}
+              database: ${MONGODB_DB}
+              collection: contents
+              operation: replace-one
+              upsert: true
+              filter_map: 'root._id = this._id'
+              document_map: 'root = this'
+              write_concern:
+                w: "1"
+          - elasticsearch:
+              urls:
+                - "${ELASTICSEARCH_URL:http://elasticsearch:9200}"
+              index: contents
+              id: '${! meta("es_id") }'
+              action: index
+            processors:
+              - bloblang: |
+                  meta es_id = this._id
+                  root = this.without("_id")
 
     cache_resources:
       - label: sync_checkpoint
