@@ -35,6 +35,8 @@ export default function WatchPage({ params }: { params: Promise<{ short_id: stri
   }
 
   const videoSrc = content?.assets?.hls_master;
+  const movieShortId = content?.movie_short_id;
+  const backUrl = movieShortId ? `/movies/${movieShortId}` : "/";
 
   if (!videoSrc) {
     return (
@@ -51,8 +53,8 @@ export default function WatchPage({ params }: { params: Promise<{ short_id: stri
   }
 
   return (
-    <main className="w-screen h-screen bg-black overflow-hidden relative">
-      <VideoPlayer src={videoSrc} />
+    <main className="w-full h-[100svh] bg-black overflow-hidden relative">
+      <VideoPlayer src={videoSrc} backUrl={backUrl} />
       
       {/* Fallback/Overlay if video fails or for demo */}
       <div className="absolute bottom-6 left-1/2 -translate-x-1/2 text-white/10 text-[8px] pointer-events-none uppercase tracking-widest">

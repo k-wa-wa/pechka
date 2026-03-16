@@ -60,7 +60,7 @@ export default async function Home() {
               <span className="w-1.5 h-1.5 rounded-full bg-primary" />
             </h2>
             <div className="col-span-full py-20 text-center text-foreground/20 italic">
-              No content available in the multiverse yet.
+              No content available yet.
             </div>
           </section>
         )}
