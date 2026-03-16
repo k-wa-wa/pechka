@@ -17,14 +17,15 @@ const nextConfig: NextConfig = {
     ],
   },
   async rewrites() {
+    const internalApiUrl = process.env.INTERNAL_API_URL || "http://nginx:80";
     return [
       {
         source: '/api/:path*',
-        destination: 'http://nginx:80/api/:path*',
+        destination: `${internalApiUrl}/api/:path*`,
       },
       {
         source: '/assets/:path*',
-        destination: 'http://nginx:80/assets/:path*',
+        destination: `${internalApiUrl}/assets/:path*`,
       },
       {
         // MinIO direct access (keep as fallback if needed, but currently routing through nginx)

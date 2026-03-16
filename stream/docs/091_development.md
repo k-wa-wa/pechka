@@ -41,6 +41,23 @@ make down
 | **サムネイル解析** | `make reload-analyzer` |
 | **バッチ処理の再実行** | `make reload-batch` |
 
+### 高速なフロントエンド開発 (Next.js Hot Reload)
+
+k8s上のフロントエンドはコンテナイメージのビルドとデプロイが必要なため、UIの調整には向きません。ローカルマシン上で `next dev` を起動して開発することを推奨します。
+
+1. **セットアップ**:
+   `frontend/` ディレクトリに `.env.local` を作成し、k8s上のGatewayを向くように設定します。
+   ```env
+   INTERNAL_API_URL=http://localhost:8000
+   ```
+
+2. **起動**:
+   ```bash
+   cd frontend
+   npm run dev
+   ```
+   - `-H 0.0.0.0` で起動するため、同一Wi-Fi内のスマホ等からも `http://[PCのIP]:3001` でアクセス可能です。
+
 ### ログの確認
 
 Podの状態とログを確認するには以下のコマンドを使用します。
@@ -56,7 +73,8 @@ kubectl logs -f deployment/metadata-service
 ### インフラへの直接アクセス
 
 - **Nginx (Gateway)**: `http://localhost:8000`
-- **Frontend**: `http://localhost:3000`
+- **Frontend (k8s)**: `http://localhost:3000`
+- **Frontend (Local Dev)**: `http://localhost:3001`
 
 ## トラブルシューティング
 
