@@ -6,7 +6,7 @@
 ## 構成
 
 - `k8s/base/`: 全環境共通のアプリケーション定義
-- `k8s/infra/`: 開発用のミドルウェア定義（Postgres, MongoDB, Redis, MinIO）
+- `k8s/infra/`: 開発用のミドルウェア定義（Postgres, MongoDB, MinIO, etc.）
 - `k8s/overlays/dev/`: kind環境固有の設定（ポートフォワード、開発用ボリュームマウント等）
 
 ## クイックスタート

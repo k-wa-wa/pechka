@@ -43,12 +43,11 @@ func (r *contentRepository) CreateVideo(ctx context.Context, v *domain.Video) er
 	`
 	now := time.Now()
 	v.CreatedAt = now
-	v.UpdatedAt = now
 
 	_, err = tx.Exec(ctx, query,
 		v.ID, v.ShortID, v.Title, v.Description, v.Rating,
 		v.Is360, v.DurationSeconds, v.Director,
-		v.PublishedAt, v.CreatedAt, v.UpdatedAt,
+		v.PublishedAt, v.CreatedAt, v.CreatedAt, // updated_at initially equals created_at
 	)
 	if err != nil {
 		return fmt.Errorf("failed to insert video: %w", err)
@@ -120,12 +119,11 @@ func (r *contentRepository) GetVideoByID(ctx context.Context, id uuid.UUID) (*do
 func (r *contentRepository) UpdateVideo(ctx context.Context, v *domain.Video) error {
 	query := `
 		UPDATE videos
-		SET title = $1, description = $2, rating = $3, is_360 = $4, duration_seconds = $5, director = $6, published_at = $7, updated_at = $8
-		WHERE id = $9
+		SET title = $1, description = $2, rating = $3, is_360 = $4, duration_seconds = $5, director = $6, published_at = $7
+		WHERE id = $8
 	`
-	v.UpdatedAt = time.Now()
 	_, err := r.pool.Exec(ctx, query,
-		v.Title, v.Description, v.Rating, v.Is360, v.DurationSeconds, v.Director, v.PublishedAt, v.UpdatedAt, v.ID,
+		v.Title, v.Description, v.Rating, v.Is360, v.DurationSeconds, v.Director, v.PublishedAt, v.ID,
 	)
 	return err
 }
@@ -175,9 +173,8 @@ func (r *contentRepository) CreateGallery(ctx context.Context, g *domain.Gallery
 	`
 	now := time.Now()
 	g.CreatedAt = now
-	g.UpdatedAt = now
 
-	_, err = tx.Exec(ctx, query, g.ID, g.ShortID, g.Title, g.Description, g.Rating, g.PublishedAt, g.CreatedAt, g.UpdatedAt)
+	_, err = tx.Exec(ctx, query, g.ID, g.ShortID, g.Title, g.Description, g.Rating, g.PublishedAt, g.CreatedAt, g.CreatedAt)
 	if err != nil {
 		return err
 	}
@@ -230,9 +227,8 @@ func (r *contentRepository) GetGalleryByID(ctx context.Context, id uuid.UUID) (*
 }
 
 func (r *contentRepository) UpdateGallery(ctx context.Context, g *domain.Gallery) error {
-	query := `UPDATE galleries SET title = $1, description = $2, rating = $3, published_at = $4, updated_at = $5 WHERE id = $6`
-	g.UpdatedAt = time.Now()
-	_, err := r.pool.Exec(ctx, query, g.Title, g.Description, g.Rating, g.PublishedAt, g.UpdatedAt, g.ID)
+	query := `UPDATE galleries SET title = $1, description = $2, rating = $3, published_at = $4 WHERE id = $5`
+	_, err := r.pool.Exec(ctx, query, g.Title, g.Description, g.Rating, g.PublishedAt, g.ID)
 	return err
 }
 

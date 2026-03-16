@@ -16,6 +16,7 @@ CREATE TABLE videos (
     updated_at       TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_videos_short_id ON videos(short_id);
+CREATE INDEX idx_videos_updated_at ON videos(updated_at);
 
 CREATE TABLE galleries (
     id           UUID         PRIMARY KEY,
@@ -28,6 +29,7 @@ CREATE TABLE galleries (
     updated_at   TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_galleries_short_id ON galleries(short_id);
+CREATE INDEX idx_galleries_updated_at ON galleries(updated_at);
 
 CREATE TABLE video_assets (
     id          UUID         PRIMARY KEY,
@@ -37,6 +39,7 @@ CREATE TABLE video_assets (
     public_url  TEXT         NOT NULL DEFAULT ''
 );
 CREATE INDEX idx_video_assets_video_id ON video_assets(video_id);
+CREATE INDEX idx_video_assets_s3_key ON video_assets(s3_key);
 
 CREATE TABLE gallery_assets (
     id          UUID         PRIMARY KEY,
@@ -46,6 +49,7 @@ CREATE TABLE gallery_assets (
     public_url  TEXT         NOT NULL DEFAULT ''
 );
 CREATE INDEX idx_gallery_assets_gallery_id ON gallery_assets(gallery_id);
+CREATE INDEX idx_gallery_assets_s3_key ON gallery_assets(s3_key);
 
 -- =====================
 -- Auth Service Tables
@@ -76,3 +80,71 @@ CREATE TABLE refresh_tokens (
     created_at TIMESTAMP    WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_refresh_tokens_user_id ON refresh_tokens(user_id);
+
+-- =====================
+-- Triggers for updated_at
+-- =====================
+
+-- Function to set updated_at
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+-- Triggers for main tables
+CREATE TRIGGER update_videos_updated_at BEFORE UPDATE ON videos FOR EACH ROW EXECUTE PROCEDURE set_updated_at();
+CREATE TRIGGER update_galleries_updated_at BEFORE UPDATE ON galleries FOR EACH ROW EXECUTE PROCEDURE set_updated_at();
+CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE PROCEDURE set_updated_at();
+
+-- Functions to update parent updated_at
+CREATE OR REPLACE FUNCTION update_parent_video_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF (TG_OP = 'DELETE') THEN
+        UPDATE videos SET updated_at = CURRENT_TIMESTAMP WHERE id = OLD.video_id;
+    ELSE
+        UPDATE videos SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.video_id;
+    END IF;
+    RETURN NULL;
+END;
+$$ language 'plpgsql';
+
+CREATE OR REPLACE FUNCTION update_parent_gallery_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF (TG_OP = 'DELETE') THEN
+        UPDATE galleries SET updated_at = CURRENT_TIMESTAMP WHERE id = OLD.gallery_id;
+    ELSE
+        UPDATE galleries SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.gallery_id;
+    END IF;
+    RETURN NULL;
+END;
+$$ language 'plpgsql';
+
+-- Triggers for asset tables
+CREATE TRIGGER trigger_update_parent_video 
+AFTER INSERT OR UPDATE OR DELETE ON video_assets 
+FOR EACH ROW EXECUTE PROCEDURE update_parent_video_updated_at();
+
+CREATE TRIGGER trigger_update_parent_gallery 
+AFTER INSERT OR UPDATE OR DELETE ON gallery_assets 
+FOR EACH ROW EXECUTE PROCEDURE update_parent_gallery_updated_at();
+
+-- =====================
+-- Sync View
+-- =====================
+CREATE OR REPLACE VIEW content_sync_view AS
+SELECT 
+    v.id, v.short_id, 'video' as type, v.title, v.description, v.rating, v.updated_at,
+    v.director, v.is_360, v.duration_seconds,
+    (SELECT json_object_agg(asset_role, COALESCE(NULLIF(public_url, ''), s3_key)) FROM video_assets WHERE video_id = v.id) as assets
+FROM videos v
+UNION ALL
+SELECT 
+    g.id, g.short_id, 'gallery' as type, g.title, g.description, g.rating, g.updated_at,
+    NULL as director, NULL as is_360, NULL as duration_seconds,
+    (SELECT json_object_agg(asset_role, COALESCE(NULLIF(public_url, ''), s3_key)) FROM gallery_assets WHERE gallery_id = g.id) as assets
+FROM galleries g;

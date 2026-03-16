@@ -22,7 +22,7 @@
 
 ### 2.3 公開・同期 (Publish & Sync)
 -   保存時に `Metadata Service`（PostgreSQL）を更新。
--   更新完了後、自動的に `Catalog Service`（MongoDB/Redis）へ即時同期（Online Sync）をトリガーする。
+-   更新完了後、自動的に `Catalog Service`（MongoDB）へ即時同期（Online Sync）をトリガーする。
 
 ## 3. 画面設計（イメージ）
 -   **Dashboard**: 直近インポートされた「未編集」のビデオを強調表示。

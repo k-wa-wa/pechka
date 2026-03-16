@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sync-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sync-service
+  template:
+    metadata:
+      labels:
+        app: sync-service
+    spec:
+      securityContext:
+        fsGroup: 1000
+      initContainers:
+      - name: init-checkpoint
+        image: busybox
+        command: ['sh', '-c', '[ -f /data/last_sync ] || echo -n "1970-01-01T00:00:00Z" > /data/last_sync; chmod 666 /data/last_sync']
+        volumeMounts:
+        - name: data
+          mountPath: /data
+      containers:
+      - name: benthos
+        image: jeffail/benthos:4.27.0
+        args: ["-c", "/etc/benthos/benthos.yaml"]
+        envFrom:
+        - configMapRef:
+            name: app-config
+        - secretRef:
+            name: app-secret
+        volumeMounts:
+        - name: config
+          mountPath: /etc/benthos
+          readOnly: true
+        - name: data
+          mountPath: /data
+      volumes:
+      - name: config
+        configMap:
+          name: benthos-config
+      - name: data
+        persistentVolumeClaim:
+          claimName: sync-checkpoint-pvc

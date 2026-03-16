@@ -4,19 +4,16 @@ import (
 	"context"
 	"log"
 	"os"
-	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
-	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	infraMongo "pechka/streaming-service/api/internal/infrastructure/mongo"
 	"pechka/streaming-service/api/internal/infrastructure/postgres"
-	infraRedis "pechka/streaming-service/api/internal/infrastructure/redis"
 	apiInterface "pechka/streaming-service/api/internal/interface/api"
 	"pechka/streaming-service/api/internal/usecase"
 )
@@ -50,26 +47,12 @@ func Run() {
 	}
 	mongoDB := mongoClient.Database(mongoDBName)
 
-	redisURL := os.Getenv("REDIS_URL")
-	if redisURL == "" {
-		log.Fatal("REDIS_URL is not set")
-	}
-	redisClient := redis.NewClient(&redis.Options{
-		Addr: redisURL,
-	})
-	defer redisClient.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := redisClient.Ping(ctx).Err(); err != nil {
-		log.Fatalf("redis ping failed: %v", err)
-	}
 
 	metaRepo := postgres.NewContentRepository(pgPool)
 	catalogRepo := infraMongo.NewCatalogRepository(mongoDB)
-	cacheRepo := infraRedis.NewCacheRepository(redisClient)
 
-	uc := usecase.NewCatalogUseCase(catalogRepo, cacheRepo)
+	uc := usecase.NewCatalogUseCase(catalogRepo)
 	handler := apiInterface.NewCatalogHandler(uc, metaRepo)
 
 	app := fiber.New()

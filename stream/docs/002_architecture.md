@@ -18,7 +18,6 @@ graph TD
     
     DB_PG[("PostgreSQL")]
     DB_Mongo[("MongoDB")]
-    DB_Redis[("Redis")]
 
     Client -- UI Request --> Frontend
     Client -- Client-side API Request --> Gateway
@@ -29,7 +28,6 @@ graph TD
     Gateway -- /api/auth/* --> Auth
     
     Catalog --> DB_Mongo
-    Catalog --> DB_Redis
     Metadata --> DB_PG
     Auth --> DB_PG
 
@@ -46,7 +44,6 @@ graph TD
         
         SyncBatch -- Read --> DB_PG
         SyncBatch -- Sync --> DB_Mongo
-        SyncBatch -- Sync --> DB_Redis
     end
 ```
 
@@ -73,10 +70,9 @@ graph TD
 
 ### 2.3 Catalog & Search Service (カタログ・検索API)
 - **役割**: エンドユーザー（フロントエンド）向けの参照特化型API。画面描画に最適化されたペイロードを最速で返却する。
-- **データストア**: MongoDB および Redis
+- **データストア**: MongoDB
 - **設計方針**:
-  - `MongoDB` へのRead: 各作品情報(Titles, Genres, Assetsパス等)を非正規化した一つのドキュメントとして保持し、結合クエリを排除。
-  - `Redis` キャッシュ: トップページ（カルーセル）、人気ランキング、ジャンル別一覧など、全ユーザー共通のデータはRedisからミリ秒以下で返却。Metadata Serviceからの更新イベント(Sync A)を受けた際にキャッシュをパージ・再生成する。
+  - `MongoDB` へのRead: 各作品情報(Titles, Genres, Assetsパス等)を非正規化した一つのドキュメントとして保持し、結合クエリを排除。画面描画に必要なデータは MongoDB からミリ秒単位で返却する。
 
 ### 2.4 インフラ・配信層 (CDN & Object Storage)
 - **コンテンツ・画像管理**: アプリケーションサーバーやローカルディスクは利用せず、**MinIO (S3互換・セルフホスト可能)** を利用する。
@@ -85,9 +81,9 @@ graph TD
 ### 2.5 Batch Services & Sidecars
 - **Batch NFS Importer (Go)**: NFS上のHLSファイルをスキャンし、MinIOへのアップロードとメタデータ登録を行う。
 - **Thumbnail Analyzer (Python/FastAPI)**: Importerから呼び出されるサイドカーコンテナ。動画の輝度・音量などの重い解析ロジックを担当。
-- **Sync Batch (Go)**: PostgreSQLのマスターデータ（Write系）を MongoDB/Redis（Read系）へ同期・パージするバッチプロセス。
+- **Sync Batch**: PostgreSQLのマスターデータ（Write系）を MongoDB（Read系）へ同期するプロセス。
 
-- **設計方針**: 解析などのリソース消費が激しい処理や、Pythonのエコシステム（AI/画像処理）を活用したい処理をサイドカーとして分離することで、メインのバッチ処理の安定性と拡張性を確保する。また、書き込み系（RDB）と参照系（NoSQL/Cache）を分離するCQRS構成において、同期漏れを補完するための結果整合性をバッチ処理によって担保する。
+- **設計方針**: 解析などのリソース消費が激しい処理や、Pythonのエコシステム（AI/画像処理）を活用したい処理をサイドカーとして分離することで、メインのバッチ処理の安定性と拡張性を確保する。また、書き込み系（RDB）と参照系（NoSQL）を分離するCQRS構成において、同期漏れを補完するための結果整合性をバッチ処理によって担保する。
 
 ## 3. データベーススキーマ設計方針 (PostgreSQL)
 
@@ -135,18 +131,28 @@ graph TD
 
 ---
 
-## 4. データ同期と耐障害性 (Eventual Consistency & Resiliency)
+## 4. データ同期基盤 (Data Synchronization)
 
-CQRSアーキテクチャにおける PostgreSQL(Write) と MongoDB(Read) のデータ整合性を担保するため、以下の二段構えとする。
+CQRSアーキテクチャにおける PostgreSQL(Write) と MongoDB(Read) のデータ整合性を担保するため、**Redpanda Connect (Benthos)** を用いた「チェックポイント方式」の非同期ポーリング同期を採用している。
 
-1. **Online Sync (オンライン同期)**
-   - APIリクエストの延長線上で同期。Adminがデータを保存した直後、Metadata ServiceからCatalog Serviceの内部APIを叩き、MongoDBの対象ドキュメントをUpsertする。
-   - メリット: 反映が早くシンプル。
-   - デメリット: ネットワークエラーやCatalog Service側の一時的なダウン時に更新が漏れるリスクがある（不整合の発生）。
+- **仕組み**:
+  - Benthos が PostgreSQL の `content_sync_view` を 10 秒間隔でポーリングする。
+  - 最後に処理したデータの `updated_at` を PVC上のファイル (`/data/last_sync`) に記録（チェックポイント）し、次回のポーリング時はその時刻以降の差分のみを取得する。
+  - 取得したデータを JSON オブジェクト構造に変換し、MongoDB へ `replace-one` (Upsert) で書き込む。
+- **メリット**: 中間ミドルウェア（Kafka等）を持たないため運用が極めてシンプルであり、障害時はチェックポイントファイルを削除するだけで全量再同期が可能。
 
-2. **Batch Sync / Reconciliation (バッチ同期による結果整合性の担保)**
-   - 定期実行のCron Job / Workerプロセスが、PostgreSQL側の `updated_at` が直近N分以内のレコードをポーリングし、MongoDB側のデータと比較。差分や漏れがあれば非同期に修正同期(Reconciliation)を行う。
-   - これにより、仮にオンライン同期が失敗しても「遅くとも次のバッチ実行時にはデータが修正される」という**結果整合性 (Eventual Consistency)** を強固にする。
+### 4.1 現在の技術的負債と将来の課題 (Technical Debt)
+
+初期フェーズのMVPとしてシンプルさを優先した結果、将来的なデータ量増大や機能拡張に向けて以下の技術的負債・課題が存在する。
+
+1. **ドメインモデルの型妥協 (`_id` の文字列化)**
+   - MongoDB ドライバの挙動と Benthos のバイナリ出力の不整合を回避するため、現状 Go 側の `CatalogContent` 構造体の `ID` を `uuid.UUID` から `string` にダウンキャストしている。将来的に Benthos の BSON バイナリ出力設定を洗練させるか、Go ドライバレベルでの透過的なデコード処理を確立し、ドメインモデルの型安全性を回復する必要がある。
+2. **トランザクション・コミット遅延による取りこぼしリスク**
+   - 実行時間の長いトランザクションがコミットされた際、ポーリングのチェックポイント時刻を過去の `updated_at` がすり抜けてしまい、一時的な同期漏れが発生する可能性がある。将来的には Postgres の WAL を購読する CDC (Debezium等) の導入や、ポーリング時刻に手戻りのマージン（数分程度のオーバーラップスキャン）を持たせる改修が必要。
+3. **完全置換 (`replace-one`) による拡張性の阻害**
+   - 現在 MongoDB への同期はドキュメントの完全置換で行っている。今後「動画の再生回数」や「レコメンド用の学習スコア」など、Catalog側の MongoDB だけで独立して管理したいデータが生まれた場合、Postgres からの定期同期によってそれらが上書き・初期化されてしまう。出力処理を `$set` を用いた部分更新 (`update-one`) に変更する必要がある。
+4. **チェックポイント揮発時の全スキャン負荷**
+   - Kubernetes の PVC が消失しチェックポイントがリセットされた場合、Postgres から MongoDB へ全レコードが一気に再同期される。データ量が数十万件規模になった場合、システム全体に深刻な負荷スパイク（CPU/メモリ枯渇）を引き起こすため、クエリの `LIMIT` によるチャンク化や全量初期ロード専用バッチの分離が求められる。
 
 ---
 

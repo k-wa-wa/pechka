@@ -1,4 +1,6 @@
 resources:
-- sync.yaml
+- benthos-config.yaml
+- sync-checkpoint-pvc.yaml
+- sync-deployment.yaml
 - nfs-importer.yaml
 - analyzer.yaml

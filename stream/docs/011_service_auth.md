@@ -41,4 +41,4 @@
 
 ## 3. JWT 戦略
 - **Access Token**: 寿命を短く（例: 15分〜1時間）設定。ペイロードには `user_id` (UUID), `role` (Admin/User), などの基本情報を持たせ、各サービス(Go)側で秘密鍵/公開鍵を用いて署名検証のみで完結させる（通信不要）。
-- **Refresh Token**: 寿命を長く（例: 14日）設定。データベース（PostgreSQLまたはRedis）でハッシュ化して管理し、明示的なログアウト時にRevoke可能にする。HttpOnly Cookieに格納してXSS攻撃を防ぐ。
+- **Refresh Token**: 寿命を長く（例: 14日）設定。データベース（PostgreSQL）でハッシュ化して管理し、明示的なログアウト時にRevoke可能にする。HttpOnly Cookieに格納してXSS攻击を防ぐ。

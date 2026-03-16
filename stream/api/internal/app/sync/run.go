@@ -9,13 +9,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
-	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	infraMongo "pechka/streaming-service/api/internal/infrastructure/mongo"
 	"pechka/streaming-service/api/internal/infrastructure/postgres"
-	infraRedis "pechka/streaming-service/api/internal/infrastructure/redis"
 	"pechka/streaming-service/api/internal/usecase"
 )
 
@@ -52,17 +50,9 @@ func Run() {
 	}
 	mongoDB := mongoClient.Database(mongoDBName)
 
-	redisURL := os.Getenv("REDIS_URL")
-	if redisURL == "" {
-		log.Fatal("REDIS_URL is not set")
-	}
-	redisClient := redis.NewClient(&redis.Options{Addr: redisURL})
-	defer redisClient.Close()
-
 	metaRepo := postgres.NewContentRepository(pgPool)
 	catalogRepo := infraMongo.NewCatalogRepository(mongoDB)
-	cacheRepo := infraRedis.NewCacheRepository(redisClient)
-	catalogUC := usecase.NewCatalogUseCase(catalogRepo, cacheRepo)
+	catalogUC := usecase.NewCatalogUseCase(catalogRepo)
 
 	shortIDs, err := metaRepo.ListAllShortIDs(context.Background())
 	if err != nil {
