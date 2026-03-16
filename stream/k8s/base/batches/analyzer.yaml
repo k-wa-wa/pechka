@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: thumbnail-analyzer
+spec:
+  selector:
+    matchLabels:
+      app: thumbnail-analyzer
+  template:
+    metadata:
+      labels:
+        app: thumbnail-analyzer
+    spec:
+      containers:
+      - name: app
+        image: pechka-analyzer:latest
+        envFrom:
+        - configMapRef:
+            name: app-config
+        ports:
+        - containerPort: 8000
+        volumeMounts:
+        - name: nfs-data
+          mountPath: /mnt/nfs
+      volumes:
+      - name: nfs-data
+        persistentVolumeClaim:
+          claimName: nfs-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: thumbnail-analyzer
+spec:
+  selector:
+    app: thumbnail-analyzer
+  ports:
+  - port: 8000
+    targetPort: 8000

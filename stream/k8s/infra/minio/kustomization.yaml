@@ -1,0 +1,3 @@
+resources:
+- minio.yaml
+- mc-job.yaml

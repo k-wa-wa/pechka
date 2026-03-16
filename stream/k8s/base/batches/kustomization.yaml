@@ -1,0 +1,4 @@
+resources:
+- sync.yaml
+- nfs-importer.yaml
+- analyzer.yaml

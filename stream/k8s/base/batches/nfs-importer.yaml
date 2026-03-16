@@ -1,0 +1,29 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: nfs-importer
+spec:
+  schedule: "*/1 * * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: app
+            image: pechka-ffmpeg:latest
+            args: ["batch-nfs-importer"]
+            envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secret
+            volumeMounts:
+            - name: nfs-data
+              mountPath: /mnt/nfs
+              readOnly: true
+          volumes:
+          - name: nfs-data
+            persistentVolumeClaim:
+              claimName: nfs-pvc
+          restartPolicy: OnFailure

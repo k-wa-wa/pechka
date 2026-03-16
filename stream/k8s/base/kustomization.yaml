@@ -1,0 +1,8 @@
+resources:
+- services
+- batches
+- nginx
+- frontend
+- configmap.yaml
+- secret.yaml
+- nfs-pvc.yaml

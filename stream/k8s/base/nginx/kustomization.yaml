@@ -1,0 +1,7 @@
+resources:
+- nginx.yaml
+
+configMapGenerator:
+- name: nginx-conf
+  files:
+  - nginx.conf=conf/nginx.conf
