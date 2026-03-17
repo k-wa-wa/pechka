@@ -33,6 +33,7 @@ func (h *CatalogHandler) RegisterRoutes(router fiber.Router) {
 func (h *CatalogHandler) GetHome(c *fiber.Ctx) error {
 	res, err := h.uc.GetHome(c.Context())
 	if err != nil {
+		log.Printf("GetHome error: %v", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.JSON(res)

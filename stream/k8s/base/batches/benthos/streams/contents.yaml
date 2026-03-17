@@ -1,0 +1,87 @@
+input:
+  generate:
+    interval: 10s
+    mapping: 'root = {}'
+
+pipeline:
+  processors:
+    - branch:
+        processors:
+          - cache:
+              resource: sync_checkpoint
+              operator: get
+              key: last_sync_contents
+              default: "1970-01-01T00:00:00Z"
+        result_map: 'root.last_sync = content().string()'
+    - bloblang: |
+        let checkpoint = this.last_sync.string().trim() | "1970-01-01T00:00:00Z"
+        root.last_sync = if $checkpoint == "null" || $checkpoint == "" { "1970-01-01T00:00:00Z" } else { $checkpoint }
+
+    - sql_raw:
+        driver: postgres
+        dsn: ${DATABASE_URL}
+        query: |
+          SELECT * FROM content_sync_view 
+          WHERE updated_at > $1 
+          ORDER BY updated_at ASC;
+        args_mapping: 'root = [ this.last_sync ]'
+        
+    - bloblang: 'root = if this.type() == "array" && this.length() > 0 { this } else { deleted() }'
+    - unarchive:
+        format: json_array
+
+    - bloblang: |
+        root = this
+        root._id = this.id | deleted()
+        
+        let assets_raw = this.assets | "{}"
+        root.assets = if $assets_raw.type() == "string" { $assets_raw.parse_json() | {} } else { $assets_raw | {} }
+        root.rating = this.rating.number() | 0
+        
+        let t = this.tags
+        root.tags = if $t == null {
+          []
+        } else if $t.type() == "string" {
+          $t.re_replace_all("[{}]", "").split(",").filter(v -> v != "")
+        } else {
+          $t | []
+        }
+        root.metadata = {
+          "director": this.director | "",
+          "is_360": this.is_360 | false,
+          "duration_seconds": this.duration_seconds | 0
+        }
+        root.director = deleted()
+        root.is_360 = deleted()
+        root.duration_seconds = deleted()
+        root.updated_at = this.updated_at
+        
+    - cache:
+        resource: sync_checkpoint
+        operator: set
+        key: last_sync_contents
+        value: '${! this.updated_at }'
+    
+    # Very strict guard to ensure we never send null or invalid messages to broker
+    - bloblang: 'root = if this != null && (this._id | null) != null { this } else { deleted() }'
+
+output:
+  broker:
+    pattern: fan_out
+    outputs:
+      - mongodb:
+          url: ${MONGODB_URI}
+          database: ${MONGODB_DB}
+          collection: 'contents'
+          operation: replace-one
+          upsert: true
+          filter_map: 'root._id = this._id'
+          document_map: 'root = this'
+      - elasticsearch_v8:
+          urls:
+            - "${ELASTICSEARCH_URL:http://elasticsearch:9200}"
+          index: 'contents'
+          id: '${! this.id }'
+          action: index
+        processors:
+          - bloblang: 'root = this.without("_id")'

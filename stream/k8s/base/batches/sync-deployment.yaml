@@ -23,8 +23,15 @@ spec:
           mountPath: /data
       containers:
       - name: benthos
-        image: jeffail/benthos:4.27.0
-        args: ["-c", "/etc/benthos/benthos.yaml"]
+        image: redpandadata/connect:4.67.5
+        args:
+          - "--chilled"
+          - "-c"
+          - "/etc/benthos/shared.yaml"
+          - "-r"
+          - "/etc/benthos/shared.yaml"
+          - "streams"
+          - "/etc/benthos/contents.yaml"
         envFrom:
         - configMapRef:
             name: app-config

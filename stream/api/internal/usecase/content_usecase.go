@@ -1,11 +1,7 @@
 package usecase
 
 import (
-	"bytes"
 	"context"
-	"fmt"
-	"log"
-	"net/http"
 	"time"
 
 	"github.com/google/uuid"
@@ -184,14 +180,18 @@ func (u *contentUseCase) UpdateGallery(ctx context.Context, id uuid.UUID, g *dom
 }
 
 func (u *contentUseCase) syncToCatalog(shortID string) {
-	if u.catalogSyncURL == "" {
-		return
-	}
-	url := fmt.Sprintf("%s/api/catalog/v1/internal/catalog/sync/%s", u.catalogSyncURL, shortID)
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer([]byte("{}")))
-	if err != nil {
-		log.Printf("Failed to trigger catalog sync for %s: %v", shortID, err)
-		return
-	}
-	defer resp.Body.Close()
+	// Sync is now handled by Benthos polling PostgreSQL view.
+	// Manual trigger is disabled to avoid 404/500 issues during transition.
+	/*
+		if u.catalogSyncURL == "" {
+			return
+		}
+		url := fmt.Sprintf("%s/api/catalog/v1/internal/catalog/sync/%s", u.catalogSyncURL, shortID)
+		resp, err := http.Post(url, "application/json", bytes.NewBuffer([]byte("{}")))
+		if err != nil {
+			log.Printf("Failed to trigger catalog sync for %s: %v", shortID, err)
+			return
+		}
+		defer resp.Body.Close()
+	*/
 }
