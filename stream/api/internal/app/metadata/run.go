@@ -46,15 +46,11 @@ func Run() {
 	}
 	log.Println("Connected to PostgreSQL successfully")
 
-	catalogSyncURL := os.Getenv("CATALOG_SERVICE_URL")
-	if catalogSyncURL == "" {
-		log.Fatal("CATALOG_SERVICE_URL is not set")
-	}
 	nodeID := getEnvInt64("NODE_ID", 1)
 	idGen := idgen.NewSnowflakeGenerator(nodeID)
 
 	repo := postgres.NewContentRepository(pool)
-	uc := usecase.NewContentUseCase(repo, catalogSyncURL, idGen)
+	uc := usecase.NewContentUseCase(repo, idGen)
 	handler := apiInterface.NewContentHandler(uc)
 
 	app := fiber.New()

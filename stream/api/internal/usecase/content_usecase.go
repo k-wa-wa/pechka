@@ -24,8 +24,7 @@ type CreateGalleryRequest struct {
 }
 
 type AddAssetsRequest struct {
-	ParentType string         `json:"parent_type"` // "video" or "gallery"
-	Assets     []AssetRequest `json:"assets"`
+	Assets []AssetRequest `json:"assets"`
 }
 
 type AssetRequest struct {
@@ -36,7 +35,8 @@ type AssetRequest struct {
 type ContentUseCase interface {
 	CreateVideo(ctx context.Context, req CreateVideoRequest) (*domain.Video, error)
 	CreateGallery(ctx context.Context, req CreateGalleryRequest) (*domain.Gallery, error)
-	AddAssets(ctx context.Context, parentID uuid.UUID, req AddAssetsRequest) error
+	AddVideoAssets(ctx context.Context, videoID uuid.UUID, req AddAssetsRequest) error
+	AddGalleryAssets(ctx context.Context, galleryID uuid.UUID, req AddAssetsRequest) error
 	GetVideoDetails(ctx context.Context, shortID string) (*domain.Video, error)
 	GetGalleryDetails(ctx context.Context, shortID string) (*domain.Gallery, error)
 	ListVideos(ctx context.Context) ([]*domain.Video, error)
@@ -46,16 +46,14 @@ type ContentUseCase interface {
 }
 
 type contentUseCase struct {
-	repo           domain.ContentRepository
-	catalogSyncURL string
-	idGen          domain.ShortIDGenerator
+	repo  domain.ContentRepository
+	idGen domain.ShortIDGenerator
 }
 
-func NewContentUseCase(repo domain.ContentRepository, catalogSyncURL string, idGen domain.ShortIDGenerator) ContentUseCase {
+func NewContentUseCase(repo domain.ContentRepository, idGen domain.ShortIDGenerator) ContentUseCase {
 	return &contentUseCase{
-		repo:           repo,
-		catalogSyncURL: catalogSyncURL,
-		idGen:          idGen,
+		repo:  repo,
+		idGen: idGen,
 	}
 }
 
@@ -78,8 +76,6 @@ func (u *contentUseCase) CreateVideo(ctx context.Context, req CreateVideoRequest
 	if err := u.repo.CreateVideo(ctx, v); err != nil {
 		return nil, err
 	}
-
-	go u.syncToCatalog(v.ShortID)
 	return v, nil
 }
 
@@ -99,12 +95,10 @@ func (u *contentUseCase) CreateGallery(ctx context.Context, req CreateGalleryReq
 	if err := u.repo.CreateGallery(ctx, g); err != nil {
 		return nil, err
 	}
-
-	go u.syncToCatalog(g.ShortID)
 	return g, nil
 }
 
-func (u *contentUseCase) AddAssets(ctx context.Context, id uuid.UUID, req AddAssetsRequest) error {
+func (u *contentUseCase) AddVideoAssets(ctx context.Context, id uuid.UUID, req AddAssetsRequest) error {
 	var assets []domain.Asset
 	for _, a := range req.Assets {
 		assets = append(assets, domain.Asset{
@@ -114,35 +108,20 @@ func (u *contentUseCase) AddAssets(ctx context.Context, id uuid.UUID, req AddAss
 		})
 	}
 
-	if req.ParentType == "video" {
-		if err := u.repo.AddVideoAssets(ctx, id, assets); err != nil {
-			return err
-		}
-	} else {
-		if err := u.repo.AddGalleryAssets(ctx, id, assets); err != nil {
-			return err
-		}
+	return u.repo.AddVideoAssets(ctx, id, assets)
+}
+
+func (u *contentUseCase) AddGalleryAssets(ctx context.Context, id uuid.UUID, req AddAssetsRequest) error {
+	var assets []domain.Asset
+	for _, a := range req.Assets {
+		assets = append(assets, domain.Asset{
+			ID:        uuid.Must(uuid.NewV7()),
+			AssetRole: a.Role,
+			S3Key:     a.MinIOKey,
+		})
 	}
 
-	// We need shortID for sync. Fetch it based on type.
-	var shortID string
-	if req.ParentType == "video" {
-		v, err := u.repo.GetVideoByID(ctx, id)
-		if err == nil {
-			shortID = v.ShortID
-		}
-	} else {
-		g, err := u.repo.GetGalleryByID(ctx, id)
-		if err == nil {
-			shortID = g.ShortID
-		}
-	}
-
-	if shortID != "" {
-		go u.syncToCatalog(shortID)
-	}
-
-	return nil
+	return u.repo.AddGalleryAssets(ctx, id, assets)
 }
 
 func (u *contentUseCase) GetVideoDetails(ctx context.Context, shortID string) (*domain.Video, error) {
@@ -166,7 +145,6 @@ func (u *contentUseCase) UpdateVideo(ctx context.Context, id uuid.UUID, v *domai
 	if err := u.repo.UpdateVideo(ctx, v); err != nil {
 		return err
 	}
-	go u.syncToCatalog(v.ShortID)
 	return nil
 }
 
@@ -175,23 +153,6 @@ func (u *contentUseCase) UpdateGallery(ctx context.Context, id uuid.UUID, g *dom
 	if err := u.repo.UpdateGallery(ctx, g); err != nil {
 		return err
 	}
-	go u.syncToCatalog(g.ShortID)
 	return nil
 }
 
-func (u *contentUseCase) syncToCatalog(shortID string) {
-	// Sync is now handled by Benthos polling PostgreSQL view.
-	// Manual trigger is disabled to avoid 404/500 issues during transition.
-	/*
-		if u.catalogSyncURL == "" {
-			return
-		}
-		url := fmt.Sprintf("%s/api/catalog/v1/internal/catalog/sync/%s", u.catalogSyncURL, shortID)
-		resp, err := http.Post(url, "application/json", bytes.NewBuffer([]byte("{}")))
-		if err != nil {
-			log.Printf("Failed to trigger catalog sync for %s: %v", shortID, err)
-			return
-		}
-		defer resp.Body.Close()
-	*/
-}

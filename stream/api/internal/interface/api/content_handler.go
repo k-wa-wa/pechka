@@ -24,16 +24,17 @@ func (h *ContentHandler) RegisterRoutes(router fiber.Router) {
 	adminGroup.Get("/videos", h.ListVideos)
 	adminGroup.Post("/videos", h.CreateVideo)
 	adminGroup.Get("/videos/:short_id", h.GetVideo)
+	adminGroup.Post("/videos/:id/assets", h.AddVideoAssets)
 	adminGroup.Put("/videos/:id", h.UpdateVideo)
 
 	// Gallery routes
 	adminGroup.Get("/galleries", h.ListGalleries)
 	adminGroup.Post("/galleries", h.CreateGallery)
 	adminGroup.Get("/galleries/:short_id", h.GetGallery)
+	adminGroup.Post("/galleries/:id/assets", h.AddGalleryAssets)
 	adminGroup.Put("/galleries/:id", h.UpdateGallery)
 
 	// Common
-	adminGroup.Post("/assets/:id", h.AddAssets)
 }
 
 func (h *ContentHandler) CreateVideo(c *fiber.Ctx) error {
@@ -72,10 +73,10 @@ func (h *ContentHandler) CreateGallery(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusCreated).JSON(gallery)
 }
 
-func (h *ContentHandler) AddAssets(c *fiber.Ctx) error {
+func (h *ContentHandler) AddVideoAssets(c *fiber.Ctx) error {
 	id, err := uuid.Parse(c.Params("id"))
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid content id"})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid video id"})
 	}
 
 	var req usecase.AddAssetsRequest
@@ -83,12 +84,31 @@ func (h *ContentHandler) AddAssets(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request payload"})
 	}
 
-	if err := h.useCase.AddAssets(c.Context(), id, req); err != nil {
-		log.Printf("Failed to add assets: %v", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to add assets"})
+	if err := h.useCase.AddVideoAssets(c.Context(), id, req); err != nil {
+		log.Printf("Failed to add video assets: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to add video assets"})
 	}
 
-	return c.JSON(fiber.Map{"message": "assets added successfully"})
+	return c.JSON(fiber.Map{"message": "video assets added successfully"})
+}
+
+func (h *ContentHandler) AddGalleryAssets(c *fiber.Ctx) error {
+	id, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid gallery id"})
+	}
+
+	var req usecase.AddAssetsRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request payload"})
+	}
+
+	if err := h.useCase.AddGalleryAssets(c.Context(), id, req); err != nil {
+		log.Printf("Failed to add gallery assets: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to add gallery assets"})
+	}
+
+	return c.JSON(fiber.Map{"message": "gallery assets added successfully"})
 }
 
 func (h *ContentHandler) GetVideo(c *fiber.Ctx) error {
