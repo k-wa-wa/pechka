@@ -1,4 +1,4 @@
-# 検索機能設計 (Search Feature Design)
+# 検索機能設計
 
 ## 1. 概要
 本ドキュメントでは、Elasticsearch と MongoDB を組み合わせたコンテンツ検索機能の設計を定義する。

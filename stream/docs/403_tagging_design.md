@@ -1,4 +1,4 @@
-# タグ機能設計 (Tagging Feature Design)
+# タグ機能詳細設計 ・ データフロー
 
 ## 1. 概要
 本ドキュメントでは、動画およびギャラリーコンテンツに対してタグを付与し、検索や分類に活用するためのタグ機能の設計を定義する。
@@ -8,7 +8,7 @@
 - タグ情報はPostgreSQLに保存される。
 - Benthosを用いてPostgreSQLからElasticsearchにタグ情報を同期する。
 - MongoDBはカタログ表示用のデータ取得に使用し、Elasticsearchは検索用に使用する。
-- 検索時はESでIDのみを抽出し、そのIDを用いてMongoDBから実データを取得してクライアントに返却する（詳細は [014_service_search_design.md](file:///Users/watanabekouhei/workspace/pechka/stream/docs/014_service_search_design.md) を参照）。
+- 検索時はESでIDのみを抽出し、そのIDを用いてMongoDBから実データを取得してクライアントに返却する（詳細は [304_service_search_design.md](304_service_search_design.md) を参照）。
 
 ## 3. アーキテクチャ・データフロー
 
@@ -81,7 +81,7 @@ graph TD
 
 ### 5.3 Catalog Service (Search API)
 - `GET /api/v1/catalog/search?q=...&tags=...` エンドポイントを実装・拡張する。
-- 実装詳細は [014_service_search_design.md](file:///Users/watanabekouhei/workspace/pechka/stream/docs/014_service_search_design.md) を参照。
+- 実装詳細は [304_service_search_design.md](304_service_search_design.md) を参照。
 
 ### 5.4 Frontend
 - **Admin**: タグの自由入力（チップ形式など）を実装。

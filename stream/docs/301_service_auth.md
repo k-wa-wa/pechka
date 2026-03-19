@@ -1,4 +1,4 @@
-# Auth Service 設計詳細 (service_auth.md)
+# Auth Service 設計詳細
 
 ## 1. サービスの目的と責務
 エンドユーザーの認証、登録、セッション管理（JWT）を単一のサービスとして切り出す。CatalogやMetadataなどの他サービスは、Auth Serviceが発行したJWTを検証することでリクエストの正当性を判断し、直接ユーザーDBへはアクセスしない。

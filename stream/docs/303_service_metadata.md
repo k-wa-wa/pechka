@@ -1,4 +1,4 @@
-# Metadata Service 設計詳細 (service_metadata.md)
+# Metadata Service 設計詳細
 
 ## 1. サービスの目的と責務
 動画コンテンツ、ジャンル、関連アセットの「正」となる情報(Master Data)を管理する。主にAdmin（管理者）向けのCRUD機能を提供し、データはPostgreSQLに保存する。更新が発生した場合は、同期的にCatalog Serviceへ反映(Sync Strategy A)する。

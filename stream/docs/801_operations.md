@@ -1,4 +1,4 @@
-# 運用マニュアル：データ同期 (Operations Manual: Data Synchronization)
+# 運用マニュアル：データ同期
 
 本文書では、PostgresSQLマスターデータベースとMongoDBカタログストア間のデータ同期方法について説明します。
 

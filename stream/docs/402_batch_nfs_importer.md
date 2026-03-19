@@ -1,4 +1,4 @@
-# NFSビデオインポートバッチ仕様 (NFS Video Importer Batch)
+# NFSビデオインポートバッチ仕様
 
 ## 1. 概要
 NFSマウントされたディレクトリを定期的にスキャンし、新しく追加されたHLS形式のビデオコンテンツ（`.m3u8`ファイル）を自動的に検出し、`Metadata Service`（PostgreSQL）に登録する。
