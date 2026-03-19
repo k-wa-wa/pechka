@@ -17,8 +17,7 @@ paths:
   /api/v1/auth/register:
     post:
       summary: Register a new user
-      tags:
-        - Auth
+      tags: [Auth]
       requestBody:
         required: true
         content:
@@ -38,8 +37,7 @@ paths:
   /api/v1/auth/login:
     post:
       summary: Login user
-      tags:
-        - Auth
+      tags: [Auth]
       requestBody:
         required: true
         content:
@@ -59,8 +57,7 @@ paths:
   /api/v1/auth/refresh:
     post:
       summary: Refresh access token
-      tags:
-        - Auth
+      tags: [Auth]
       requestBody:
         required: true
         content:
@@ -80,8 +77,7 @@ paths:
   /api/v1/auth/me:
     get:
       summary: Get current user info
-      tags:
-        - Auth
+      tags: [Auth]
       security:
         - BearerAuth: []
       responses:
@@ -95,48 +91,45 @@ paths:
           description: Unauthorized
 
   # ==================== Metadata Service ====================
-  /api/metadata/v1/admin/metadata/videos:
+  /api/metadata/v1/admin/metadata/contents:
     get:
-      summary: List all videos
-      tags:
-        - Videos
+      summary: List all contents
+      tags: [Contents]
       responses:
         '200':
-          description: List of videos
+          description: List of contents
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Video'
+                  $ref: '#/components/schemas/Content'
         '500':
           description: Internal server error
 
     post:
-      summary: Create a new video
-      tags:
-        - Videos
+      summary: Create a new content
+      tags: [Contents]
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateVideoRequest'
+              $ref: '#/components/schemas/CreateContentRequest'
       responses:
         '201':
-          description: Video created
+          description: Content created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Video'
+                $ref: '#/components/schemas/Content'
         '400':
           description: Invalid request
 
-  /api/metadata/v1/admin/metadata/videos/{short_id}:
+  /api/metadata/v1/admin/metadata/contents/{short_id}:
     get:
-      summary: Get video by short_id
-      tags:
-        - Videos
+      summary: Get content by short_id
+      tags: [Contents]
       parameters:
         - name: short_id
           in: path
@@ -145,19 +138,47 @@ paths:
             type: string
       responses:
         '200':
-          description: Video details
+          description: Content details
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Video'
+                $ref: '#/components/schemas/Content'
         '404':
-          description: Video not found
+          description: Content not found
 
-  /api/metadata/v1/admin/metadata/videos/{id}/assets:
+  /api/metadata/v1/admin/metadata/contents/{id}:
+    put:
+      summary: Update content
+      tags: [Contents]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateContentRequest'
+      responses:
+        '200':
+          description: Content updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Content'
+        '400':
+          description: Invalid request
+        '500':
+          description: Internal server error
+
+  /api/metadata/v1/admin/metadata/contents/{id}/assets:
     post:
-      summary: Add assets to video
-      tags:
-        - Videos
+      summary: Add assets to content
+      tags: [Contents]
       parameters:
         - name: id
           in: path
@@ -181,157 +202,6 @@ paths:
                 properties:
                   message:
                     type: string
-        '400':
-          description: Invalid request
-        '500':
-          description: Internal server error
-
-  /api/metadata/v1/admin/metadata/videos/{id}:
-    put:
-      summary: Update video
-      tags:
-        - Videos
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/Video'
-      responses:
-        '200':
-          description: Video updated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Video'
-        '400':
-          description: Invalid request
-        '500':
-          description: Internal server error
-
-  /api/metadata/v1/admin/metadata/galleries:
-    get:
-      summary: List all galleries
-      tags:
-        - Galleries
-      responses:
-        '200':
-          description: List of galleries
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Gallery'
-        '500':
-          description: Internal server error
-
-    post:
-      summary: Create a new gallery
-      tags:
-        - Galleries
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateGalleryRequest'
-      responses:
-        '201':
-          description: Gallery created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Gallery'
-        '400':
-          description: Invalid request
-
-  /api/metadata/v1/admin/metadata/galleries/{short_id}:
-    get:
-      summary: Get gallery by short_id
-      tags:
-        - Galleries
-      parameters:
-        - name: short_id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Gallery details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Gallery'
-        '404':
-          description: Gallery not found
-
-  /api/metadata/v1/admin/metadata/galleries/{id}/assets:
-    post:
-      summary: Add assets to gallery
-      tags:
-        - Galleries
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AddAssetsRequest'
-      responses:
-        '200':
-          description: Assets added successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-        '400':
-          description: Invalid request
-        '500':
-          description: Internal server error
-
-  /api/metadata/v1/admin/metadata/galleries/{id}:
-    put:
-      summary: Update gallery
-      tags:
-        - Galleries
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/Gallery'
-      responses:
-        '200':
-          description: Gallery updated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Gallery'
         '400':
           description: Invalid request
         '500':
@@ -341,8 +211,7 @@ paths:
   /api/catalog/v1/catalog/home:
     get:
       summary: Get home catalog
-      tags:
-        - Catalog
+      tags: [Catalog]
       responses:
         '200':
           description: Home catalog with banners and sections
@@ -372,8 +241,7 @@ paths:
   /api/catalog/v1/catalog/contents/{short_id}:
     get:
       summary: Get content details by short_id
-      tags:
-        - Catalog
+      tags: [Catalog]
       parameters:
         - name: short_id
           in: path
@@ -390,11 +258,36 @@ paths:
         '404':
           description: Content not found
 
+  /api/catalog/v1/catalog/search:
+    get:
+      summary: Search contents
+      tags: [Catalog]
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: tags
+          in: query
+          schema:
+            type: string
+          description: Comma-separated tag list
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CatalogContent'
+        '500':
+          description: Internal server error
+
   /api/catalog/v1/internal/catalog/sync/{short_id}:
     post:
       summary: Sync content from metadata to catalog
-      tags:
-        - Catalog
+      tags: [Catalog]
       parameters:
         - name: short_id
           in: path
@@ -422,12 +315,10 @@ components:
       bearerFormat: JWT
 
   schemas:
-    # Auth schemas
+    # ── Auth ──────────────────────────────────────────────────────────────────
     RegisterRequest:
       type: object
-      required:
-        - email
-        - password
+      required: [email, password]
       properties:
         email:
           type: string
@@ -438,9 +329,7 @@ components:
 
     LoginRequest:
       type: object
-      required:
-        - email
-        - password
+      required: [email, password]
       properties:
         email:
           type: string
@@ -451,8 +340,7 @@ components:
 
     RefreshRequest:
       type: object
-      required:
-        - refresh_token
+      required: [refresh_token]
       properties:
         refresh_token:
           type: string
@@ -477,31 +365,26 @@ components:
           type: string
           enum: [user, admin]
 
-    # Content schemas
-    CreateVideoRequest:
+    # ── Content (Metadata Service) ────────────────────────────────────────────
+    VideoDetails:
       type: object
-      required:
-        - title
+      description: Fields specific to video content (content_type = video or vr360)
       properties:
-        title:
-          type: string
-        description:
-          type: string
-        rating:
-          type: number
-          format: double
         is_360:
           type: boolean
+          default: false
         duration_seconds:
           type: integer
         director:
           type: string
 
-    CreateGalleryRequest:
+    CreateContentRequest:
       type: object
-      required:
-        - title
+      required: [content_type, title]
       properties:
+        content_type:
+          type: string
+          enum: [video, image_gallery, vr360, ebook]
         title:
           type: string
         description:
@@ -509,11 +392,56 @@ components:
         rating:
           type: number
           format: double
+        tags:
+          type: array
+          items:
+            type: string
+        video_details:
+          $ref: '#/components/schemas/VideoDetails'
+          description: Required when content_type is 'video' or 'vr360'
+
+    Content:
+      type: object
+      description: Unified content entity (maps to contents table)
+      properties:
+        id:
+          type: string
+          format: uuid
+        short_id:
+          type: string
+        content_type:
+          type: string
+          enum: [video, image_gallery, vr360, ebook]
+        title:
+          type: string
+        description:
+          type: string
+        rating:
+          type: number
+          format: double
+        tags:
+          type: array
+          items:
+            type: string
+        published_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        video_details:
+          $ref: '#/components/schemas/VideoDetails'
+        assets:
+          type: array
+          items:
+            $ref: '#/components/schemas/Asset'
 
     AddAssetsRequest:
       type: object
-      required:
-        - assets
+      required: [assets]
       properties:
         assets:
           type: array
@@ -528,78 +456,8 @@ components:
           enum: [thumbnail, hls_master, pdf]
         minio_key:
           type: string
-
-    Video:
-      type: object
-      properties:
-        id:
+        public_url:
           type: string
-          format: uuid
-        short_id:
-          type: string
-        title:
-          type: string
-        description:
-          type: string
-        rating:
-          type: number
-          format: double
-        is_360:
-          type: boolean
-        duration_seconds:
-          type: integer
-        director:
-          type: string
-        published_at:
-          type: string
-          format: date-time
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
-        tags:
-          type: array
-          items:
-            type: string
-        assets:
-          type: array
-          items:
-            $ref: '#/components/schemas/Asset'
-
-    Gallery:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-        short_id:
-          type: string
-        title:
-          type: string
-        description:
-          type: string
-        rating:
-          type: number
-          format: double
-        published_at:
-          type: string
-          format: date-time
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
-        tags:
-          type: array
-          items:
-            type: string
-        assets:
-          type: array
-          items:
-            $ref: '#/components/schemas/Asset'
 
     Asset:
       type: object
@@ -614,8 +472,10 @@ components:
         public_url:
           type: string
 
+    # ── Catalog (Read-side: MongoDB) ──────────────────────────────────────────
     CatalogContent:
       type: object
+      description: Denormalized content document for the read-side (MongoDB)
       properties:
         id:
           type: string
@@ -634,10 +494,12 @@ components:
         metadata:
           type: object
           additionalProperties: true
+          description: Type-specific metadata (e.g. director, is_360, duration_seconds for video)
         assets:
           type: object
           additionalProperties:
             type: string
+          description: Map of asset_role to URL (e.g. {"hls_master": "https://..."})
         tags:
           type: array
           items:

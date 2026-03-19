@@ -20,18 +20,19 @@ pipeline:
         level: INFO
         message: "Polling with checkpoint: ${! this.last_sync }"
 
+    # content_sync_view: contents LEFT JOIN content_videos + assets の集約
     - sql_raw:
         driver: postgres
         dsn: ${DATABASE_URL}
         query: |
-          SELECT * FROM content_sync_view 
-          WHERE updated_at > $1 
+          SELECT * FROM content_sync_view
+          WHERE updated_at > $1
           ORDER BY updated_at ASC;
         args_mapping: 'root = [ this.last_sync ]'
     - log:
         level: INFO
         message: "Fetched ${! this.length() } rows from Postgres"
-        
+
     - bloblang: 'root = if this.type() == "array" && this.length() > 0 { this } else { deleted() }'
     - unarchive:
         format: json_array
@@ -39,11 +40,13 @@ pipeline:
     - bloblang: |
         root = this
         root._id = this.id | deleted()
-        
+
+        # assets は json_object_agg の結果 (JSON文字列 or null)
         let assets_raw = this.assets | "{}"
         root.assets = if $assets_raw.type() == "string" { $assets_raw.parse_json() | {} } else { $assets_raw | {} }
         root.rating = this.rating.number() | 0
-        
+
+        # tags は PostgreSQL TEXT[] → "{tag1,tag2}" 形式で渡ってくるため regex でパース
         let t = this.tags
         root.tags = if $t == null {
           []
@@ -52,23 +55,25 @@ pipeline:
         } else {
           $t | []
         }
+
+        # metadata: content_videos は LEFT JOIN のため NULL になり得る → デフォルト値を明示
         root.metadata = {
-          "director": this.director | "",
-          "is_360": this.is_360 | false,
+          "director":         this.director | "",
+          "is_360":           this.is_360   | false,
           "duration_seconds": this.duration_seconds | 0
         }
-        root.director = deleted()
-        root.is_360 = deleted()
+        root.director         = deleted()
+        root.is_360           = deleted()
         root.duration_seconds = deleted()
         root.updated_at = this.updated_at
-        
+
     - cache:
         resource: sync_checkpoint
         operator: set
         key: last_sync_contents
         value: '${! this.updated_at }'
-    
-    # Very strict guard to ensure we never send null or invalid messages to broker
+
+    # null / invalid メッセージが下流に流れないよう厳格なガード
     - bloblang: 'root = if this != null && (this._id | null) != null { this } else { deleted() }'
 
 output:
@@ -91,9 +96,9 @@ output:
           action: index
         processors:
           - bloblang: |
-              root.id = this.id
-              root.short_id = this.short_id
-              root.title = this.title
+              root.id          = this.id
+              root.short_id    = this.short_id
+              root.title       = this.title
               root.description = this.description | ""
-              root.tags = this.tags
-              root.updated_at = this.updated_at
+              root.tags        = this.tags
+              root.updated_at  = this.updated_at

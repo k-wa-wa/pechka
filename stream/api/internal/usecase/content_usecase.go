@@ -8,41 +8,34 @@ import (
 	"pechka/streaming-service/api/internal/domain"
 )
 
-type CreateVideoRequest struct {
-	Title           string   `json:"title"`
-	Description     string   `json:"description"`
-	Rating          *float64 `json:"rating,omitempty"`
-	Is360           bool     `json:"is_360"`
-	DurationSeconds int      `json:"duration_seconds"`
-	Director        string   `json:"director,omitempty"`
+// CreateContentRequest is used to create any type of content.
+type CreateContentRequest struct {
+	ContentType  domain.ContentType    `json:"content_type"`
+	Title        string                `json:"title"`
+	Description  string                `json:"description"`
+	Rating       *float64              `json:"rating,omitempty"`
+	Tags         []string              `json:"tags,omitempty"`
+	VideoDetails *domain.VideoDetails  `json:"video_details,omitempty"`
 }
 
-type CreateGalleryRequest struct {
-	Title       string   `json:"title"`
-	Description string   `json:"description"`
-	Rating      *float64 `json:"rating,omitempty"`
-}
-
+// AddAssetsRequest is used to attach asset files to a content.
 type AddAssetsRequest struct {
 	Assets []AssetRequest `json:"assets"`
 }
 
 type AssetRequest struct {
-	Role     domain.AssetRole `json:"asset_role"`
-	MinIOKey string           `json:"minio_key"`
+	Role      domain.AssetRole `json:"asset_role"`
+	MinIOKey  string           `json:"minio_key"`
+	PublicURL string           `json:"public_url,omitempty"`
 }
 
+// ContentUseCase defines the use case operations for content management.
 type ContentUseCase interface {
-	CreateVideo(ctx context.Context, req CreateVideoRequest) (*domain.Video, error)
-	CreateGallery(ctx context.Context, req CreateGalleryRequest) (*domain.Gallery, error)
-	AddVideoAssets(ctx context.Context, videoID uuid.UUID, req AddAssetsRequest) error
-	AddGalleryAssets(ctx context.Context, galleryID uuid.UUID, req AddAssetsRequest) error
-	GetVideoDetails(ctx context.Context, shortID string) (*domain.Video, error)
-	GetGalleryDetails(ctx context.Context, shortID string) (*domain.Gallery, error)
-	ListVideos(ctx context.Context) ([]*domain.Video, error)
-	ListGalleries(ctx context.Context) ([]*domain.Gallery, error)
-	UpdateVideo(ctx context.Context, id uuid.UUID, v *domain.Video) error
-	UpdateGallery(ctx context.Context, id uuid.UUID, g *domain.Gallery) error
+	CreateContent(ctx context.Context, req CreateContentRequest) (*domain.Content, error)
+	UpdateContent(ctx context.Context, id uuid.UUID, req CreateContentRequest) (*domain.Content, error)
+	GetContentDetails(ctx context.Context, shortID string) (*domain.Content, error)
+	ListContents(ctx context.Context) ([]*domain.Content, error)
+	AddAssets(ctx context.Context, contentID uuid.UUID, req AddAssetsRequest) error
 }
 
 type contentUseCase struct {
@@ -57,102 +50,64 @@ func NewContentUseCase(repo domain.ContentRepository, idGen domain.ShortIDGenera
 	}
 }
 
-func (u *contentUseCase) CreateVideo(ctx context.Context, req CreateVideoRequest) (*domain.Video, error) {
-	videoID := uuid.Must(uuid.NewV7())
-	shortID := u.idGen.Generate()
-
-	v := &domain.Video{
-		ID:              videoID,
-		ShortID:         shortID,
-		Title:           req.Title,
-		Description:     req.Description,
-		Rating:          req.Rating,
-		Is360:           req.Is360,
-		DurationSeconds: req.DurationSeconds,
-		Director:        req.Director,
-		PublishedAt:     func() *time.Time { t := time.Now(); return &t }(),
+func (u *contentUseCase) CreateContent(ctx context.Context, req CreateContentRequest) (*domain.Content, error) {
+	now := time.Now()
+	c := &domain.Content{
+		ID:           uuid.Must(uuid.NewV7()),
+		ShortID:      u.idGen.Generate(),
+		ContentType:  req.ContentType,
+		Title:        req.Title,
+		Description:  req.Description,
+		Rating:       req.Rating,
+		Tags:         req.Tags,
+		PublishedAt:  &now,
+		VideoDetails: req.VideoDetails,
+	}
+	if c.Tags == nil {
+		c.Tags = []string{}
 	}
 
-	if err := u.repo.CreateVideo(ctx, v); err != nil {
+	if err := u.repo.CreateContent(ctx, c); err != nil {
 		return nil, err
 	}
-	return v, nil
+	return c, nil
 }
 
-func (u *contentUseCase) CreateGallery(ctx context.Context, req CreateGalleryRequest) (*domain.Gallery, error) {
-	galleryID := uuid.Must(uuid.NewV7())
-	shortID := u.idGen.Generate()
-
-	g := &domain.Gallery{
-		ID:          galleryID,
-		ShortID:     shortID,
-		Title:       req.Title,
-		Description: req.Description,
-		Rating:      req.Rating,
-		PublishedAt: func() *time.Time { t := time.Now(); return &t }(),
+func (u *contentUseCase) UpdateContent(ctx context.Context, id uuid.UUID, req CreateContentRequest) (*domain.Content, error) {
+	c := &domain.Content{
+		ID:           id,
+		Title:        req.Title,
+		Description:  req.Description,
+		Rating:       req.Rating,
+		Tags:         req.Tags,
+		VideoDetails: req.VideoDetails,
 	}
-
-	if err := u.repo.CreateGallery(ctx, g); err != nil {
+	if c.Tags == nil {
+		c.Tags = []string{}
+	}
+	if err := u.repo.UpdateContent(ctx, c); err != nil {
 		return nil, err
 	}
-	return g, nil
+	return u.repo.GetContentByID(ctx, id)
 }
 
-func (u *contentUseCase) AddVideoAssets(ctx context.Context, id uuid.UUID, req AddAssetsRequest) error {
+func (u *contentUseCase) GetContentDetails(ctx context.Context, shortID string) (*domain.Content, error) {
+	return u.repo.GetContentByShortID(ctx, shortID)
+}
+
+func (u *contentUseCase) ListContents(ctx context.Context) ([]*domain.Content, error) {
+	return u.repo.ListContents(ctx)
+}
+
+func (u *contentUseCase) AddAssets(ctx context.Context, contentID uuid.UUID, req AddAssetsRequest) error {
 	var assets []domain.Asset
 	for _, a := range req.Assets {
 		assets = append(assets, domain.Asset{
 			ID:        uuid.Must(uuid.NewV7()),
 			AssetRole: a.Role,
 			S3Key:     a.MinIOKey,
+			PublicURL: a.PublicURL,
 		})
 	}
-
-	return u.repo.AddVideoAssets(ctx, id, assets)
+	return u.repo.AddAssets(ctx, contentID, assets)
 }
-
-func (u *contentUseCase) AddGalleryAssets(ctx context.Context, id uuid.UUID, req AddAssetsRequest) error {
-	var assets []domain.Asset
-	for _, a := range req.Assets {
-		assets = append(assets, domain.Asset{
-			ID:        uuid.Must(uuid.NewV7()),
-			AssetRole: a.Role,
-			S3Key:     a.MinIOKey,
-		})
-	}
-
-	return u.repo.AddGalleryAssets(ctx, id, assets)
-}
-
-func (u *contentUseCase) GetVideoDetails(ctx context.Context, shortID string) (*domain.Video, error) {
-	return u.repo.GetVideoByShortID(ctx, shortID)
-}
-
-func (u *contentUseCase) GetGalleryDetails(ctx context.Context, shortID string) (*domain.Gallery, error) {
-	return u.repo.GetGalleryByShortID(ctx, shortID)
-}
-
-func (u *contentUseCase) ListVideos(ctx context.Context) ([]*domain.Video, error) {
-	return u.repo.ListVideos(ctx)
-}
-
-func (u *contentUseCase) ListGalleries(ctx context.Context) ([]*domain.Gallery, error) {
-	return u.repo.ListGalleries(ctx)
-}
-
-func (u *contentUseCase) UpdateVideo(ctx context.Context, id uuid.UUID, v *domain.Video) error {
-	v.ID = id
-	if err := u.repo.UpdateVideo(ctx, v); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (u *contentUseCase) UpdateGallery(ctx context.Context, id uuid.UUID, g *domain.Gallery) error {
-	g.ID = id
-	if err := u.repo.UpdateGallery(ctx, g); err != nil {
-		return err
-	}
-	return nil
-}
-

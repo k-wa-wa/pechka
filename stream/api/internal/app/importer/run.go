@@ -229,24 +229,29 @@ func processVideo(ctx context.Context, job ImportJob, nfsScanPath string, repo d
 	}
 
 	now := time.Now()
-	video := &domain.Video{
-		ID:              videoID,
-		ShortID:         idGen.Generate(),
-		Title:           name,
-		Description:     "",
-		Is360:           false,
-		DurationSeconds: int(durationSec),
-		Director:        "",
-		CreatedAt:       now,
-		UpdatedAt:       now,
-		Assets:          assets,
+	content := &domain.Content{
+		ID:          videoID,
+		ShortID:     idGen.Generate(),
+		ContentType: domain.ContentTypeVideo,
+		Title:       name,
+		Description: "",
+		Tags:        []string{},
+		PublishedAt: &now,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		VideoDetails: &domain.VideoDetails{
+			Is360:           false,
+			DurationSeconds: int(durationSec),
+			Director:        "",
+		},
+		Assets: assets,
 	}
 
-	if err := repo.CreateVideo(ctx, video); err != nil {
+	if err := repo.CreateContent(ctx, content); err != nil {
 		return fmt.Errorf("DB registration error: %w", err)
 	}
 
-	log.Printf("SUCCESS: Imported %s as Video ID %s", relPath, videoID)
+	log.Printf("SUCCESS: Imported %s as Content ID %s", relPath, videoID)
 	return nil
 }
 

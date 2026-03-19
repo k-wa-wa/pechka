@@ -23,38 +23,43 @@ type contentRepository struct {
 }
 
 func NewContentRepository(pool *pgxpool.Pool) domain.ContentRepository {
-	return &contentRepository{
-		pool: pool,
-	}
+	return &contentRepository{pool: pool}
 }
 
-// Video operations
+// ─── Content CRUD ─────────────────────────────────────────────────────────────
 
-func (r *contentRepository) CreateVideo(ctx context.Context, v *domain.Video) error {
+func (r *contentRepository) CreateContent(ctx context.Context, c *domain.Content) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	query := `
-		INSERT INTO videos (id, short_id, title, description, rating, is_360, duration_seconds, director, published_at, created_at, updated_at, tags)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-	`
 	now := time.Now()
-	v.CreatedAt = now
+	c.CreatedAt = now
 
-	_, err = tx.Exec(ctx, query,
-		v.ID, v.ShortID, v.Title, v.Description, v.Rating,
-		v.Is360, v.DurationSeconds, v.Director,
-		v.PublishedAt, v.CreatedAt, v.CreatedAt, v.Tags, // updated_at initially equals created_at
-	)
+	_, err = tx.Exec(ctx, `
+		INSERT INTO contents (id, short_id, content_type, title, description, rating, tags, published_at, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	`, c.ID, c.ShortID, c.ContentType, c.Title, c.Description, c.Rating, c.Tags,
+		c.PublishedAt, c.CreatedAt, c.CreatedAt)
 	if err != nil {
-		return fmt.Errorf("failed to insert video: %w", err)
+		return fmt.Errorf("failed to insert content: %w", err)
 	}
 
-	if len(v.Assets) > 0 {
-		if err := r.addAssetsTx(ctx, tx, "video_assets", "video_id", v.ID, v.Assets); err != nil {
+	// video / vr360 のみ content_videos に書き込む
+	if c.VideoDetails != nil {
+		_, err = tx.Exec(ctx, `
+			INSERT INTO content_videos (content_id, is_360, duration_seconds, director)
+			VALUES ($1, $2, $3, $4)
+		`, c.ID, c.VideoDetails.Is360, c.VideoDetails.DurationSeconds, c.VideoDetails.Director)
+		if err != nil {
+			return fmt.Errorf("failed to insert content_videos: %w", err)
+		}
+	}
+
+	if len(c.Assets) > 0 {
+		if err := r.addAssetsTx(ctx, tx, c.ID, c.Assets); err != nil {
 			return err
 		}
 	}
@@ -62,237 +67,135 @@ func (r *contentRepository) CreateVideo(ctx context.Context, v *domain.Video) er
 	return tx.Commit(ctx)
 }
 
-func (r *contentRepository) GetVideoByShortID(ctx context.Context, shortID string) (*domain.Video, error) {
-	query := `
-		SELECT id, short_id, title, description, rating, is_360, duration_seconds, director, tags, published_at, created_at, updated_at
-		FROM videos
-		WHERE short_id = $1
-	`
-	var v domain.Video
-	err := r.pool.QueryRow(ctx, query, shortID).Scan(
-		&v.ID, &v.ShortID, &v.Title, &v.Description, &v.Rating,
-		&v.Is360, &v.DurationSeconds, &v.Director, &v.Tags,
-		&v.PublishedAt, &v.CreatedAt, &v.UpdatedAt,
-	)
+func (r *contentRepository) GetContentByShortID(ctx context.Context, shortID string) (*domain.Content, error) {
+	return r.getContent(ctx, "short_id", shortID)
+}
+
+func (r *contentRepository) GetContentByID(ctx context.Context, id uuid.UUID) (*domain.Content, error) {
+	return r.getContent(ctx, "id", id)
+}
+
+// getContent fetches a Content by a column name and value, joining content_videos.
+func (r *contentRepository) getContent(ctx context.Context, col string, val interface{}) (*domain.Content, error) {
+	query := fmt.Sprintf(`
+		SELECT
+			c.id, c.short_id, c.content_type, c.title, c.description, c.rating, c.tags,
+			c.published_at, c.created_at, c.updated_at,
+			cv.is_360, cv.duration_seconds, cv.director
+		FROM contents c
+		LEFT JOIN content_videos cv ON cv.content_id = c.id
+		WHERE c.%s = $1
+	`, col)
+
+	row := r.pool.QueryRow(ctx, query, val)
+	c, err := scanContent(row)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("video not found: %s", shortID)
+			return nil, fmt.Errorf("content not found: %v", val)
 		}
 		return nil, err
 	}
 
-	assets, err := r.getVideoAssets(ctx, v.ID)
+	assets, err := r.getAssets(ctx, c.ID)
 	if err != nil {
 		return nil, err
 	}
-	v.Assets = assets
-	return &v, nil
+	c.Assets = assets
+	return c, nil
 }
 
-func (r *contentRepository) GetVideoByID(ctx context.Context, id uuid.UUID) (*domain.Video, error) {
-	query := `
-		SELECT id, short_id, title, description, rating, is_360, duration_seconds, director, tags, published_at, created_at, updated_at
-		FROM videos
-		WHERE id = $1
-	`
-	var v domain.Video
-	err := r.pool.QueryRow(ctx, query, id).Scan(
-		&v.ID, &v.ShortID, &v.Title, &v.Description, &v.Rating,
-		&v.Is360, &v.DurationSeconds, &v.Director, &v.Tags,
-		&v.PublishedAt, &v.CreatedAt, &v.UpdatedAt,
-	)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("video not found: %s", id)
-		}
-		return nil, err
-	}
-
-	assets, err := r.getVideoAssets(ctx, v.ID)
-	if err != nil {
-		return nil, err
-	}
-	v.Assets = assets
-	return &v, nil
-}
-
-func (r *contentRepository) UpdateVideo(ctx context.Context, v *domain.Video) error {
-	query := `
-		UPDATE videos
-		SET title = $1, description = $2, rating = $3, is_360 = $4, duration_seconds = $5, director = $6, published_at = $7, tags = $8
-		WHERE id = $9
-	`
-	_, err := r.pool.Exec(ctx, query,
-		v.Title, v.Description, v.Rating, v.Is360, v.DurationSeconds, v.Director, v.PublishedAt, v.Tags, v.ID,
-	)
-	return err
-}
-
-func (r *contentRepository) ListVideos(ctx context.Context) ([]*domain.Video, error) {
-	query := `SELECT id, short_id, title, description, rating, is_360, duration_seconds, director, tags, published_at, created_at, updated_at FROM videos ORDER BY created_at DESC`
-	rows, err := r.pool.Query(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var results []*domain.Video
-	for rows.Next() {
-		var v domain.Video
-		if err := rows.Scan(
-			&v.ID, &v.ShortID, &v.Title, &v.Description, &v.Rating,
-			&v.Is360, &v.DurationSeconds, &v.Director, &v.Tags,
-			&v.PublishedAt, &v.CreatedAt, &v.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		
-		assets, err := r.getVideoAssets(ctx, v.ID)
-		if err != nil {
-			return nil, err
-		}
-		v.Assets = assets
-		
-		results = append(results, &v)
-	}
-	return results, nil
-}
-
-// Gallery operations
-
-func (r *contentRepository) CreateGallery(ctx context.Context, g *domain.Gallery) error {
+func (r *contentRepository) UpdateContent(ctx context.Context, c *domain.Content) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	query := `
-		INSERT INTO galleries (id, short_id, title, description, rating, tags, published_at, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-	`
-	now := time.Now()
-	g.CreatedAt = now
-
-	_, err = tx.Exec(ctx, query, g.ID, g.ShortID, g.Title, g.Description, g.Rating, g.Tags, g.PublishedAt, g.CreatedAt, g.CreatedAt)
+	_, err = tx.Exec(ctx, `
+		UPDATE contents
+		SET title = $1, description = $2, rating = $3, tags = $4, published_at = $5
+		WHERE id = $6
+	`, c.Title, c.Description, c.Rating, c.Tags, c.PublishedAt, c.ID)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to update content: %w", err)
 	}
 
-	if len(g.Assets) > 0 {
-		if err := r.addAssetsTx(ctx, tx, "gallery_assets", "gallery_id", g.ID, g.Assets); err != nil {
-			return err
+	if c.VideoDetails != nil {
+		// UPSERT: insert or update content_videos
+		_, err = tx.Exec(ctx, `
+			INSERT INTO content_videos (content_id, is_360, duration_seconds, director)
+			VALUES ($1, $2, $3, $4)
+			ON CONFLICT (content_id) DO UPDATE
+			SET is_360 = EXCLUDED.is_360,
+			    duration_seconds = EXCLUDED.duration_seconds,
+			    director = EXCLUDED.director
+		`, c.ID, c.VideoDetails.Is360, c.VideoDetails.DurationSeconds, c.VideoDetails.Director)
+		if err != nil {
+			return fmt.Errorf("failed to upsert content_videos: %w", err)
 		}
 	}
 
 	return tx.Commit(ctx)
 }
 
-func (r *contentRepository) GetGalleryByShortID(ctx context.Context, shortID string) (*domain.Gallery, error) {
-	query := `SELECT id, short_id, title, description, rating, tags, published_at, created_at, updated_at FROM galleries WHERE short_id = $1`
-	var g domain.Gallery
-	err := r.pool.QueryRow(ctx, query, shortID).Scan(&g.ID, &g.ShortID, &g.Title, &g.Description, &g.Rating, &g.Tags, &g.PublishedAt, &g.CreatedAt, &g.UpdatedAt)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("gallery not found: %s", shortID)
-		}
-		return nil, err
-	}
-
-	assets, err := r.getGalleryAssets(ctx, g.ID)
-	if err != nil {
-		return nil, err
-	}
-	g.Assets = assets
-	return &g, nil
-}
-
-func (r *contentRepository) GetGalleryByID(ctx context.Context, id uuid.UUID) (*domain.Gallery, error) {
-	query := `SELECT id, short_id, title, description, rating, tags, published_at, created_at, updated_at FROM galleries WHERE id = $1`
-	var g domain.Gallery
-	err := r.pool.QueryRow(ctx, query, id).Scan(&g.ID, &g.ShortID, &g.Title, &g.Description, &g.Rating, &g.Tags, &g.PublishedAt, &g.CreatedAt, &g.UpdatedAt)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("gallery not found: %s", id)
-		}
-		return nil, err
-	}
-
-	assets, err := r.getGalleryAssets(ctx, g.ID)
-	if err != nil {
-		return nil, err
-	}
-	g.Assets = assets
-	return &g, nil
-}
-
-func (r *contentRepository) UpdateGallery(ctx context.Context, g *domain.Gallery) error {
-	query := `UPDATE galleries SET title = $1, description = $2, rating = $3, published_at = $4, tags = $5 WHERE id = $6`
-	_, err := r.pool.Exec(ctx, query, g.Title, g.Description, g.Rating, g.PublishedAt, g.Tags, g.ID)
-	return err
-}
-
-func (r *contentRepository) ListGalleries(ctx context.Context) ([]*domain.Gallery, error) {
-	query := `SELECT id, short_id, title, description, rating, tags, published_at, created_at, updated_at FROM galleries ORDER BY created_at DESC`
+func (r *contentRepository) ListContents(ctx context.Context) ([]*domain.Content, error) {
+	query := `
+		SELECT
+			c.id, c.short_id, c.content_type, c.title, c.description, c.rating, c.tags,
+			c.published_at, c.created_at, c.updated_at,
+			cv.is_360, cv.duration_seconds, cv.director
+		FROM contents c
+		LEFT JOIN content_videos cv ON cv.content_id = c.id
+		ORDER BY c.created_at DESC
+	`
 	rows, err := r.pool.Query(ctx, query)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var results []*domain.Gallery
+
+	var results []*domain.Content
 	for rows.Next() {
-		var g domain.Gallery
-		if err := rows.Scan(&g.ID, &g.ShortID, &g.Title, &g.Description, &g.Rating, &g.Tags, &g.PublishedAt, &g.CreatedAt, &g.UpdatedAt); err != nil {
-			return nil, err
-		}
-		
-		assets, err := r.getGalleryAssets(ctx, g.ID)
+		c, err := scanContentRow(rows)
 		if err != nil {
 			return nil, err
 		}
-		g.Assets = assets
-		
-		results = append(results, &g)
+		assets, err := r.getAssets(ctx, c.ID)
+		if err != nil {
+			return nil, err
+		}
+		c.Assets = assets
+		results = append(results, c)
 	}
 	return results, nil
 }
 
-// Asset operations
+// ─── Asset Operations ─────────────────────────────────────────────────────────
 
-func (r *contentRepository) AddVideoAssets(ctx context.Context, videoID uuid.UUID, assets []domain.Asset) error {
-	return r.addAssetsTx(ctx, r.pool, "video_assets", "video_id", videoID, assets)
+func (r *contentRepository) AddAssets(ctx context.Context, contentID uuid.UUID, assets []domain.Asset) error {
+	return r.addAssetsTx(ctx, r.pool, contentID, assets)
 }
 
-func (r *contentRepository) AddGalleryAssets(ctx context.Context, galleryID uuid.UUID, assets []domain.Asset) error {
-	return r.addAssetsTx(ctx, r.pool, "gallery_assets", "gallery_id", galleryID, assets)
-}
-
-func (r *contentRepository) addAssetsTx(ctx context.Context, exec DB, tableName, fkName string, parentID uuid.UUID, assets []domain.Asset) error {
-	query := fmt.Sprintf(`INSERT INTO %s (id, %s, asset_role, s3_key, public_url) VALUES ($1, $2, $3, $4, $5)`, tableName, fkName)
+func (r *contentRepository) addAssetsTx(ctx context.Context, exec DB, contentID uuid.UUID, assets []domain.Asset) error {
 	for _, a := range assets {
 		id := a.ID
 		if id == uuid.Nil {
 			id = uuid.Must(uuid.NewV7())
 		}
-		_, err := exec.Exec(ctx, query, id, parentID, a.AssetRole, a.S3Key, a.PublicURL)
+		_, err := exec.Exec(ctx,
+			`INSERT INTO assets (id, content_id, asset_role, s3_key, public_url) VALUES ($1, $2, $3, $4, $5)`,
+			id, contentID, a.AssetRole, a.S3Key, a.PublicURL,
+		)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to insert asset: %w", err)
 		}
 	}
 	return nil
 }
 
-func (r *contentRepository) getVideoAssets(ctx context.Context, videoID uuid.UUID) ([]domain.Asset, error) {
-	return r.getAssets(ctx, "video_assets", "video_id", videoID)
-}
-
-func (r *contentRepository) getGalleryAssets(ctx context.Context, galleryID uuid.UUID) ([]domain.Asset, error) {
-	return r.getAssets(ctx, "gallery_assets", "gallery_id", galleryID)
-}
-
-func (r *contentRepository) getAssets(ctx context.Context, tableName, fkName string, parentID uuid.UUID) ([]domain.Asset, error) {
-	query := fmt.Sprintf(`SELECT id, asset_role, s3_key, public_url FROM %s WHERE %s = $1`, tableName, fkName)
-	rows, err := r.pool.Query(ctx, query, parentID)
+func (r *contentRepository) getAssets(ctx context.Context, contentID uuid.UUID) ([]domain.Asset, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, asset_role, s3_key, public_url FROM assets WHERE content_id = $1`, contentID)
 	if err != nil {
 		return nil, err
 	}
@@ -309,9 +212,18 @@ func (r *contentRepository) getAssets(ctx context.Context, tableName, fkName str
 	return assets, nil
 }
 
+// ─── Utility ─────────────────────────────────────────────────────────────────
+
+func (r *contentRepository) CheckDuplicateByS3Key(ctx context.Context, s3Key string) (bool, error) {
+	var exists bool
+	err := r.pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM assets WHERE s3_key = $1)`, s3Key,
+	).Scan(&exists)
+	return exists, err
+}
+
 func (r *contentRepository) ListAllShortIDs(ctx context.Context) ([]string, error) {
-	query := `SELECT short_id FROM videos UNION SELECT short_id FROM galleries`
-	rows, err := r.pool.Query(ctx, query)
+	rows, err := r.pool.Query(ctx, `SELECT short_id FROM contents`)
 	if err != nil {
 		return nil, err
 	}
@@ -328,17 +240,77 @@ func (r *contentRepository) ListAllShortIDs(ctx context.Context) ([]string, erro
 	return ids, nil
 }
 
-func (r *contentRepository) CheckDuplicateByS3Key(ctx context.Context, s3Key string) (bool, error) {
-	query := `
-		SELECT EXISTS (
-			SELECT 1 FROM (
-				SELECT s3_key FROM video_assets WHERE s3_key = $1
-				UNION ALL
-				SELECT s3_key FROM gallery_assets WHERE s3_key = $1
-			) t
-		)
-	`
-	var exists bool
-	err := r.pool.QueryRow(ctx, query, s3Key).Scan(&exists)
-	return exists, err
+// ─── Scan helpers ─────────────────────────────────────────────────────────────
+
+// scanContent scans a single row returned by QueryRow (contents LEFT JOIN content_videos).
+func scanContent(row pgx.Row) (*domain.Content, error) {
+	var c domain.Content
+	var is360 *bool
+	var durationSec *int
+	var director *string
+
+	err := row.Scan(
+		&c.ID, &c.ShortID, &c.ContentType, &c.Title, &c.Description, &c.Rating, &c.Tags,
+		&c.PublishedAt, &c.CreatedAt, &c.UpdatedAt,
+		&is360, &durationSec, &director,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if is360 != nil || durationSec != nil || director != nil {
+		c.VideoDetails = &domain.VideoDetails{
+			Is360:           boolVal(is360),
+			DurationSeconds: intVal(durationSec),
+			Director:        strVal(director),
+		}
+	}
+	return &c, nil
+}
+
+// scanContentRow scans a row from Rows (used in ListContents).
+func scanContentRow(rows pgx.Rows) (*domain.Content, error) {
+	var c domain.Content
+	var is360 *bool
+	var durationSec *int
+	var director *string
+
+	err := rows.Scan(
+		&c.ID, &c.ShortID, &c.ContentType, &c.Title, &c.Description, &c.Rating, &c.Tags,
+		&c.PublishedAt, &c.CreatedAt, &c.UpdatedAt,
+		&is360, &durationSec, &director,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if is360 != nil || durationSec != nil || director != nil {
+		c.VideoDetails = &domain.VideoDetails{
+			Is360:           boolVal(is360),
+			DurationSeconds: intVal(durationSec),
+			Director:        strVal(director),
+		}
+	}
+	return &c, nil
+}
+
+func boolVal(v *bool) bool {
+	if v == nil {
+		return false
+	}
+	return *v
+}
+
+func intVal(v *int) int {
+	if v == nil {
+		return 0
+	}
+	return *v
+}
+
+func strVal(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
 }

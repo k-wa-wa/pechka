@@ -51,14 +51,12 @@ func (u *catalogUseCase) GetContentDetails(ctx context.Context, shortID string) 
 	if err != nil {
 		return nil, err
 	}
-
 	return res, nil
 }
 
 func (u *catalogUseCase) Search(ctx context.Context, query string, tags []string) ([]*domain.CatalogContent, error) {
 	ids, err := u.searchRepo.SearchIDs(ctx, query, tags)
 	if err != nil {
-		// Log error and fallback to Mongo search if needed, but for now just return error
 		return nil, fmt.Errorf("search failed: %w", err)
 	}
 
@@ -87,66 +85,59 @@ func (u *catalogUseCase) Search(ctx context.Context, query string, tags []string
 	return ordered, nil
 }
 
+// SyncContent fetches the latest data from PostgreSQL (via metaRepo) and upserts it to MongoDB.
 func (u *catalogUseCase) SyncContent(ctx context.Context, shortID string, metaRepo domain.ContentRepository) error {
-	// 1. Try to fetch as Video
-	video, videoErr := metaRepo.GetVideoByShortID(ctx, shortID)
-	
-	var catalog *domain.CatalogContent
-	if videoErr == nil {
-		catalog = &domain.CatalogContent{
-			ID:          video.ID.String(),
-			ShortID:     video.ShortID,
-			Type:        domain.ContentTypeVideo,
-			Title:       video.Title,
-			Description: video.Description,
-			Rating:      func() float64 { if video.Rating != nil { return *video.Rating }; return 0 }(),
-			Metadata: map[string]interface{}{
-				"director":         video.Director,
-				"is_360":           video.Is360,
-				"duration_seconds": video.DurationSeconds,
-			},
-			Assets:    make(map[string]string),
-			Tags:      video.Tags,
-			UpdatedAt: time.Now(),
-		}
-		for _, asset := range video.Assets {
-			val := asset.S3Key
-			if asset.PublicURL != "" {
-				val = asset.PublicURL
-			}
-			catalog.Assets[string(asset.AssetRole)] = val
-		}
-	} else {
-		// 2. Try to fetch as Gallery
-		gallery, galleryErr := metaRepo.GetGalleryByShortID(ctx, shortID)
-		if galleryErr != nil {
-			return fmt.Errorf("content not found in metadata for shortID %s: video_err=%v, gallery_err=%v", shortID, videoErr, galleryErr)
-		}
-		catalog = &domain.CatalogContent{
-			ID:          gallery.ID.String(),
-			ShortID:     gallery.ShortID,
-			Type:        domain.ContentTypeImageGallery,
-			Title:       gallery.Title,
-			Description: gallery.Description,
-			Rating:      func() float64 { if gallery.Rating != nil { return *gallery.Rating }; return 0 }(),
-			Metadata:    make(map[string]interface{}),
-			Assets:      make(map[string]string),
-			Tags:        gallery.Tags,
-			UpdatedAt:   time.Now(),
-		}
-		for _, asset := range gallery.Assets {
-			val := asset.S3Key
-			if asset.PublicURL != "" {
-				val = asset.PublicURL
-			}
-			catalog.Assets[string(asset.AssetRole)] = val
-		}
+	c, err := metaRepo.GetContentByShortID(ctx, shortID)
+	if err != nil {
+		return fmt.Errorf("content not found in metadata for shortID %s: %w", shortID, err)
 	}
 
-	// 3. Update Mongo
+	catalog := contentToCatalog(c)
+
 	if err := u.repo.Upsert(ctx, catalog); err != nil {
 		return err
 	}
-
 	return nil
+}
+
+// contentToCatalog converts a PostgreSQL Content to a denormalized CatalogContent for MongoDB.
+func contentToCatalog(c *domain.Content) *domain.CatalogContent {
+	rating := 0.0
+	if c.Rating != nil {
+		rating = *c.Rating
+	}
+
+	metadata := map[string]interface{}{}
+	if c.VideoDetails != nil {
+		metadata["director"] = c.VideoDetails.Director
+		metadata["is_360"] = c.VideoDetails.Is360
+		metadata["duration_seconds"] = c.VideoDetails.DurationSeconds
+	}
+
+	assets := make(map[string]string)
+	for _, a := range c.Assets {
+		val := a.S3Key
+		if a.PublicURL != "" {
+			val = a.PublicURL
+		}
+		assets[string(a.AssetRole)] = val
+	}
+
+	tags := c.Tags
+	if tags == nil {
+		tags = []string{}
+	}
+
+	return &domain.CatalogContent{
+		ID:          c.ID.String(),
+		ShortID:     c.ShortID,
+		Type:        c.ContentType,
+		Title:       c.Title,
+		Description: c.Description,
+		Rating:      rating,
+		Metadata:    metadata,
+		Assets:      assets,
+		Tags:        tags,
+		UpdatedAt:   time.Now(),
+	}
 }

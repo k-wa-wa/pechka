@@ -9,6 +9,7 @@ import (
 	"pechka/streaming-service/api/internal/usecase"
 )
 
+// ContentHandler handles admin metadata API for content management.
 type ContentHandler struct {
 	useCase usecase.ContentUseCase
 }
@@ -18,65 +19,77 @@ func NewContentHandler(useCase usecase.ContentUseCase) *ContentHandler {
 }
 
 func (h *ContentHandler) RegisterRoutes(router fiber.Router) {
-	adminGroup := router.Group("/admin/metadata")
-	
-	// Video routes
-	adminGroup.Get("/videos", h.ListVideos)
-	adminGroup.Post("/videos", h.CreateVideo)
-	adminGroup.Get("/videos/:short_id", h.GetVideo)
-	adminGroup.Post("/videos/:id/assets", h.AddVideoAssets)
-	adminGroup.Put("/videos/:id", h.UpdateVideo)
+	admin := router.Group("/admin/metadata")
 
-	// Gallery routes
-	adminGroup.Get("/galleries", h.ListGalleries)
-	adminGroup.Post("/galleries", h.CreateGallery)
-	adminGroup.Get("/galleries/:short_id", h.GetGallery)
-	adminGroup.Post("/galleries/:id/assets", h.AddGalleryAssets)
-	adminGroup.Put("/galleries/:id", h.UpdateGallery)
-
-	// Common
+	admin.Get("/contents", h.ListContents)
+	admin.Post("/contents", h.CreateContent)
+	admin.Get("/contents/:short_id", h.GetContent)
+	admin.Put("/contents/:id", h.UpdateContent)
+	admin.Post("/contents/:id/assets", h.AddAssets)
 }
 
-func (h *ContentHandler) CreateVideo(c *fiber.Ctx) error {
-	var req usecase.CreateVideoRequest
+func (h *ContentHandler) CreateContent(c *fiber.Ctx) error {
+	var req usecase.CreateContentRequest
 	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request payload"})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request payload"})
 	}
 	if req.Title == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Title is required"})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "title is required"})
+	}
+	if req.ContentType == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "content_type is required"})
 	}
 
-	video, err := h.useCase.CreateVideo(c.Context(), req)
+	content, err := h.useCase.CreateContent(c.Context(), req)
 	if err != nil {
-		log.Printf("Failed to create video: %v", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to create video"})
+		log.Printf("failed to create content: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to create content"})
 	}
-
-	return c.Status(fiber.StatusCreated).JSON(video)
+	return c.Status(fiber.StatusCreated).JSON(content)
 }
 
-func (h *ContentHandler) CreateGallery(c *fiber.Ctx) error {
-	var req usecase.CreateGalleryRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request payload"})
-	}
-	if req.Title == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Title is required"})
-	}
-
-	gallery, err := h.useCase.CreateGallery(c.Context(), req)
+func (h *ContentHandler) GetContent(c *fiber.Ctx) error {
+	shortID := c.Params("short_id")
+	content, err := h.useCase.GetContentDetails(c.Context(), shortID)
 	if err != nil {
-		log.Printf("Failed to create gallery: %v", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to create gallery"})
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "content not found"})
 	}
-
-	return c.Status(fiber.StatusCreated).JSON(gallery)
+	return c.JSON(content)
 }
 
-func (h *ContentHandler) AddVideoAssets(c *fiber.Ctx) error {
+func (h *ContentHandler) ListContents(c *fiber.Ctx) error {
+	contents, err := h.useCase.ListContents(c.Context())
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to list contents"})
+	}
+	if contents == nil {
+		contents = []*domain.Content{}
+	}
+	return c.JSON(contents)
+}
+
+func (h *ContentHandler) UpdateContent(c *fiber.Ctx) error {
 	id, err := uuid.Parse(c.Params("id"))
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid video id"})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
+	}
+
+	var req usecase.CreateContentRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request body"})
+	}
+
+	content, err := h.useCase.UpdateContent(c.Context(), id, req)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to update content"})
+	}
+	return c.JSON(content)
+}
+
+func (h *ContentHandler) AddAssets(c *fiber.Ctx) error {
+	id, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid content id"})
 	}
 
 	var req usecase.AddAssetsRequest
@@ -84,103 +97,9 @@ func (h *ContentHandler) AddVideoAssets(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request payload"})
 	}
 
-	if err := h.useCase.AddVideoAssets(c.Context(), id, req); err != nil {
-		log.Printf("Failed to add video assets: %v", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to add video assets"})
+	if err := h.useCase.AddAssets(c.Context(), id, req); err != nil {
+		log.Printf("failed to add assets: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to add assets"})
 	}
-
-	return c.JSON(fiber.Map{"message": "video assets added successfully"})
-}
-
-func (h *ContentHandler) AddGalleryAssets(c *fiber.Ctx) error {
-	id, err := uuid.Parse(c.Params("id"))
-	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid gallery id"})
-	}
-
-	var req usecase.AddAssetsRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request payload"})
-	}
-
-	if err := h.useCase.AddGalleryAssets(c.Context(), id, req); err != nil {
-		log.Printf("Failed to add gallery assets: %v", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to add gallery assets"})
-	}
-
-	return c.JSON(fiber.Map{"message": "gallery assets added successfully"})
-}
-
-func (h *ContentHandler) GetVideo(c *fiber.Ctx) error {
-	shortID := c.Params("short_id")
-	video, err := h.useCase.GetVideoDetails(c.Context(), shortID)
-	if err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Video not found"})
-	}
-	return c.JSON(video)
-}
-
-func (h *ContentHandler) GetGallery(c *fiber.Ctx) error {
-	shortID := c.Params("short_id")
-	gallery, err := h.useCase.GetGalleryDetails(c.Context(), shortID)
-	if err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Gallery not found"})
-	}
-	return c.JSON(gallery)
-}
-
-func (h *ContentHandler) ListVideos(c *fiber.Ctx) error {
-	videos, err := h.useCase.ListVideos(c.Context())
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to list videos"})
-	}
-	if videos == nil {
-		videos = []*domain.Video{}
-	}
-	return c.JSON(videos)
-}
-
-func (h *ContentHandler) ListGalleries(c *fiber.Ctx) error {
-	galleries, err := h.useCase.ListGalleries(c.Context())
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to list galleries"})
-	}
-	if galleries == nil {
-		galleries = []*domain.Gallery{}
-	}
-	return c.JSON(galleries)
-}
-
-func (h *ContentHandler) UpdateVideo(c *fiber.Ctx) error {
-	id, err := uuid.Parse(c.Params("id"))
-	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
-	}
-
-	var v domain.Video
-	if err := c.BodyParser(&v); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request body"})
-	}
-
-	if err := h.useCase.UpdateVideo(c.Context(), id, &v); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to update video"})
-	}
-	return c.JSON(v)
-}
-
-func (h *ContentHandler) UpdateGallery(c *fiber.Ctx) error {
-	id, err := uuid.Parse(c.Params("id"))
-	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid id"})
-	}
-
-	var g domain.Gallery
-	if err := c.BodyParser(&g); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request body"})
-	}
-
-	if err := h.useCase.UpdateGallery(c.Context(), id, &g); err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to update gallery"})
-	}
-	return c.JSON(g)
+	return c.JSON(fiber.Map{"message": "assets added successfully"})
 }
