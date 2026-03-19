@@ -12,31 +12,15 @@
 
 ## 3. アーキテクチャ・データフロー
 
-```mermaid
-graph TD
-    Admin["Admin UI (Next.js)"]
-    Metadata["Metadata Service (Go)"]
-    Catalog["Catalog Service (Go)"]
-    
-    DB_PG[("PostgreSQL")]
-    Benthos["Benthos (Sync)"]
-    ES["Elasticsearch"]
-    DB_Mongo[("MongoDB")]
+タグ情報の流れは、他のメタデータと同様に以下の通り。
 
-    Admin -- "Set Tags" --> Metadata
-    Metadata -- "Save" --> DB_PG
-    
-    Benthos -- "Poll (updated_at)" --> DB_PG
-    Benthos -- "Sync Tags" --> ES
-    Benthos -- "Sync Full Data (incl. Tags)" --> DB_Mongo
-    
-    Client["Client UI"] -- "Search (Tags/Keyword)" --> Catalog
-    Catalog -- "Search Tags" --> ES
-    ES -- "Return IDs" --> Catalog
-    Catalog -- "Fetch by IDs" --> DB_Mongo
-    DB_Mongo -- "Content Data" --> Catalog
-    Catalog -- "Response" --> Client
-```
+1.  **Admin UI**: 管理者がタグを入力。
+2.  **Metadata Service**: PostgreSQL の `tags` カラム（TEXT[]）に保存。
+3.  **Benthos (Sync)**: PostgreSQL から変更を検知し、MongoDB および Elasticsearch へ同期。
+4.  **Catalog Service**: Elasticsearch を使用してタグ検索を行い、結果を MongoDB から取得。
+
+> [!NOTE]
+> 詳細な検索シーケンス（Sidecar Search パターン）については [304_service_search_design.md](304_service_search_design.md) を参照。
 
 ## 4. データベース設計
 

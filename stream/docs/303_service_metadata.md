@@ -1,7 +1,8 @@
 # Metadata Service 設計詳細
 
 ## 1. サービスの目的と責務
-動画コンテンツ、ジャンル、関連アセットの「正」となる情報(Master Data)を管理する。主にAdmin（管理者）向けのCRUD機能を提供し、データはPostgreSQLに保存する。更新が発生した場合は、同期的にCatalog Serviceへ反映(Sync Strategy A)する。
+動画コンテンツ、ジャンル、関連アセットの「正」となる情報(Master Data)を管理する。主にAdmin（管理者）向けのCRUD機能を提供し、データはPostgreSQLに保存する。~~更新が発生した場合は、同期的にCatalog Serviceへ反映(Sync Strategy A)する。~~
+更新後は `updated_at` カラムの更新に基づき、**Benthos (Sync Engine)** が非同期に Catalog Service (MongoDB/Elasticsearch) へ反映を行う。
 
 ## 2. API エンドポイント定義
 
@@ -39,7 +40,8 @@
     ]
   }
   ```
-- **処理**: DB(assetsテーブル)更新後、Catalog Serviceの `POST /api/internal/catalog/sync/:id` をコールしてRead側へ同期(Sync A)する。
+- **処理**: DB(assetsテーブル)更新を行う。~~更新後、Catalog Serviceの `POST /api/internal/catalog/sync/:id` をコールしてRead側へ同期(Sync A)する。~~
+- **同期**: `contents` テーブルの `updated_at` が更新されることで、Benthos による自動同期がトリガーされる。
 
 ### `GET /api/v1/admin/genres` (Planned)
 - **目的**: ジャンル一覧取得（将来的な機能）。

@@ -18,6 +18,7 @@ graph TD
     
     DB_PG[("PostgreSQL")]
     DB_Mongo[("MongoDB")]
+    ES["Elasticsearch"]
 
     Client -- UI Request --> Frontend
     Client -- Client-side API Request --> Gateway
@@ -28,22 +29,24 @@ graph TD
     Gateway -- /api/auth/* --> Auth
     
     Catalog --> DB_Mongo
+    Catalog --> ES
     Metadata --> DB_PG
     Auth --> DB_PG
 
-    subgraph Batch Layer
+    subgraph Batch/Sync Layer
         NFS[("NFS Server (Video Source)")]
         Importer["Batch NFS Importer (Go)"]
         Analyzer["Thumbnail Analyzer (Python/Sidecar)"]
-        SyncBatch["Sync Batch (Go)"]
+        Benthos["Benthos (Sync Engine)"]
         
         NFS -- Scan/Read --> Importer
         Importer -- Analyze Request (HTTP) --> Analyzer
         Importer -- S3 Upload --> MinIO[("MinIO (S3)")]
         Importer -- Write --> DB_PG
         
-        SyncBatch -- Read --> DB_PG
-        SyncBatch -- Sync --> DB_Mongo
+        Benthos -- "Poll (updated_at)" --> DB_PG
+        Benthos -- Sync --> DB_Mongo
+        Benthos -- Sync --> ES
     end
 ```
 
@@ -64,15 +67,16 @@ graph TD
 - **役割**: 映像作品(Title)、エピソード、ジャンル、タグなどのマスターデータ(CRUD)と、アセットパス(S3バケットキー)を管理する。
 - **データストア**: PostgreSQL (リレーショナル・トランザクション処理)
   - **Short ID (表示用ID)**: Snowflake IDを用いて生成され、クライアントへのレスポンスやURL(例: `/title/7214567890`)で使用される。分散環境での一意性と順序性を両立する。
-- **同期処理 (Sync Strategy A - 同期呼出し)**:
-  - Adminからのメタデータ更新（INSERT/UPDATE）処理完了時、Metadata ServiceはCatalog Serviceの「データ同期用API」を内部呼び出し(HTTP/gRPC)し、即座に更新を反映させる。
-  - シンプルさを重視し、まずは非同期MQ(RabbitMQ等)は導入せず、同期によるAPI連携で開始する。
+- **同期処理 (Benthos による非同期同期)**:
+  - **現状**: Metadata Service は DB 更新のみを行い、**Benthos (Redpanda Connect)** が `updated_at` を元に差分を検知して MongoDB および Elasticsearch へ同期する構成を採用。
 
 ### 2.3 Catalog & Search Service (カタログ・検索API)
 - **役割**: エンドユーザー（フロントエンド）向けの参照特化型API。画面描画に最適化されたペイロードを最速で返却する。
-- **データストア**: MongoDB
+- **データストア**: MongoDB, **Elasticsearch**
 - **設計方針**:
-  - `MongoDB` へのRead: 各作品情報(Titles, Genres, Assetsパス等)を非正規化した一つのドキュメントとして保持し、結合クエリを排除。画面描画に必要なデータは MongoDB からミリ秒単位で返却する。
+  - `MongoDB` へのRead: 各作品情報(Titles, Genres, Assetsパス等)を非正規化した一つのドキュメントとして保持。
+  - `Elasticsearch` への検索: タイトルや概要の全文検索、タグでの絞り込みを担当。
+  - **Sidecar Search パターン**: Catalog Service は ES でマッチした ID リストを元に、MongoDB から完全なドメインオブジェクトを取得して返却する。
 
 ### 2.4 インフラ・配信層 (CDN & Object Storage)
 - **コンテンツ・画像管理**: アプリケーションサーバーやローカルディスクは利用せず、**MinIO (S3互換・セルフホスト可能)** を利用する。
@@ -81,9 +85,9 @@ graph TD
 ### 2.5 Batch Services & Sidecars
 - **Batch NFS Importer (Go)**: NFS上のHLSファイルをスキャンし、MinIOへのアップロードとメタデータ登録を行う。
 - **Thumbnail Analyzer (Python/FastAPI)**: Importerから呼び出されるサイドカーコンテナ。動画の輝度・音量などの重い解析ロジックを担当。
-- **Sync Batch**: PostgreSQLのマスターデータ（Write系）を MongoDB（Read系）へ同期するプロセス。
+- **Benthos (Redpanda Connect)**: PostgreSQLのマスターデータ（Write系）を MongoDB（Read系）および Elasticsearch（検索用）へ同期するプロセス。
 
-- **設計方針**: 解析などのリソース消費が激しい処理や、Pythonのエコシステム（AI/画像処理）を活用したい処理をサイドカーとして分離することで、メインのバッチ処理の安定性と拡張性を確保する。また、書き込み系（RDB）と参照系（NoSQL）を分離するCQRS構成において、同期漏れを補完するための結果整合性をバッチ処理によって担保する。
+- **設計方針**: 解析などのリソース消費が激しい処理や、Pythonのエコシステム（AI/画像処理）を活用したい処理をサイドカーとして分離することで、メインのバッチ処理の安定性と拡張性を確保する。また、書き込み系（RDB）と参照系（NoSQL）を分離するCQRS構成において、同期漏れを補完するための結果整合性を Benthos によるポーリングによって担保する。
 
 ## 3. データベーススキーマ設計方針 (PostgreSQL)
 
@@ -133,12 +137,12 @@ graph TD
 
 ## 4. データ同期基盤 (Data Synchronization)
 
-CQRSアーキテクチャにおける PostgreSQL(Write) と MongoDB(Read) のデータ整合性を担保するため、**Redpanda Connect (Benthos)** を用いた「チェックポイント方式」の非同期ポーリング同期を採用している。
+CQRSアーキテクチャにおける PostgreSQL(Write) と MongoDB/Elasticsearch(Read) のデータ整合性を担保するため、**Redpanda Connect (Benthos)** を用いた「チェックポイント方式」の非同期ポーリング同期を採用している。
 
 - **仕組み**:
   - Benthos が PostgreSQL の `content_sync_view` を 10 秒間隔でポーリングする。
   - 最後に処理したデータの `updated_at` を PVC上のファイル (`/data/last_sync`) に記録（チェックポイント）し、次回のポーリング時はその時刻以降の差分のみを取得する。
-  - 取得したデータを JSON オブジェクト構造に変換し、MongoDB へ `replace-one` (Upsert) で書き込む。
+  - 取得したデータを JSON オブジェクト構造に変換し、MongoDB へ `replace-one` (Upsert) で書き込み、同時に Elasticsearch へインデックスする。
 - **メリット**: 中間ミドルウェア（Kafka等）を持たないため運用が極めてシンプルであり、障害時はチェックポイントファイルを削除するだけで全量再同期が可能。
 
 ### 4.1 現在の技術的負債と将来の課題 (Technical Debt)
@@ -160,11 +164,11 @@ CQRSアーキテクチャにおける PostgreSQL(Write) と MongoDB(Read) のデ
 
 初期フェーズから作り込むとオーバースペックになるため一旦見送るが、中長期的に必要となるメジャーな技術要素。
 
-- **全文検索エンジン (Elasticsearch 等)**
-  - 現在はMongoDBのフルテキスト検索機能を用いる想定だが、データ量増加時や「表記ゆれ」「サジェスト」機能が求められた場合は専用のSearch Engineへと同期する戦略が必要。
+- **高度な検索機能の拡充**
+  - 現状導入済みの Elasticsearch を活用し、「表記ゆれ」「サジェスト」「重み付け調整」などの機能を強化する。
 - **コンテンツ種別の動的拡張**
   - 現在の Video, Image, 360VR 以外にも、ドキュメント(PDF)や音声(Audio)など、配信対象を広げられる設計を維持する。
 - **メッセージキュー (Event Driven Architecture)**
-  - 上記の「PostgreSQL -> MongoDB -> Elasticsearch」という段階的な同期を同期APIやBatchに頼るのが苦しくなったフェーズでは、RabbitMQやKafkaといったメッセージブローカーを導入。デッドレターキュー(DLQ)を用いた確実なイベント配信基盤(Event Sourcing/CQRS)へと進化させる。
+  - 上記の「PostgreSQL -> MongoDB -> Elasticsearch」という段階的な同期をポーリング（Benthos）に頼るのが苦しくなったフェーズでは、RabbitMQやKafkaといったメッセージブローカーを導入。デッドレターキュー(DLQ)を用いた確実なイベント配信基盤(Event Sourcing/CQRS)へと進化させる。
 - **論理削除 (Soft Delete)**
   - コンテンツを誤って削除した場合の復旧手段。RDB上で `deleted_at` カラムを持つ。この際、MinIO上の数十GBのHLSファイル等の物理削除のタイミングをどう設計するかが論点となる。

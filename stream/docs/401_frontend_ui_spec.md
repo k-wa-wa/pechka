@@ -63,7 +63,8 @@
   - **アセット管理**: サムネイル/ポスター画像のアップロード・変更、HLSパスの確認。
 - **公開・同期**:
   - 保存時に `Metadata Service`（PostgreSQL）を更新。
-  - 更新完了後、`Catalog Service`（MongoDB）への即時同期をトリガーする。
+  - ~~更新完了後、`Catalog Service`（MongoDB）への即時同期をトリガーする。~~
+  - 更新後は **Benthos** による自動同期により、数秒〜数十秒以内にカタログへ反映される。
 
 ### 2.2 セキュリティ
 - `Auth Service` によるAdmin権限の厳格なチェック。
