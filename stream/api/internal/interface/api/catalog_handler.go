@@ -2,6 +2,7 @@ package api
 
 import (
 	"log"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"pechka/streaming-service/api/internal/domain"
@@ -24,6 +25,7 @@ func (h *CatalogHandler) RegisterRoutes(router fiber.Router) {
 	catalog := router.Group("/catalog")
 	catalog.Get("/home", h.GetHome)
 	catalog.Get("/contents/:short_id", h.GetDetails)
+	catalog.Get("/search", h.Search)
 
 	// Internal Sync API
 	internal := router.Group("/internal/catalog")
@@ -55,4 +57,20 @@ func (h *CatalogHandler) Sync(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "sync failed"})
 	}
 	return c.JSON(fiber.Map{"status": "synchronized"})
+}
+
+func (h *CatalogHandler) Search(c *fiber.Ctx) error {
+	query := c.Query("q")
+	tagsStr := c.Query("tags")
+	var tags []string
+	if tagsStr != "" {
+		tags = strings.Split(tagsStr, ",")
+	}
+
+	res, err := h.uc.Search(c.Context(), query, tags)
+	if err != nil {
+		log.Printf("Search error: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "search failed"})
+	}
+	return c.JSON(res)
 }

@@ -24,7 +24,10 @@ type CatalogRepository interface {
 	Upsert(ctx context.Context, content *CatalogContent) error
 	GetByShortID(ctx context.Context, shortID string) (*CatalogContent, error)
 	Search(ctx context.Context, query string) ([]*CatalogContent, error)
-}// SearchRepository defines operations for the search index (Elasticsearch)
+	GetByIDs(ctx context.Context, ids []string) ([]*CatalogContent, error)
+}
+
+// SearchRepository defines operations for the search index (Elasticsearch)
 type SearchRepository interface {
 	SearchIDs(ctx context.Context, query string, tags []string) ([]string, error)
 }

@@ -59,3 +59,23 @@ func (r *catalogRepository) Search(ctx context.Context, query string) ([]*domain
 	}
 	return results, nil
 }
+
+func (r *catalogRepository) GetByIDs(ctx context.Context, ids []string) ([]*domain.CatalogContent, error) {
+	if len(ids) == 0 {
+		return []*domain.CatalogContent{}, nil
+	}
+
+	filter := bson.M{"_id": bson.M{"$in": ids}}
+	cursor, err := r.collection.Find(ctx, filter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch multiple contents from mongo: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var results []*domain.CatalogContent
+	if err := cursor.All(ctx, &results); err != nil {
+		return nil, fmt.Errorf("failed to decode results from mongo: %w", err)
+	}
+
+	return results, nil
+}

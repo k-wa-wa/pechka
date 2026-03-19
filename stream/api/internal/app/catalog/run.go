@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -12,6 +13,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
+	infraES "pechka/streaming-service/api/internal/infrastructure/elasticsearch"
 	infraMongo "pechka/streaming-service/api/internal/infrastructure/mongo"
 	"pechka/streaming-service/api/internal/infrastructure/postgres"
 	apiInterface "pechka/streaming-service/api/internal/interface/api"
@@ -47,12 +49,22 @@ func Run() {
 	}
 	mongoDB := mongoClient.Database(mongoDBName)
 
-
+	esURL := os.Getenv("ELASTICSEARCH_URL")
+	if esURL == "" {
+		esURL = "http://localhost:9200"
+	}
+	esClient, err := elasticsearch.NewClient(elasticsearch.Config{
+		Addresses: []string{esURL},
+	})
+	if err != nil {
+		log.Fatalf("elasticsearch connect failed: %v", err)
+	}
 
 	metaRepo := postgres.NewContentRepository(pgPool)
 	catalogRepo := infraMongo.NewCatalogRepository(mongoDB)
+	searchRepo := infraES.NewSearchRepository(esClient)
 
-	uc := usecase.NewCatalogUseCase(catalogRepo)
+	uc := usecase.NewCatalogUseCase(catalogRepo, searchRepo)
 	handler := apiInterface.NewCatalogHandler(uc, metaRepo)
 
 	app := fiber.New()

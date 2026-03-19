@@ -7,11 +7,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
+	infraES "pechka/streaming-service/api/internal/infrastructure/elasticsearch"
 	infraMongo "pechka/streaming-service/api/internal/infrastructure/mongo"
 	"pechka/streaming-service/api/internal/infrastructure/postgres"
 	"pechka/streaming-service/api/internal/usecase"
@@ -50,9 +52,21 @@ func Run() {
 	}
 	mongoDB := mongoClient.Database(mongoDBName)
 
+	esURL := os.Getenv("ELASTICSEARCH_URL")
+	if esURL == "" {
+		esURL = "http://localhost:9200"
+	}
+	esClient, err := elasticsearch.NewClient(elasticsearch.Config{
+		Addresses: []string{esURL},
+	})
+	if err != nil {
+		log.Fatalf("elasticsearch connect failed: %v", err)
+	}
+
 	metaRepo := postgres.NewContentRepository(pgPool)
 	catalogRepo := infraMongo.NewCatalogRepository(mongoDB)
-	catalogUC := usecase.NewCatalogUseCase(catalogRepo)
+	searchRepo := infraES.NewSearchRepository(esClient)
+	catalogUC := usecase.NewCatalogUseCase(catalogRepo, searchRepo)
 
 	shortIDs, err := metaRepo.ListAllShortIDs(context.Background())
 	if err != nil {

@@ -11,16 +11,19 @@ import (
 type CatalogUseCase interface {
 	GetHome(ctx context.Context) (interface{}, error)
 	GetContentDetails(ctx context.Context, shortID string) (*domain.CatalogContent, error)
+	Search(ctx context.Context, query string, tags []string) ([]*domain.CatalogContent, error)
 	SyncContent(ctx context.Context, shortID string, metaRepo domain.ContentRepository) error
 }
 
 type catalogUseCase struct {
-	repo  domain.CatalogRepository
+	repo       domain.CatalogRepository
+	searchRepo domain.SearchRepository
 }
 
-func NewCatalogUseCase(repo domain.CatalogRepository) CatalogUseCase {
+func NewCatalogUseCase(repo domain.CatalogRepository, searchRepo domain.SearchRepository) CatalogUseCase {
 	return &catalogUseCase{
-		repo:  repo,
+		repo:       repo,
+		searchRepo: searchRepo,
 	}
 }
 
@@ -50,6 +53,38 @@ func (u *catalogUseCase) GetContentDetails(ctx context.Context, shortID string) 
 	}
 
 	return res, nil
+}
+
+func (u *catalogUseCase) Search(ctx context.Context, query string, tags []string) ([]*domain.CatalogContent, error) {
+	ids, err := u.searchRepo.SearchIDs(ctx, query, tags)
+	if err != nil {
+		// Log error and fallback to Mongo search if needed, but for now just return error
+		return nil, fmt.Errorf("search failed: %w", err)
+	}
+
+	if len(ids) == 0 {
+		return []*domain.CatalogContent{}, nil
+	}
+
+	contents, err := u.repo.GetByIDs(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch contents from storage: %w", err)
+	}
+
+	// Reorder results to match Elasticsearch ranking
+	contentMap := make(map[string]*domain.CatalogContent)
+	for _, c := range contents {
+		contentMap[c.ID] = c
+	}
+
+	ordered := make([]*domain.CatalogContent, 0, len(ids))
+	for _, id := range ids {
+		if c, ok := contentMap[id]; ok {
+			ordered = append(ordered, c)
+		}
+	}
+
+	return ordered, nil
 }
 
 func (u *catalogUseCase) SyncContent(ctx context.Context, shortID string, metaRepo domain.ContentRepository) error {

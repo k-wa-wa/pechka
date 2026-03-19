@@ -5,17 +5,20 @@ input:
 
 pipeline:
   processors:
+    - bloblang: 'root.last_sync = "1970-01-01T00:00:00Z"'
     - branch:
         processors:
           - cache:
               resource: sync_checkpoint
               operator: get
               key: last_sync_contents
-              default: "1970-01-01T00:00:00Z"
         result_map: 'root.last_sync = content().string()'
     - bloblang: |
         let checkpoint = this.last_sync.string().trim() | "1970-01-01T00:00:00Z"
         root.last_sync = if $checkpoint == "null" || $checkpoint == "" { "1970-01-01T00:00:00Z" } else { $checkpoint }
+    - log:
+        level: INFO
+        message: "Polling with checkpoint: ${! this.last_sync }"
 
     - sql_raw:
         driver: postgres
@@ -25,6 +28,9 @@ pipeline:
           WHERE updated_at > $1 
           ORDER BY updated_at ASC;
         args_mapping: 'root = [ this.last_sync ]'
+    - log:
+        level: INFO
+        message: "Fetched ${! this.length() } rows from Postgres"
         
     - bloblang: 'root = if this.type() == "array" && this.length() > 0 { this } else { deleted() }'
     - unarchive:
@@ -84,4 +90,10 @@ output:
           id: '${! this.id }'
           action: index
         processors:
-          - bloblang: 'root = this.without("_id")'
+          - bloblang: |
+              root.id = this.id
+              root.short_id = this.short_id
+              root.title = this.title
+              root.description = this.description | ""
+              root.tags = this.tags
+              root.updated_at = this.updated_at
