@@ -2,9 +2,9 @@ resources:
 - ../../base
 - ../../infra
 - nfs-pv.yaml
+- nginx-proxy.yaml
 
 patches:
-- path: patches/nginx-exposure.yaml
 - path: patches/frontend-exposure.yaml
 - path: patches/nfs-data.yaml
 - path: patches/metadata-tests.yaml

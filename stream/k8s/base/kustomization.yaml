@@ -1,7 +1,7 @@
 resources:
 - services
 - batches
-- nginx
+- cilium
 - frontend
 - configmap.yaml
 - secret.yaml

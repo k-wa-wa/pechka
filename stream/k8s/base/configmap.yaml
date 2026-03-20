@@ -17,5 +17,5 @@ data:
   JWT_REFRESH_TTL_DAYS: "30"
   PYTHONUNBUFFERED: "1"
   NEXT_PUBLIC_API_URL: "http://localhost:8000"
-  INTERNAL_API_URL: "http://nginx:80"
+  INTERNAL_API_URL: "http://cilium-gateway-cilium-gateway.default.svc.cluster.local:80"
   ELASTICSEARCH_URL: "http://elasticsearch:9200"

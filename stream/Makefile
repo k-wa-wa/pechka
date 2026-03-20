@@ -5,13 +5,35 @@ K8S_DIR = k8s/overlays/dev
 KIND_CONFIG = k8s/kind-config.yaml
 
 .PHONY: up
-up: cluster build load deploy
+up: cluster setup-cilium build load deploy
 
 .PHONY: cluster
 cluster:
 	@if ! kind get clusters | grep -q $(CLUSTER_NAME); then \
 		kind create cluster --name $(CLUSTER_NAME) --config $(KIND_CONFIG); \
 	fi
+
+.PHONY: setup-cilium
+setup-cilium:
+	@echo "Installing Gateway API CRDs..."
+	kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/experimental-install.yaml
+	@echo "Installing Cilium via Helm..."
+	helm repo add cilium https://helm.cilium.io/ 2>/dev/null || true
+	helm repo update
+	$(eval API_SERVER_IP := $(shell docker inspect $(CLUSTER_NAME)-control-plane --format '{{.NetworkSettings.Networks.kind.IPAddress}}'))
+	helm upgrade --install cilium cilium/cilium --namespace kube-system \
+		--version 1.16.2 \
+		--set gatewayAPI.enabled=true \
+		--set gatewayAPI.gatewayClass.enabled=true \
+		--set kubeProxyReplacement=true \
+		--set nodePort.enabled=true \
+		--set loadBalancer.l7.enabled=true \
+		--set k8sServiceHost=$(API_SERVER_IP) \
+		--set k8sServicePort=6443 \
+		--set operator.replicas=1
+	@echo "Waiting for Cilium to be created and ready..."
+	@until [ "$$(kubectl get pods -l app.kubernetes.io/name=cilium-agent -n kube-system -o name | wc -l)" -gt 0 ]; do sleep 2; done
+	kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=cilium-agent -n kube-system --timeout=300s
 
 .PHONY: build
 build: build-app build-ffmpeg build-analyzer build-frontend

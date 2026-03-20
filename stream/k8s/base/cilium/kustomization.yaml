@@ -1,0 +1,4 @@
+resources:
+- gateway.yaml
+- service.yaml
+- http-routes.yaml
