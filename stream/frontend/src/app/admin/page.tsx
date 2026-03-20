@@ -8,7 +8,7 @@ const API_BASE = "/api/metadata/v1";
 interface Content {
   id: string;
   short_id: string;
-  type: "video" | "gallery" | "vr360";
+  content_type: "video" | "image_gallery" | "vr360" | "ebook";
   title: string;
   description: string;
   rating: number | null;
@@ -24,35 +24,24 @@ export default function AdminDashboard() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
 
-  // Bulk Edit & Selection States
   // Bulk Edit States
   const [isBulkEdit, setIsBulkEdit] = useState(false);
   const [bulkChanges, setBulkChanges] = useState<Record<string, Partial<Content>>>({});
   const [bulkSyncing, setBulkSyncing] = useState(false);
 
   // Tab State for Segmented Control
-  const [activeTab, setActiveTab] = useState<"video" | "vr360" | "gallery">("video");
+  const [activeTab, setActiveTab] = useState<Content["content_type"]>("video");
 
   const fetchContents = useCallback(async () => {
     setLoading(true);
     try {
-      // Fetch both videos and galleries
-      const [vRes, gRes] = await Promise.all([
-        fetch(`${API_BASE}/admin/metadata/videos`),
-        fetch(`${API_BASE}/admin/metadata/galleries`),
-      ]);
-
-      let allData: Content[] = [];
-      if (vRes.ok) {
-        const videos = await vRes.json();
-        allData = [...allData, ...(videos || []).map((v: any) => ({ ...v, type: v.is_360 ? "vr360" : "video" }))];
+      const res = await fetch(`${API_BASE}/admin/metadata/contents`);
+      if (res.ok) {
+        const data = await res.json();
+        setContents((data || []).sort((a: Content, b: Content) => 
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        ));
       }
-      if (gRes.ok) {
-        const galleries = await gRes.json();
-        allData = [...allData, ...(galleries || []).map((g: any) => ({ ...g, type: "gallery" }))];
-      }
-
-      setContents(allData.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
     } catch (e) {
       console.error("Failed to fetch:", e);
     } finally {
@@ -73,9 +62,7 @@ export default function AdminDashboard() {
     setSaving(true);
     setMessage(null);
     try {
-      const endpoint = (editTarget.type === "video" || editTarget.type === "vr360") 
-        ? `${API_BASE}/admin/metadata/videos/${editTarget.id}`
-        : `${API_BASE}/admin/metadata/galleries/${editTarget.id}`;
+      const endpoint = `${API_BASE}/admin/metadata/contents/${editTarget.id}`;
 
       const res = await fetch(endpoint, {
         method: "PUT",
@@ -85,6 +72,7 @@ export default function AdminDashboard() {
           description: editTarget.description,
           rating: editTarget.rating ? parseFloat(String(editTarget.rating)) : 0,
           tags: editTarget.tags || [],
+          content_type: editTarget.content_type,
         }),
       });
       if (res.ok) {
@@ -118,9 +106,7 @@ export default function AdminDashboard() {
         if (!content) continue;
         const changes = bulkChanges[id];
         
-        const endpoint = (content.type === "video" || content.type === "vr360") 
-          ? `${API_BASE}/admin/metadata/videos/${id}`
-          : `${API_BASE}/admin/metadata/galleries/${id}`;
+        const endpoint = `${API_BASE}/admin/metadata/contents/${id}`;
 
         const res = await fetch(endpoint, {
           method: "PUT",
@@ -161,9 +147,6 @@ export default function AdminDashboard() {
     }
   };
 
-  const toggleSelectAll = () => {}; // Removed
-  const toggleSelect = (id: string) => {}; // Removed
-
   const updateBulkChange = (id: string, field: string, value: any) => {
     setBulkChanges(prev => ({
       ...prev,
@@ -171,7 +154,7 @@ export default function AdminDashboard() {
     }));
   };
 
-  const filteredContents = contents.filter(c => c.type === activeTab);
+  const filteredContents = contents.filter(c => c.content_type === activeTab);
 
   const getThumbnail = (content: Content) =>
     content.assets?.find(a => a.asset_role === "thumbnail")?.public_url;
@@ -181,7 +164,7 @@ export default function AdminDashboard() {
       <header className="mb-12 flex justify-between items-end">
         <div>
           <h1 className="text-4xl md:text-5xl font-black tracking-tight mb-2 text-white">Admin Dashboard</h1>
-          <p className="text-white/50 border-l-2 border-red-600 pl-4">Manage separated domain content (Videos & Galleries)</p>
+          <p className="text-white/50 border-l-2 border-red-600 pl-4">Manage unified content metadata</p>
         </div>
         <div className="flex gap-4">
           <button
@@ -200,7 +183,7 @@ export default function AdminDashboard() {
 
       {/* Segmented Control */}
       <div className="flex p-1 bg-zinc-900 border border-white/10 rounded-xl mb-8 w-fit mx-auto">
-        {(["video", "vr360", "gallery"] as const).map((tab) => (
+        {(["video", "vr360", "image_gallery", "ebook"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => {
@@ -210,7 +193,7 @@ export default function AdminDashboard() {
               activeTab === tab ? "bg-white text-black" : "text-white/40 hover:text-white"
             }`}
           >
-            {tab === "vr360" ? "360° VR" : tab === "video" ? "Videos" : "Gallery"}
+            {tab === "vr360" ? "360° VR" : tab === "video" ? "Videos" : tab === "image_gallery" ? "Gallery" : "E-Book"}
           </button>
         ))}
       </div>
@@ -314,8 +297,6 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* Bulk Actions Bar Removed */}
-
       {/* Edit Modal */}
       {editTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -389,7 +370,7 @@ export default function AdminDashboard() {
                 <div className="space-y-2">
                   <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Type</label>
                   <div className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white/50 font-bold">
-                    {editTarget.type === "video" ? "🎞️ Video / Video" : editTarget.type === "vr360" ? "🥽 360° VR" : "🖼️ Gallery"} (Read Only)
+                    {editTarget.content_type} (Read Only)
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -401,6 +382,9 @@ export default function AdminDashboard() {
                     step="0.1"
                     min="0"
                     max="10"
+                    value={editTarget.rating ?? 0}
+                    onChange={(e) => setEditTarget({ ...editTarget, rating: parseFloat(e.target.value) })}
+                    className="w-full accent-red-600"
                   />
                 </div>
               </div>

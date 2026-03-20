@@ -1,30 +1,30 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
-export default function EditContentPage({ params }: { params: { id: string } }) {
+export default function EditContentPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
   const router = useRouter();
   const [content, setContent] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
-  const metadataUrl = process.env.NEXT_PUBLIC_METADATA_URL || "http://localhost:8080";
+  const API_BASE = "/api/metadata/v1";
 
   useEffect(() => {
     async function fetchContent() {
       try {
-        const res = await fetch(`${metadataUrl}/api/v1/admin/contents/`);
+        const res = await fetch(`${API_BASE}/admin/metadata/contents/${id}`);
         if (res.ok) {
-          const allContents = await res.json();
-          const item = allContents.find((c: any) => c.id === params.id);
-          if (item) {
-            setContent(item);
-          } else {
-            setMessage("Content not found");
-          }
+          const item = await res.json();
+          setContent(item);
+        } else if (res.status === 404) {
+          setMessage("Content not found");
+        } else {
+          setMessage("Failed to load content data.");
         }
       } catch (error) {
         console.error("Failed to fetch content:", error);
@@ -34,7 +34,7 @@ export default function EditContentPage({ params }: { params: { id: string } }) 
       }
     }
     fetchContent();
-  }, [params.id, metadataUrl]);
+  }, [id]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,14 +42,15 @@ export default function EditContentPage({ params }: { params: { id: string } }) 
     setMessage("");
 
     try {
-      const res = await fetch(`${metadataUrl}/api/v1/admin/contents/${params.id}`, {
+      const res = await fetch(`${API_BASE}/admin/metadata/contents/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: content.title,
           description: content.description,
-          rating: parseFloat(content.rating),
+          rating: parseFloat(content.rating) || 0,
           content_type: content.content_type,
+          tags: content.tags || [],
         }),
       });
 
@@ -125,15 +126,29 @@ export default function EditContentPage({ params }: { params: { id: string } }) 
                   placeholder="Tell the story of this content..."
                 />
               </div>
+
+              <div className="space-y-4">
+                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Tags (Comma separated)</label>
+                <input 
+                  type="text" 
+                  value={(content.tags || []).join(", ")}
+                  onChange={(e) => setContent({
+                    ...content, 
+                    tags: e.target.value.split(",").map(t => t.trim()).filter(t => t !== "")
+                  })}
+                  className="w-full bg-white/[0.03] border border-white/10 rounded-2xl px-6 py-4 text-white font-medium focus:outline-none focus:border-red-600 focus:bg-white/[0.05] transition-all placeholder:text-white/10"
+                  placeholder="Action, Sci-Fi, Adventure"
+                />
+              </div>
             </div>
 
             <div className="space-y-10">
               <div className="space-y-4">
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Preview Thumbnail</label>
                 <div className="relative aspect-video rounded-2xl overflow-hidden bg-white/5 border border-white/10 group">
-                  {content.assets?.thumbnail ? (
+                  {content.assets?.find((a: any) => a.asset_role === "thumbnail")?.public_url ? (
                     <img 
-                      src={content.assets.thumbnail} 
+                      src={content.assets.find((a: any) => a.asset_role === "thumbnail").public_url} 
                       alt={content.title}
                       className="object-cover w-full h-full group-hover:scale-105 transition-transform duration-700"
                     />
@@ -157,6 +172,7 @@ export default function EditContentPage({ params }: { params: { id: string } }) 
                   <option value="video" className="bg-black">🎞️ Video / Video</option>
                   <option value="vr360" className="bg-black">🥽 360° VR Experience</option>
                   <option value="image_gallery" className="bg-black">🖼️ Image Gallery</option>
+                  <option value="ebook" className="bg-black">📖 E-Book</option>
                 </select>
               </div>
 
@@ -168,11 +184,11 @@ export default function EditContentPage({ params }: { params: { id: string } }) 
                     step="0.1" 
                     min="0" 
                     max="10"
-                    value={content.rating}
+                    value={content.rating || 0}
                     onChange={(e) => setContent({...content, rating: e.target.value})}
                     className="flex-1 accent-red-600 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
                   />
-                  <span className="text-2xl font-black text-white w-12 text-right">{parseFloat(content.rating).toFixed(1)}</span>
+                  <span className="text-2xl font-black text-white w-12 text-right">{parseFloat(content.rating || 0).toFixed(1)}</span>
                 </div>
               </div>
             </div>

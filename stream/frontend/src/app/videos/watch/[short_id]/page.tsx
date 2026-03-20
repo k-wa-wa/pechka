@@ -35,8 +35,7 @@ export default function WatchPage({ params }: { params: Promise<{ short_id: stri
   }
 
   const videoSrc = content?.assets?.hls_master;
-  const movieShortId = content?.movie_short_id;
-  const backUrl = movieShortId ? `/movies/${movieShortId}` : "/";
+  const backUrl = "/";
 
   if (!videoSrc) {
     return (
