@@ -26,10 +26,12 @@
 
 - **101**: [Requirements (要件定義)](101_requirements.md)
 - **201**: [Architecture (アーキテクチャ設計)](201_architecture.md)
+- **202**: [Authorization (認可設計)](202_authorization.md)
 - **301**: [Auth Service (認証サービス)](301_service_auth.md)
 - **302**: [Catalog Service (カタログサービス)](302_service_catalog.md)
 - **303**: [Metadata Service (メタデータサービス)](303_service_metadata.md)
 - **304**: [Search Service (検索サービス設計)](304_service_search_design.md)
+- **305**: [Dev Proxy Service (開発用プロキシ & 認証モック)](305_service_dev_proxy.md)
 - **401**: [Frontend & UI (フロントエンド・UI仕様)](401_frontend_ui_spec.md)
 - **402**: [Batch NFS Importer (バッチインポーター)](402_batch_nfs_importer.md)
 - **403**: [Tagging Design (タグ機能設計)](403_tagging_design.md)

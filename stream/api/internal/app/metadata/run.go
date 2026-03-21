@@ -12,6 +12,7 @@ import (
 	"github.com/joho/godotenv"
 
 	apiInterface "pechka/streaming-service/api/internal/interface/api"
+	"pechka/streaming-service/api/internal/interface/api/middleware"
 	"pechka/streaming-service/api/internal/infrastructure/idgen"
 	"pechka/streaming-service/api/internal/infrastructure/postgres"
 	"pechka/streaming-service/api/internal/usecase"
@@ -57,6 +58,12 @@ func Run() {
 	app.Use(logger.New())
 
 	apiGroup := app.Group("/api/metadata/v1")
+	
+	// Apply RBAC verification (App JWT)
+	apiGroup.Use(middleware.RequireAppJWT())
+	// Ensure the user has permission to write contents (admin task)
+	apiGroup.Use(middleware.RequirePermission("content", "write"))
+
 	handler.RegisterRoutes(apiGroup)
 
 	port := os.Getenv("PORT")

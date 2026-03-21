@@ -9,9 +9,9 @@ import (
 )
 
 type CatalogUseCase interface {
-	GetHome(ctx context.Context) (interface{}, error)
-	GetContentDetails(ctx context.Context, shortID string) (*domain.CatalogContent, error)
-	Search(ctx context.Context, query string, tags []string) ([]*domain.CatalogContent, error)
+	GetHome(ctx context.Context, userGroups []string) (interface{}, error)
+	GetContentDetails(ctx context.Context, shortID string, userGroups []string) (*domain.CatalogContent, error)
+	Search(ctx context.Context, query string, tags []string, userGroups []string) ([]*domain.CatalogContent, error)
 	SyncContent(ctx context.Context, shortID string, metaRepo domain.ContentRepository) error
 }
 
@@ -27,8 +27,8 @@ func NewCatalogUseCase(repo domain.CatalogRepository, searchRepo domain.SearchRe
 	}
 }
 
-func (u *catalogUseCase) GetHome(ctx context.Context) (interface{}, error) {
-	contents, err := u.repo.Search(ctx, "")
+func (u *catalogUseCase) GetHome(ctx context.Context, userGroups []string) (interface{}, error) {
+	contents, err := u.repo.Search(ctx, "", userGroups)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch contents for home: %w", err)
 	}
@@ -46,16 +46,16 @@ func (u *catalogUseCase) GetHome(ctx context.Context) (interface{}, error) {
 	return res, nil
 }
 
-func (u *catalogUseCase) GetContentDetails(ctx context.Context, shortID string) (*domain.CatalogContent, error) {
-	res, err := u.repo.GetByShortID(ctx, shortID)
+func (u *catalogUseCase) GetContentDetails(ctx context.Context, shortID string, userGroups []string) (*domain.CatalogContent, error) {
+	res, err := u.repo.GetByShortID(ctx, shortID, userGroups)
 	if err != nil {
 		return nil, err
 	}
 	return res, nil
 }
 
-func (u *catalogUseCase) Search(ctx context.Context, query string, tags []string) ([]*domain.CatalogContent, error) {
-	ids, err := u.searchRepo.SearchIDs(ctx, query, tags)
+func (u *catalogUseCase) Search(ctx context.Context, query string, tags []string, userGroups []string) ([]*domain.CatalogContent, error) {
+	ids, err := u.searchRepo.SearchIDs(ctx, query, tags, userGroups)
 	if err != nil {
 		return nil, fmt.Errorf("search failed: %w", err)
 	}
@@ -64,7 +64,7 @@ func (u *catalogUseCase) Search(ctx context.Context, query string, tags []string
 		return []*domain.CatalogContent{}, nil
 	}
 
-	contents, err := u.repo.GetByIDs(ctx, ids)
+	contents, err := u.repo.GetByIDs(ctx, ids, userGroups)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch contents from storage: %w", err)
 	}
@@ -129,15 +129,17 @@ func contentToCatalog(c *domain.Content) *domain.CatalogContent {
 	}
 
 	return &domain.CatalogContent{
-		ID:          c.ID.String(),
-		ShortID:     c.ShortID,
-		Type:        c.ContentType,
-		Title:       c.Title,
-		Description: c.Description,
-		Rating:      rating,
-		Metadata:    metadata,
-		Assets:      assets,
-		Tags:        tags,
-		UpdatedAt:   time.Now(),
+		ID:            c.ID.String(),
+		ShortID:       c.ShortID,
+		Type:          c.ContentType,
+		Title:         c.Title,
+		Description:   c.Description,
+		Rating:        rating,
+		Visibility:    "public", // Default mapping if not synced correctly. Assuming API doesn't sync directly but Benthos does. (Sync Content here is mainly for force updates, we mock it)
+		AllowedGroups: []string{},
+		Metadata:      metadata,
+		Assets:        assets,
+		Tags:          tags,
+		UpdatedAt:     time.Now(),
 	}
 }

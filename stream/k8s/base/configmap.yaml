@@ -19,3 +19,7 @@ data:
   NEXT_PUBLIC_API_URL: "http://localhost:8000"
   INTERNAL_API_URL: "http://cilium-gateway-cilium-gateway.default.svc.cluster.local:80"
   ELASTICSEARCH_URL: "http://elasticsearch:9200"
+  MOCK_AUTH_ENABLED: "true"
+  CLOUDFLARE_JWKS_URL: "http://dev-proxy:8080/.well-known/jwks.json"
+  CLOUDFLARE_JWT_ISSUER: "https://pechka.cloudflareaccess.com"
+  CLOUDFLARE_JWT_AUDIENCE: "mock-audience"

@@ -1,12 +1,33 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import axios from 'axios';
 
-const METADATA_API_URL = process.env.METADATA_API_URL || 'http://localhost:8000/api/metadata/v1';
-const CATALOG_API_URL = process.env.CATALOG_API_URL || 'http://localhost:8000/api/catalog/v1';
+const AUTH_API_URL = process.env.AUTH_API_URL || 'http://127.0.0.1:8000/api/v1/auth';
+const METADATA_API_URL = process.env.METADATA_API_URL || 'http://127.0.0.1:8000/api/metadata/v1';
+const CATALOG_API_URL = process.env.CATALOG_API_URL || 'http://127.0.0.1:8000/api/catalog/v1';
+const DEV_PROXY_URL = process.env.DEV_PROXY_URL || 'http://127.0.0.1:8000';
 
 describe('コンテンツAPI E2Eテスト', () => {
   let createdVideoId: string;
   let createdVideoShortId: string;
+  let accessToken: string;
+
+  beforeAll(async () => {
+    // 1. Get Cloudflare-style JWT from Dev Proxy
+    const mockAuthRes = await axios.post(`${DEV_PROXY_URL}/mock/token`, {
+      email: `admin-${Date.now()}@example.com`,
+    });
+    const cfToken = mockAuthRes.data.token;
+
+    // 2. Set Cookie for Dev Proxy to handle Cloudflare Access simulation
+    axios.defaults.headers.common['Cookie'] = `cf-access-token-mock=${cfToken}`;
+
+    // 3. Exchange for App JWT via auth-service
+    const sessionRes = await axios.get(`${AUTH_API_URL}/session`);
+    accessToken = sessionRes.data.access_token;
+
+    // Set default headers for all subsequent requests
+    axios.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
+  });
 
   it('新しい動画コンテンツを作成できること', async () => {
     const payload = {

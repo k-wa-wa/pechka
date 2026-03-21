@@ -56,6 +56,16 @@ pipeline:
           $t | []
         }
 
+        root.visibility = this.visibility | "public"
+        let ag = this.allowed_groups
+        root.allowed_groups = if $ag == null {
+          []
+        } else if $ag.type() == "string" {
+          $ag.re_replace_all("[{}]", "").split(",").filter(v -> v != "")
+        } else {
+          $ag | []
+        }
+
         # metadata: content_videos は LEFT JOIN のため NULL になり得る → デフォルト値を明示
         root.metadata = {
           "director":         this.director | "",
@@ -96,9 +106,11 @@ output:
           action: index
         processors:
           - bloblang: |
-              root.id          = this.id
-              root.short_id    = this.short_id
-              root.title       = this.title
-              root.description = this.description | ""
-              root.tags        = this.tags
-              root.updated_at  = this.updated_at
+              root.id             = this.id
+              root.short_id       = this.short_id
+              root.title          = this.title
+              root.description    = this.description | ""
+              root.tags           = this.tags
+              root.visibility     = this.visibility
+              root.allowed_groups = this.allowed_groups
+              root.updated_at     = this.updated_at

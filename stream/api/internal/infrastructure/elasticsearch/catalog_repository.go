@@ -20,7 +20,7 @@ func NewSearchRepository(client *elasticsearch.Client) domain.SearchRepository {
 	}
 }
 
-func (r *searchRepository) SearchIDs(ctx context.Context, query string, tags []string) ([]string, error) {
+func (r *searchRepository) SearchIDs(ctx context.Context, query string, tags []string, userGroups []string) ([]string, error) {
 	var buf bytes.Buffer
 	
 	// Complex query construction
@@ -55,6 +55,28 @@ func (r *searchRepository) SearchIDs(ctx context.Context, query string, tags []s
 			})
 		}
 	}
+
+	// RBAC Filter: visibility == "public" OR allowed_groups IN userGroups
+	rbacFilter := map[string]interface{}{
+		"bool": map[string]interface{}{
+			"should": []interface{}{
+				map[string]interface{}{"term": map[string]interface{}{"visibility": "public"}},
+			},
+			"minimum_should_match": 1,
+		},
+	}
+
+	if len(userGroups) > 0 {
+		rbacFilter["bool"].(map[string]interface{})["should"] = append(
+			rbacFilter["bool"].(map[string]interface{})["should"].([]interface{}),
+			map[string]interface{}{
+				"terms": map[string]interface{}{"allowed_groups": userGroups},
+			},
+		)
+	}
+
+	boolQuery["filter"] = append(boolQuery["filter"].([]interface{}), rbacFilter)
+
 
 	if err := json.NewEncoder(&buf).Encode(queryMap); err != nil {
 		return nil, fmt.Errorf("failed to encode ES query: %w", err)

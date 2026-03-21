@@ -18,58 +18,24 @@ func NewAuthHandler(uc usecase.AuthUseCase) *AuthHandler {
 
 func (h *AuthHandler) RegisterRoutes(router fiber.Router) {
 	auth := router.Group("/auth")
-	auth.Post("/register", h.Register)
-	auth.Post("/login", h.Login)
-	auth.Post("/refresh", h.Refresh)
+	auth.Get("/session", h.Session)
 	auth.Get("/me", h.Me)
 }
 
-// POST /api/v1/auth/register
-func (h *AuthHandler) Register(c *fiber.Ctx) error {
-	var req usecase.RegisterRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request body"})
+// GET /api/v1/auth/session
+func (h *AuthHandler) Session(c *fiber.Ctx) error {
+	tokenStr := c.Get("Cf-Access-Jwt-Assertion")
+	if tokenStr == "" {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "missing Cloudflare authentication token"})
 	}
 
-	tokens, err := h.uc.Register(c.Context(), req)
+	res, err := h.uc.Session(c.Context(), tokenStr)
 	if err != nil {
-		log.Printf("register error: %v", err)
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		log.Printf("session error: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to establish session"})
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(tokens)
-}
-
-// POST /api/v1/auth/login
-func (h *AuthHandler) Login(c *fiber.Ctx) error {
-	var req usecase.LoginRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request body"})
-	}
-
-	tokens, err := h.uc.Login(c.Context(), req)
-	if err != nil {
-		log.Printf("login error: %v", err)
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid email or password"})
-	}
-
-	return c.JSON(tokens)
-}
-
-// POST /api/v1/auth/refresh
-func (h *AuthHandler) Refresh(c *fiber.Ctx) error {
-	var req usecase.RefreshRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request body"})
-	}
-
-	tokens, err := h.uc.Refresh(c.Context(), req)
-	if err != nil {
-		log.Printf("refresh error: %v", err)
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid or expired refresh token"})
-	}
-
-	return c.JSON(tokens)
+	return c.JSON(res)
 }
 
 // GET /api/v1/auth/me

@@ -35,8 +35,7 @@ func Run() {
 	log.Println("connected to PostgreSQL successfully")
 
 	userRepo := postgres.NewUserRepository(pool)
-	tokenRepo := postgres.NewTokenRepository(pool)
-	uc := usecase.NewAuthUseCase(userRepo, tokenRepo)
+	uc := usecase.NewAuthUseCase(userRepo)
 	handler := apiInterface.NewAuthHandler(uc)
 
 	app := fiber.New()

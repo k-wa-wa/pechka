@@ -17,6 +17,7 @@ import (
 	infraMongo "pechka/streaming-service/api/internal/infrastructure/mongo"
 	"pechka/streaming-service/api/internal/infrastructure/postgres"
 	apiInterface "pechka/streaming-service/api/internal/interface/api"
+	"pechka/streaming-service/api/internal/interface/api/middleware"
 	"pechka/streaming-service/api/internal/usecase"
 )
 
@@ -71,6 +72,10 @@ func Run() {
 	app.Use(logger.New())
 
 	apiGroup := app.Group("/api/catalog/v1")
+	
+	// Apply RBAC verification (App JWT)
+	apiGroup.Use(middleware.RequireAppJWT())
+	
 	handler.RegisterRoutes(apiGroup)
 
 	port := os.Getenv("PORT")

@@ -18,6 +18,8 @@ CREATE TABLE contents (
     description  TEXT,
     rating       DECIMAL(3,2),
     tags         TEXT[]       DEFAULT '{}',
+    visibility   VARCHAR(20)  DEFAULT 'public', -- public, group_only
+    allowed_groups UUID[]     DEFAULT '{}',
     published_at TIMESTAMP WITH TIME ZONE,
     created_at   TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at   TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -45,34 +47,87 @@ CREATE INDEX idx_assets_content_id ON assets(content_id);
 CREATE INDEX idx_assets_s3_key     ON assets(s3_key);
 
 -- =====================
--- Auth Service Tables
+-- Auth & RBAC Service Tables
 -- =====================
 
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_role') THEN
-        CREATE TYPE user_role AS ENUM ('user', 'admin');
-    END IF;
-END$$;
-
+-- ユーザーテーブル
 CREATE TABLE users (
-    id            UUID         PRIMARY KEY,
-    email         VARCHAR(255) UNIQUE NOT NULL,
-    password_hash TEXT         NOT NULL,
-    role          user_role    NOT NULL DEFAULT 'user',
-    created_at    TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at    TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    id           UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    email        VARCHAR(255) UNIQUE NOT NULL,
+    display_name VARCHAR(255),
+    avatar_url   TEXT,
+    status       VARCHAR(20)  NOT NULL DEFAULT 'active',
+    last_login   TIMESTAMP WITH TIME ZONE,
+    created_at   TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at   TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_users_email ON users(email);
 
-CREATE TABLE refresh_tokens (
-    id         UUID         PRIMARY KEY,
-    user_id    UUID         NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    token_hash TEXT         NOT NULL,
-    expires_at TIMESTAMP    WITH TIME ZONE NOT NULL,
-    created_at TIMESTAMP    WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+-- グループテーブル
+CREATE TABLE groups (
+    id          UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    name        VARCHAR(100) UNIQUE NOT NULL,
+    description TEXT,
+    created_at  TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX idx_refresh_tokens_user_id ON refresh_tokens(user_id);
+
+-- ユーザーとグループの紐付け
+CREATE TABLE user_groups (
+    user_id  UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    group_id UUID NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, group_id)
+);
+
+-- ロール定義
+CREATE TABLE roles (
+    id          UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    name        VARCHAR(50)  UNIQUE NOT NULL,
+    description TEXT,
+    created_at  TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- グループとロールの紐付け
+CREATE TABLE group_roles (
+    group_id UUID NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    role_id  UUID NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    PRIMARY KEY (group_id, role_id)
+);
+
+-- ユーザーとロールの直接の紐付け
+CREATE TABLE user_roles (
+    user_id  UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role_id  UUID NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, role_id)
+);
+
+-- 権限定義
+CREATE TABLE permissions (
+    id       UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    resource VARCHAR(50) NOT NULL,
+    action   VARCHAR(50) NOT NULL,
+    UNIQUE (resource, action)
+);
+
+-- ロールと権限の紐付け
+CREATE TABLE role_permissions (
+    role_id       UUID NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    permission_id UUID NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+    PRIMARY KEY (role_id, permission_id)
+);
+
+-- シーディング (初期データ)
+INSERT INTO groups (name, description) VALUES ('Administrators', 'System administrators group');
+INSERT INTO roles (name, description) VALUES ('admin', 'Full access to all resources');
+INSERT INTO roles (name, description) VALUES ('viewer', 'Read-only access to resources');
+
+-- admin ロールに全ての権限を付与するための準備 (パーミッションは後で動的に追加される想定だが、ここではサンプル)
+INSERT INTO permissions (resource, action) VALUES ('content', 'read'), ('content', 'write'), ('content', 'delete'), ('user', 'read'), ('user', 'write');
+INSERT INTO role_permissions (role_id, permission_id) 
+SELECT r.id, p.id FROM roles r, permissions p WHERE r.name = 'admin';
+
+-- Administrators グループに admin ロールを付与
+INSERT INTO group_roles (group_id, role_id)
+SELECT g.id, r.id FROM groups g, roles r WHERE g.name = 'Administrators' AND r.name = 'admin';
 
 -- =====================
 -- Triggers for updated_at
@@ -126,6 +181,8 @@ SELECT
     c.rating,
     c.updated_at,
     c.tags,
+    c.visibility,
+    c.allowed_groups,
     cv.director,
     cv.is_360,
     cv.duration_seconds,

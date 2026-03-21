@@ -27,6 +27,14 @@
 - **Header**: Refresh Token (Cookie)
 - **Response**: 新しい Access Token を返却。
 
+### `GET /api/v1/auth/session`
+- **目的**: 外部認証（Cloudflare Access）トークンをアプリ専用の JWT (App JWT) へ交換する。
+- **Header**: `Cf-Access-Jwt-Assertion` (Cloudflare が付与する JWT)
+- **Response**: `access_token` (App JWT)
+- **重要事項**: 
+  - このエンドポイントは **クライアントサイド（ブラウザ）から直接呼び出すこと** を原則とする。サーバーサイド (Node.js/SSR) からの fetch では Cloudflare の認証 Cookie を透過的に引き継げないため。
+  - 成功時、フロントエンドは取得した `access_token` を以降のリクエスト（`Authorization: Bearer ...`）に使用する。
+
 ### `GET /api/v1/auth/me`
 - **目的**: 現在のログインユーザー情報取得
 - **Header**: `Authorization: Bearer <JWT>`

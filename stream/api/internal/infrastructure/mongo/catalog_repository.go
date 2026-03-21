@@ -32,21 +32,42 @@ func (r *catalogRepository) Upsert(ctx context.Context, content *domain.CatalogC
 	return nil
 }
 
-func (r *catalogRepository) GetByShortID(ctx context.Context, shortID string) (*domain.CatalogContent, error) {
+func (r *catalogRepository) GetByShortID(ctx context.Context, shortID string, userGroups []string) (*domain.CatalogContent, error) {
 	var content domain.CatalogContent
-	err := r.collection.FindOne(ctx, bson.M{"short_id": shortID}).Decode(&content)
+	filter := bson.M{
+		"short_id": shortID,
+		"$or": []bson.M{
+			{"visibility": "public"},
+			{"allowed_groups": bson.M{"$in": userGroups}},
+		},
+	}
+	err := r.collection.FindOne(ctx, filter).Decode(&content)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
-			return nil, fmt.Errorf("content not found in mongo")
+			return nil, fmt.Errorf("content not found or access denied")
 		}
 		return nil, fmt.Errorf("failed to get content from mongo: %w", err)
 	}
 	return &content, nil
 }
 
-func (r *catalogRepository) Search(ctx context.Context, query string) ([]*domain.CatalogContent, error) {
+func (r *catalogRepository) Search(ctx context.Context, query string, userGroups []string) ([]*domain.CatalogContent, error) {
 	// Simple text search or regex for MVP
-	filter := bson.M{"title": bson.M{"$regex": query, "$options": "i"}}
+	titleFilter := bson.M{}
+	if query != "" {
+		titleFilter = bson.M{"title": bson.M{"$regex": query, "$options": "i"}}
+	}
+	filter := bson.M{
+		"$and": []bson.M{
+			titleFilter,
+			{
+				"$or": []bson.M{
+					{"visibility": "public"},
+					{"allowed_groups": bson.M{"$in": userGroups}},
+				},
+			},
+		},
+	}
 	cursor, err := r.collection.Find(ctx, filter)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search in mongo: %w", err)
@@ -60,12 +81,18 @@ func (r *catalogRepository) Search(ctx context.Context, query string) ([]*domain
 	return results, nil
 }
 
-func (r *catalogRepository) GetByIDs(ctx context.Context, ids []string) ([]*domain.CatalogContent, error) {
+func (r *catalogRepository) GetByIDs(ctx context.Context, ids []string, userGroups []string) ([]*domain.CatalogContent, error) {
 	if len(ids) == 0 {
 		return []*domain.CatalogContent{}, nil
 	}
 
-	filter := bson.M{"_id": bson.M{"$in": ids}}
+	filter := bson.M{
+		"_id": bson.M{"$in": ids},
+		"$or": []bson.M{
+			{"visibility": "public"},
+			{"allowed_groups": bson.M{"$in": userGroups}},
+		},
+	}
 	cursor, err := r.collection.Find(ctx, filter)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch multiple contents from mongo: %w", err)

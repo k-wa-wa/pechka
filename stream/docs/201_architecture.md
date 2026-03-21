@@ -52,9 +52,10 @@ graph TD
 
 ### Data Flow (Development)
 1.  **UI表示**: ブラウザから `localhost:3000` にアクセス。
-2.  **Server-side Fetch**: Next.js サーバーが内部ネットワーク経由 (`http://nginx:80`) でAPI Gatewayを叩き、カタログ情報を取得。
-3.  **Client-side Fetch**: ブラウザ（hls.js や 管理画面モーダル）が `localhost:8000` を経由して各APIや動画アセットを取得。
-4.  **CORS**: Nginx Gatewayが `localhost:3000` からのリクエストを許可するヘッダーを付与。
+2.  **Auth Session Exchange (Client-side)**: ブラウザが `localhost:8000/api/v1/auth/session` を叩き、Cloudflare JWT を App JWT に交換する。
+3.  **Client-side Fetch**: ブラウザが取得した App JWT をヘッダー（`Authorization: Bearer ...`）にセットし、`localhost:8000` 経由で各 API を呼び出す。
+4.  **Server-side Fetch (Public only)**: Next.js サーバーサイドでの fetch は、現状認証が不要な公開情報（カタログの一部等）の取得に限定される。認証が必要な情報は原則クライアントサイドで取得する。
+5.  **CORS**: Nginx Gatewayが `localhost:3000` からのリクエストを許可するヘッダーを付与。
 
 ## 2. サービス設計詳細
 
