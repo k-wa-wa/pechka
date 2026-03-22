@@ -17,4 +17,7 @@ type UserRepository interface {
 	GetPermissionsByUserID(ctx context.Context, userID uuid.UUID) ([]Permission, error)
 	GetRolesByUserID(ctx context.Context, userID uuid.UUID) ([]Role, error)
 	GetGroupsByUserID(ctx context.Context, userID uuid.UUID) ([]Group, error)
+
+	// Admin: list all groups for permission assignment
+	ListAllGroups(ctx context.Context) ([]Group, error)
 }

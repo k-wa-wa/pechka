@@ -183,3 +183,21 @@ func (r *userRepository) GetGroupsByUserID(ctx context.Context, userID uuid.UUID
 	}
 	return groups, nil
 }
+
+func (r *userRepository) ListAllGroups(ctx context.Context) ([]domain.Group, error) {
+	rows, err := r.pool.Query(ctx, `SELECT id, name, description, created_at FROM groups ORDER BY name`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query groups: %w", err)
+	}
+	defer rows.Close()
+
+	var groups []domain.Group
+	for rows.Next() {
+		var g domain.Group
+		if err := rows.Scan(&g.ID, &g.Name, &g.Description, &g.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan group: %w", err)
+		}
+		groups = append(groups, g)
+	}
+	return groups, nil
+}

@@ -21,4 +21,5 @@ type ContentRepository interface {
 	// Utility
 	CheckDuplicateByS3Key(ctx context.Context, s3Key string) (bool, error)
 	ListAllShortIDs(ctx context.Context) ([]string, error)
+	GetGroupNamesByIDs(ctx context.Context, ids []uuid.UUID) ([]string, error)
 }

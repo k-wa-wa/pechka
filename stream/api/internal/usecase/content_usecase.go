@@ -10,12 +10,14 @@ import (
 
 // CreateContentRequest is used to create any type of content.
 type CreateContentRequest struct {
-	ContentType  domain.ContentType    `json:"content_type"`
-	Title        string                `json:"title"`
-	Description  string                `json:"description"`
-	Rating       *float64              `json:"rating,omitempty"`
-	Tags         []string              `json:"tags,omitempty"`
-	VideoDetails *domain.VideoDetails  `json:"video_details,omitempty"`
+	ContentType   domain.ContentType   `json:"content_type"`
+	Title         string               `json:"title"`
+	Description   string               `json:"description"`
+	Rating        *float64             `json:"rating,omitempty"`
+	Tags          []string             `json:"tags,omitempty"`
+	Visibility    string               `json:"visibility,omitempty"`
+	AllowedGroups []uuid.UUID          `json:"allowed_groups,omitempty"`
+	VideoDetails  *domain.VideoDetails `json:"video_details,omitempty"`
 }
 
 // AddAssetsRequest is used to attach asset files to a content.
@@ -75,16 +77,25 @@ func (u *contentUseCase) CreateContent(ctx context.Context, req CreateContentReq
 }
 
 func (u *contentUseCase) UpdateContent(ctx context.Context, id uuid.UUID, req CreateContentRequest) (*domain.Content, error) {
+	visibility := req.Visibility
+	if visibility == "" {
+		visibility = "public"
+	}
 	c := &domain.Content{
-		ID:           id,
-		Title:        req.Title,
-		Description:  req.Description,
-		Rating:       req.Rating,
-		Tags:         req.Tags,
-		VideoDetails: req.VideoDetails,
+		ID:            id,
+		Title:         req.Title,
+		Description:   req.Description,
+		Rating:        req.Rating,
+		Tags:          req.Tags,
+		Visibility:    visibility,
+		AllowedGroups: req.AllowedGroups,
+		VideoDetails:  req.VideoDetails,
 	}
 	if c.Tags == nil {
 		c.Tags = []string{}
+	}
+	if c.AllowedGroups == nil {
+		c.AllowedGroups = []uuid.UUID{}
 	}
 	if err := u.repo.UpdateContent(ctx, c); err != nil {
 		return nil, err

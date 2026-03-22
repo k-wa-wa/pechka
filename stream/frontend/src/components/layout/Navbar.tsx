@@ -61,7 +61,7 @@ export const Navbar = () => {
                     <p className="text-[10px] text-foreground/30 uppercase font-bold tracking-widest mb-1">Account</p>
                     <p className="text-xs text-foreground/70 truncate font-medium">{user.email}</p>
                   </div>
-                  {user.roles.includes('admin') && (
+                  {(user.roles.includes('admin') || user.permissions.includes('content:write')) && (
                     <Link href="/admin" className="block px-4 py-2.5 text-sm hover:bg-primary/10 hover:text-primary transition-colors flex items-center gap-2">
                        <span className="w-1.5 h-1.5 rounded-full bg-primary" />
                        Admin Dashboard

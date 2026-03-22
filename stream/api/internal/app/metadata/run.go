@@ -51,8 +51,9 @@ func Run() {
 	idGen := idgen.NewSnowflakeGenerator(nodeID)
 
 	repo := postgres.NewContentRepository(pool)
+	userRepo := postgres.NewUserRepository(pool)
 	uc := usecase.NewContentUseCase(repo, idGen)
-	handler := apiInterface.NewContentHandler(uc)
+	handler := apiInterface.NewContentHandler(uc, userRepo)
 
 	app := fiber.New()
 	app.Use(logger.New())

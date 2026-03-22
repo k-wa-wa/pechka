@@ -9,13 +9,25 @@ import (
 	"pechka/streaming-service/api/internal/usecase"
 )
 
-// ContentHandler handles admin metadata API for content management.
-type ContentHandler struct {
-	useCase usecase.ContentUseCase
+func (h *ContentHandler) ListGroups(c *fiber.Ctx) error {
+	groups, err := h.groupLister.ListAllGroups(c.Context())
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to list groups"})
+	}
+	if groups == nil {
+		groups = []domain.Group{}
+	}
+	return c.JSON(groups)
 }
 
-func NewContentHandler(useCase usecase.ContentUseCase) *ContentHandler {
-	return &ContentHandler{useCase: useCase}
+// ContentHandler handles admin metadata API for content management.
+type ContentHandler struct {
+	useCase     usecase.ContentUseCase
+	groupLister domain.UserRepository
+}
+
+func NewContentHandler(useCase usecase.ContentUseCase, groupLister domain.UserRepository) *ContentHandler {
+	return &ContentHandler{useCase: useCase, groupLister: groupLister}
 }
 
 func (h *ContentHandler) RegisterRoutes(router fiber.Router) {
@@ -26,6 +38,7 @@ func (h *ContentHandler) RegisterRoutes(router fiber.Router) {
 	admin.Get("/contents/:short_id", h.GetContent)
 	admin.Put("/contents/:id", h.UpdateContent)
 	admin.Post("/contents/:id/assets", h.AddAssets)
+	admin.Get("/groups", h.ListGroups)
 }
 
 func (h *ContentHandler) CreateContent(c *fiber.Ctx) error {

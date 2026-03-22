@@ -244,7 +244,7 @@ func processVideo(ctx context.Context, job ImportJob, nfsScanPath string, repo d
 		Title:         name,
 		Description:   "",
 		Tags:          []string{},
-		Visibility:    "private",
+		Visibility:    "group_only",
 		AllowedGroups: []uuid.UUID{nfsAdminGroupID},
 		PublishedAt:   &now,
 		CreatedAt:     now,

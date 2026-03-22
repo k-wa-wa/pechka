@@ -305,7 +305,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
             <input type="hidden" name="return_to" value="%s">
             <label for="username">Username</label>
             <div class="input-group">
-                <input type="text" id="username" name="username" placeholder="nfs-admin" required autofocus autocomplete="off">
+                <input type="text" id="username" name="username" placeholder="nfs-admin" required autofocus autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();this.form.submit();}">
                 <span class="suffix">@example.com</span>
             </div>
             <button type="submit">Sign In</button>

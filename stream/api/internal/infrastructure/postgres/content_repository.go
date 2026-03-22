@@ -242,6 +242,27 @@ func (r *contentRepository) ListAllShortIDs(ctx context.Context) ([]string, erro
 	return ids, nil
 }
 
+func (r *contentRepository) GetGroupNamesByIDs(ctx context.Context, ids []uuid.UUID) ([]string, error) {
+	if len(ids) == 0 {
+		return []string{}, nil
+	}
+	rows, err := r.pool.Query(ctx, `SELECT name FROM groups WHERE id = ANY($1)`, ids)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query group names: %w", err)
+	}
+	defer rows.Close()
+
+	var names []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("failed to scan group name: %w", err)
+		}
+		names = append(names, name)
+	}
+	return names, nil
+}
+
 // ─── Scan helpers ─────────────────────────────────────────────────────────────
 
 // scanContent scans a single row returned by QueryRow (contents LEFT JOIN content_videos).
@@ -267,6 +288,12 @@ func scanContent(row pgx.Row) (*domain.Content, error) {
 			DurationSeconds: intVal(durationSec),
 			Director:        strVal(director),
 		}
+	}
+	if c.AllowedGroups == nil {
+		c.AllowedGroups = []uuid.UUID{}
+	}
+	if c.Tags == nil {
+		c.Tags = []string{}
 	}
 	return &c, nil
 }
@@ -294,6 +321,12 @@ func scanContentRow(rows pgx.Rows) (*domain.Content, error) {
 			DurationSeconds: intVal(durationSec),
 			Director:        strVal(director),
 		}
+	}
+	if c.AllowedGroups == nil {
+		c.AllowedGroups = []uuid.UUID{}
+	}
+	if c.Tags == nil {
+		c.Tags = []string{}
 	}
 	return &c, nil
 }

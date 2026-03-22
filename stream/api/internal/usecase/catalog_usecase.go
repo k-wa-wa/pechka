@@ -92,7 +92,13 @@ func (u *catalogUseCase) SyncContent(ctx context.Context, shortID string, metaRe
 		return fmt.Errorf("content not found in metadata for shortID %s: %w", shortID, err)
 	}
 
-	catalog := contentToCatalog(c)
+	// Resolve allowed_groups UUIDs to group names (mirrors content_sync_view behaviour)
+	groupNames, err := metaRepo.GetGroupNamesByIDs(ctx, c.AllowedGroups)
+	if err != nil {
+		return fmt.Errorf("failed to resolve group names for %s: %w", shortID, err)
+	}
+
+	catalog := contentToCatalog(c, groupNames)
 
 	if err := u.repo.Upsert(ctx, catalog); err != nil {
 		return err
@@ -101,7 +107,8 @@ func (u *catalogUseCase) SyncContent(ctx context.Context, shortID string, metaRe
 }
 
 // contentToCatalog converts a PostgreSQL Content to a denormalized CatalogContent for MongoDB.
-func contentToCatalog(c *domain.Content) *domain.CatalogContent {
+// groupNames must be pre-resolved from c.AllowedGroups (UUID list) to string names.
+func contentToCatalog(c *domain.Content, groupNames []string) *domain.CatalogContent {
 	rating := 0.0
 	if c.Rating != nil {
 		rating = *c.Rating
@@ -128,6 +135,16 @@ func contentToCatalog(c *domain.Content) *domain.CatalogContent {
 		tags = []string{}
 	}
 
+	visibility := c.Visibility
+	if visibility == "" {
+		visibility = "public"
+	}
+
+	allowedGroups := groupNames
+	if allowedGroups == nil {
+		allowedGroups = []string{}
+	}
+
 	return &domain.CatalogContent{
 		ID:            c.ID.String(),
 		ShortID:       c.ShortID,
@@ -135,8 +152,8 @@ func contentToCatalog(c *domain.Content) *domain.CatalogContent {
 		Title:         c.Title,
 		Description:   c.Description,
 		Rating:        rating,
-		Visibility:    "public", // Default mapping if not synced correctly. Assuming API doesn't sync directly but Benthos does. (Sync Content here is mainly for force updates, we mock it)
-		AllowedGroups: []string{},
+		Visibility:    visibility,
+		AllowedGroups: allowedGroups,
 		Metadata:      metadata,
 		Assets:        assets,
 		Tags:          tags,
