@@ -36,7 +36,7 @@ setup-cilium:
 	kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=cilium-agent -n kube-system --timeout=300s
 
 .PHONY: build
-build: build-app build-ffmpeg build-analyzer build-frontend
+build: build-app build-ffmpeg build-analyzer build-frontend build-dev-proxy
 
 .PHONY: build-app
 build-app:
@@ -54,9 +54,13 @@ build-analyzer:
 build-frontend:
 	docker build -t pechka-frontend:latest frontend
 
+.PHONY: build-dev-proxy
+build-dev-proxy:
+	docker build -t dev-proxy:latest tests/dev-proxy
+
 
 .PHONY: load
-load: load-app load-ffmpeg load-analyzer load-frontend
+load: load-app load-ffmpeg load-analyzer load-frontend load-dev-proxy
 
 .PHONY: load-app
 load-app:
@@ -73,6 +77,10 @@ load-analyzer:
 .PHONY: load-frontend
 load-frontend:
 	kind load docker-image pechka-frontend:latest --name $(CLUSTER_NAME)
+
+.PHONY: load-dev-proxy
+load-dev-proxy:
+	kind load docker-image dev-proxy:latest --name $(CLUSTER_NAME)
 
 
 .PHONY: deploy
@@ -106,6 +114,10 @@ reload-frontend: build-frontend load-frontend
 reload-analyzer: build-analyzer load-analyzer
 	kubectl rollout restart deployment/thumbnail-analyzer
 
+.PHONY: reload-dev-proxy
+reload-dev-proxy: build-dev-proxy load-dev-proxy
+	kubectl rollout restart deployment/dev-proxy
+
 .PHONY: reload-batch
 reload-batch: build-app build-ffmpeg load-app load-ffmpeg
 	kubectl delete job --all
@@ -113,4 +125,4 @@ reload-batch: build-app build-ffmpeg load-app load-ffmpeg
 
 .PHONY: clean
 clean: down
-	docker image rm pechka-app:latest pechka-ffmpeg:latest pechka-analyzer:latest pechka-frontend:latest || true
+	docker image rm pechka-app:latest pechka-ffmpeg:latest pechka-analyzer:latest pechka-frontend:latest dev-proxy:latest || true

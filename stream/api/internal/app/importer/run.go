@@ -92,6 +92,14 @@ func Run() {
 	}
 	scorer := NewHttpThumbnailScorer(analyzerURL)
 
+	// Fetch nfs-admin group ID
+	var nfsAdminGroupID uuid.UUID
+	err = pgPool.QueryRow(ctx, "SELECT id FROM groups WHERE name = 'nfs-admin'").Scan(&nfsAdminGroupID)
+	if err != nil {
+		log.Printf("WARNING: nfs-admin group not found, using Nil UUID: %v", err)
+		nfsAdminGroupID = uuid.Nil
+	}
+
 	log.Printf("INFO: Starting NFS Video Importer Batch")
 	log.Printf("INFO: Scan Path: %s", nfsScanPath)
 
@@ -104,7 +112,7 @@ func Run() {
 		go func(workerID int) {
 			defer wg.Done()
 			for job := range jobs {
-				err := processVideo(ctx, job, nfsScanPath, repo, s3Client, minioBucket, cdnBaseURL, idGen, scorer)
+				err := processVideo(ctx, job, nfsScanPath, repo, s3Client, minioBucket, cdnBaseURL, idGen, scorer, nfsAdminGroupID)
 				if err != nil {
 					log.Printf("ERROR[Worker-%d]: Failed to process %s: %v", workerID, job.Path, err)
 				}
@@ -138,7 +146,7 @@ func Run() {
 	log.Println("INFO: Batch completed successfully.")
 }
 
-func processVideo(ctx context.Context, job ImportJob, nfsScanPath string, repo domain.ContentRepository, s3Client *s3.Client, minioBucket, cdnBaseURL string, idGen domain.ShortIDGenerator, scorer domain.ThumbnailScorer) error {
+func processVideo(ctx context.Context, job ImportJob, nfsScanPath string, repo domain.ContentRepository, s3Client *s3.Client, minioBucket, cdnBaseURL string, idGen domain.ShortIDGenerator, scorer domain.ThumbnailScorer, nfsAdminGroupID uuid.UUID) error {
 	path := job.Path
 	info := job.Info
 
@@ -230,15 +238,17 @@ func processVideo(ctx context.Context, job ImportJob, nfsScanPath string, repo d
 
 	now := time.Now()
 	content := &domain.Content{
-		ID:          videoID,
-		ShortID:     idGen.Generate(),
-		ContentType: domain.ContentTypeVideo,
-		Title:       name,
-		Description: "",
-		Tags:        []string{},
-		PublishedAt: &now,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:            videoID,
+		ShortID:       idGen.Generate(),
+		ContentType:   domain.ContentTypeVideo,
+		Title:         name,
+		Description:   "",
+		Tags:          []string{},
+		Visibility:    "private",
+		AllowedGroups: []uuid.UUID{nfsAdminGroupID},
+		PublishedAt:   &now,
+		CreatedAt:     now,
+		UpdatedAt:     now,
 		VideoDetails: &domain.VideoDetails{
 			Is360:           false,
 			DurationSeconds: int(durationSec),

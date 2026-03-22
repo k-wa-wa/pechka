@@ -182,7 +182,11 @@ SELECT
     c.updated_at,
     c.tags,
     c.visibility,
-    c.allowed_groups,
+    (
+        SELECT array_agg(g.name)
+        FROM groups g
+        WHERE g.id = ANY(c.allowed_groups)
+    ) AS allowed_groups,
     cv.director,
     cv.is_360,
     cv.duration_seconds,
@@ -193,3 +197,12 @@ SELECT
     ) AS assets
 FROM contents c
 LEFT JOIN content_videos cv ON cv.content_id = c.id;
+
+-- =====================
+-- Essential System Data
+-- =====================
+
+-- NFS Administrator group (required for NFS importer permissions)
+INSERT INTO groups (id, name, description) 
+VALUES ('550e8400-e29b-41d4-a716-446655441001', 'nfs-admin', 'NFS Video Administrators')
+ON CONFLICT (name) DO NOTHING;

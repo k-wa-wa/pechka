@@ -7,7 +7,6 @@ resources:
 patches:
 - path: patches/frontend-exposure.yaml
 - path: patches/nfs-data.yaml
-- path: patches/metadata-tests.yaml
 - target:
     kind: Deployment
   patch: |-

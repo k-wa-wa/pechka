@@ -2,6 +2,7 @@ package api
 
 import (
 	"log"
+	"os"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
@@ -20,6 +21,7 @@ func (h *AuthHandler) RegisterRoutes(router fiber.Router) {
 	auth := router.Group("/auth")
 	auth.Get("/session", h.Session)
 	auth.Get("/me", h.Me)
+	auth.Get("/logout", h.Logout)
 }
 
 // GET /api/v1/auth/session
@@ -36,6 +38,19 @@ func (h *AuthHandler) Session(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(res)
+}
+
+// GET /api/v1/auth/logout
+func (h *AuthHandler) Logout(c *fiber.Ctx) error {
+	redirectURL := os.Getenv("LOGOUT_REDIRECT_URL")
+	if redirectURL == "" {
+		log.Println("LOGOUT_REDIRECT_URL is not set")
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "logout not configured"})
+	}
+
+	// TODO: JWT invalidation (blacklist / refresh token revoke) goes here
+
+	return c.Redirect(redirectURL, fiber.StatusFound)
 }
 
 // GET /api/v1/auth/me

@@ -116,12 +116,14 @@ func main() {
 	http.HandleFunc("/mock/token", handleToken)
 	http.HandleFunc("/dev-proxy/login", handleLogin)
 	http.HandleFunc("/dev-proxy/auth", handleAuth)
+	http.HandleFunc("/cdn-cgi/access/logout", handleLogout)
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// Internal paths skip auth check
 		if strings.HasPrefix(r.URL.Path, "/.well-known/") ||
 			strings.HasPrefix(r.URL.Path, "/mock/") ||
-			strings.HasPrefix(r.URL.Path, "/dev-proxy/") {
+			strings.HasPrefix(r.URL.Path, "/dev-proxy/") ||
+			strings.HasPrefix(r.URL.Path, "/cdn-cgi/") {
 			w.Header().Set("X-Dev-Proxy", "internal")
 		} else {
 			// Auth check for proxied paths
@@ -216,26 +218,99 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dev Proxy Login</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #f4f7f9; }
-        .card { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 100%%; max-width: 400px; }
-        h1 { font-size: 1.5rem; margin-bottom: 1rem; color: #333; }
-        p { color: #666; font-size: 0.9rem; margin-bottom: 1.5rem; }
-        input[type="email"] { width: 100%%; padding: 0.75rem; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; margin-bottom: 1rem; font-size: 1rem; }
-        button { width: 100%%; padding: 0.75rem; background: #007aff; color: white; border: none; border-radius: 4px; font-size: 1rem; cursor: pointer; transition: background 0.2s; }
-        button:hover { background: #005bb5; }
-        .footer { margin-top: 1.5rem; font-size: 0.75rem; color: #999; text-align: center; }
+        *, *::before, *::after { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex; justify-content: center; align-items: center;
+            min-height: 100vh; margin: 0;
+            background: #0a0a0a;
+            color: #e5e5e5;
+        }
+        .card {
+            background: #141414;
+            padding: 2.5rem;
+            border-radius: 12px;
+            border: 1px solid #2a2a2a;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+            width: 100%%; max-width: 420px;
+        }
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 999px;
+            background: rgba(255,87,34,0.15);
+            border: 1px solid rgba(255,87,34,0.3);
+            color: #ff5722;
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            margin-bottom: 1.25rem;
+        }
+        h1 { font-size: 1.5rem; font-weight: 700; margin: 0 0 0.5rem; color: #fff; }
+        p { color: #666; font-size: 0.875rem; margin: 0 0 2rem; line-height: 1.6; }
+        label { display: block; font-size: 0.75rem; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem; }
+        .input-group {
+            display: flex;
+            align-items: center;
+            background: #1e1e1e;
+            border: 1px solid #2a2a2a;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 1.25rem;
+            transition: border-color 0.2s;
+        }
+        .input-group:focus-within { border-color: #ff5722; }
+        .input-group input {
+            flex: 1;
+            padding: 0.75rem 1rem;
+            background: transparent;
+            border: none;
+            outline: none;
+            font-size: 1rem;
+            color: #e5e5e5;
+            min-width: 0;
+        }
+        .input-group input::placeholder { color: #444; }
+        .input-group .suffix {
+            padding: 0.75rem 1rem 0.75rem 0;
+            color: #555;
+            font-size: 0.95rem;
+            white-space: nowrap;
+            user-select: none;
+        }
+        button {
+            width: 100%%;
+            padding: 0.875rem;
+            background: #ff5722;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.1s;
+        }
+        button:hover { background: #e64a19; }
+        button:active { transform: scale(0.98); }
+        .footer { margin-top: 1.5rem; font-size: 0.75rem; color: #444; text-align: center; }
     </style>
 </head>
 <body>
     <div class="card">
-        <h1>Dev Proxy 認証</h1>
-        <p>開発用モック環境です。ログインに使用するメールアドレスを入力してください。</p>
+        <div class="badge">Dev Mock</div>
+        <h1>Sign In</h1>
+        <p>Cloudflare Access のモック環境です。<br>ユーザー名を入力してください。</p>
         <form action="/dev-proxy/auth" method="POST">
             <input type="hidden" name="return_to" value="%s">
-            <input type="email" name="email" placeholder="test@example.com" required autofocus>
-            <button type="submit">ログイン</button>
+            <label for="username">Username</label>
+            <div class="input-group">
+                <input type="text" id="username" name="username" placeholder="nfs-admin" required autofocus autocomplete="off">
+                <span class="suffix">@example.com</span>
+            </div>
+            <button type="submit">Sign In</button>
         </form>
-        <div class="footer">Cloudflare Access 挙動をシミュレートしています</div>
+        <div class="footer">Simulating Cloudflare Access behavior</div>
     </div>
 </body>
 </html>
@@ -250,11 +325,20 @@ func handleAuth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Accept either a full email or just a username (appends @example.com)
+	username := r.FormValue("username")
 	email := r.FormValue("email")
 	returnTo := r.FormValue("return_to")
+
+	if username != "" {
+		email = username
+	}
 	if email == "" {
-		http.Error(w, "Email is required", http.StatusBadRequest)
+		http.Error(w, "Username is required", http.StatusBadRequest)
 		return
+	}
+	if !strings.Contains(email, "@") {
+		email = email + "@example.com"
 	}
 
 	tokenStr, err := generateJWT(email)
@@ -276,6 +360,20 @@ func handleAuth(w http.ResponseWriter, r *http.Request) {
 		returnTo = "/"
 	}
 	http.Redirect(w, r, returnTo, http.StatusFound)
+}
+
+func handleLogout(w http.ResponseWriter, r *http.Request) {
+	// Clear the auth cookie by setting it expired
+	http.SetCookie(w, &http.Cookie{
+		Name:     cookieName,
+		Value:    "",
+		Path:     "/",
+		Expires:  time.Unix(0, 0),
+		MaxAge:   -1,
+		HttpOnly: true,
+	})
+	log.Printf("Logout: cookie cleared")
+	http.Redirect(w, r, "/dev-proxy/login", http.StatusFound)
 }
 
 func generateJWT(email string) (string, error) {

@@ -5,45 +5,29 @@
 
 ## 2. API エンドポイント定義
 
-### `POST /api/v1/auth/register`
-- **目的**: 新規ユーザー登録
-- **Payload**:
-  ```json
-  {
-    "email": "user@example.com",
-    "password": "strongPassword123"
-  }
-  ```
-- **Response**: JWT access token, refresh token (HttpOnly Cookie) を返却。
-- **処理**: bcryptでパスワードをハッシュ化し、PostgreSQLの `users` テーブルへ保存。
-
-### `POST /api/v1/auth/login`
-- **目的**: ログイン
-- **Payload**: Registerと同様。
-- **Response**: 成功時にJWTを返却。
-
-### `POST /api/v1/auth/refresh`
-- **目的**: Access Tokenの再発行
-- **Header**: Refresh Token (Cookie)
-- **Response**: 新しい Access Token を返却。
+## 2. API エンドポイント定義
 
 ### `GET /api/v1/auth/session`
-- **目的**: 外部認証（Cloudflare Access）トークンをアプリ専用の JWT (App JWT) へ交換する。
-- **Header**: `Cf-Access-Jwt-Assertion` (Cloudflare が付与する JWT)
+- **目的**: 外部認証（Cloudflare Access または Dev Proxy）のトークンをアプリ専用の JWT (App JWT) へ交換する。
+- **Header**: `Cf-Access-Jwt-Assertion` (Cloudflare が付与する JWT、または Dev Proxy が付与するモック JWT)
 - **Response**: `access_token` (App JWT)
 - **重要事項**: 
-  - このエンドポイントは **クライアントサイド（ブラウザ）から直接呼び出すこと** を原則とする。サーバーサイド (Node.js/SSR) からの fetch では Cloudflare の認証 Cookie を透過的に引き継げないため。
-  - 成功時、フロントエンドは取得した `access_token` を以降のリクエスト（`Authorization: Bearer ...`）に使用する。
+  - このエンドポイントは **クライアントサイド（ブラウザ）から直接呼び出すこと**。
+  - 内部では `Cf-Access-Jwt-Assertion` を検証し、ユーザーが存在しない場合は自動的に `users` テーブルへ作成（JITプロビジョニング）を行う。
+  - 成功時、フロントエンドは取得した `access_token` をローカルストレージ等に保持し、以降のリクエスト（`Authorization: Bearer ...`）に使用する。
 
 ### `GET /api/v1/auth/me`
-- **目的**: 現在のログインユーザー情報取得
-- **Header**: `Authorization: Bearer <JWT>`
+- **目的**: 現在のログインユーザー情報（ロール、グループ、権限を含む）を取得する。
+- **Header**: `Authorization: Bearer <App JWT>`
 - **Response**:
   ```json
   {
     "id": "e02b... (UUID)",
     "email": "user@example.com",
-    "role": "user"
+    "displayName": "User Name",
+    "roles": ["admin"],
+    "groups": ["Administrators"],
+    "permissions": ["content:read", "content:write"]
   }
   ```
 

@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import { VideoPlayer } from "@/components/video/VideoPlayer";
 import { ChevronLeft, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { apiClient } from "@/lib/api-client";
 
 export default function WatchPage({ params }: { params: Promise<{ short_id: string }> }) {
   const { short_id } = React.use(params);
@@ -14,9 +15,8 @@ export default function WatchPage({ params }: { params: Promise<{ short_id: stri
   useEffect(() => {
     const fetchContent = async () => {
       try {
-        const res = await fetch(`/api/catalog/v1/catalog/contents/${short_id}`);
-        const data = await res.json();
-        setContent(data);
+        const res = await apiClient.get(`/api/catalog/v1/catalog/contents/${short_id}`);
+        setContent(res.data);
       } catch (error) {
         console.error("Failed to fetch content details:", error);
       } finally {

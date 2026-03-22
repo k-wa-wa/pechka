@@ -12,7 +12,5 @@ nodes:
   extraMounts:
   - hostPath: ./tests/nfs_data
     containerPath: /mnt/nfs
-  - hostPath: ./db/tests
-    containerPath: /tests
-  - hostPath: ./db/init.sql
-    containerPath: /docker-init.sql
+  - hostPath: ./db
+    containerPath: /docker-entrypoint-initdb.d

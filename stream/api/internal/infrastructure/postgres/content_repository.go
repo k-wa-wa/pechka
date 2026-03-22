@@ -39,9 +39,9 @@ func (r *contentRepository) CreateContent(ctx context.Context, c *domain.Content
 	c.CreatedAt = now
 
 	_, err = tx.Exec(ctx, `
-		INSERT INTO contents (id, short_id, content_type, title, description, rating, tags, published_at, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-	`, c.ID, c.ShortID, c.ContentType, c.Title, c.Description, c.Rating, c.Tags,
+		INSERT INTO contents (id, short_id, content_type, title, description, rating, tags, visibility, allowed_groups, published_at, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+	`, c.ID, c.ShortID, c.ContentType, c.Title, c.Description, c.Rating, c.Tags, c.Visibility, c.AllowedGroups,
 		c.PublishedAt, c.CreatedAt, c.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("failed to insert content: %w", err)
@@ -80,6 +80,7 @@ func (r *contentRepository) getContent(ctx context.Context, col string, val inte
 	query := fmt.Sprintf(`
 		SELECT
 			c.id, c.short_id, c.content_type, c.title, c.description, c.rating, c.tags,
+			c.visibility, c.allowed_groups,
 			c.published_at, c.created_at, c.updated_at,
 			cv.is_360, cv.duration_seconds, cv.director
 		FROM contents c
@@ -113,9 +114,9 @@ func (r *contentRepository) UpdateContent(ctx context.Context, c *domain.Content
 
 	_, err = tx.Exec(ctx, `
 		UPDATE contents
-		SET title = $1, description = $2, rating = $3, tags = $4, published_at = $5
-		WHERE id = $6
-	`, c.Title, c.Description, c.Rating, c.Tags, c.PublishedAt, c.ID)
+		SET title = $1, description = $2, rating = $3, tags = $4, visibility = $5, allowed_groups = $6, published_at = $7
+		WHERE id = $8
+	`, c.Title, c.Description, c.Rating, c.Tags, c.Visibility, c.AllowedGroups, c.PublishedAt, c.ID)
 	if err != nil {
 		return fmt.Errorf("failed to update content: %w", err)
 	}
@@ -142,6 +143,7 @@ func (r *contentRepository) ListContents(ctx context.Context) ([]*domain.Content
 	query := `
 		SELECT
 			c.id, c.short_id, c.content_type, c.title, c.description, c.rating, c.tags,
+			c.visibility, c.allowed_groups,
 			c.published_at, c.created_at, c.updated_at,
 			cv.is_360, cv.duration_seconds, cv.director
 		FROM contents c
@@ -251,6 +253,7 @@ func scanContent(row pgx.Row) (*domain.Content, error) {
 
 	err := row.Scan(
 		&c.ID, &c.ShortID, &c.ContentType, &c.Title, &c.Description, &c.Rating, &c.Tags,
+		&c.Visibility, &c.AllowedGroups,
 		&c.PublishedAt, &c.CreatedAt, &c.UpdatedAt,
 		&is360, &durationSec, &director,
 	)
@@ -277,6 +280,7 @@ func scanContentRow(rows pgx.Rows) (*domain.Content, error) {
 
 	err := rows.Scan(
 		&c.ID, &c.ShortID, &c.ContentType, &c.Title, &c.Description, &c.Rating, &c.Tags,
+		&c.Visibility, &c.AllowedGroups,
 		&c.PublishedAt, &c.CreatedAt, &c.UpdatedAt,
 		&is360, &durationSec, &director,
 	)

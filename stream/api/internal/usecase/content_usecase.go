@@ -60,6 +60,7 @@ func (u *contentUseCase) CreateContent(ctx context.Context, req CreateContentReq
 		Description:  req.Description,
 		Rating:       req.Rating,
 		Tags:         req.Tags,
+		Visibility:   "public",
 		PublishedAt:  &now,
 		VideoDetails: req.VideoDetails,
 	}

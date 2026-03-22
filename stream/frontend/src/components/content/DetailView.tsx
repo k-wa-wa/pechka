@@ -29,6 +29,7 @@ export const DetailView = ({ content }: DetailViewProps) => {
           fill
           className="object-cover object-top brightness-[0.4]"
           priority
+          unoptimized
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/20" />
         

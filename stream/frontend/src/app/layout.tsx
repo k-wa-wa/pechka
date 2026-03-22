@@ -27,6 +27,7 @@ export const viewport: Viewport = {
 };
 
 import { NavbarWrapper } from "@/components/layout/NavbarWrapper";
+import { AuthProvider } from "@/components/providers/AuthProvider";
 
 export default function RootLayout({
   children,
@@ -38,8 +39,10 @@ export default function RootLayout({
       <body
         className={`${outfit.variable} font-sans antialiased bg-background text-foreground`}
       >
-        <NavbarWrapper />
-        {children}
+        <AuthProvider>
+          <NavbarWrapper />
+          {children}
+        </AuthProvider>
       </body>
     </html>
   );

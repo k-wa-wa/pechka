@@ -17,6 +17,7 @@ data:
   JWT_REFRESH_TTL_DAYS: "30"
   PYTHONUNBUFFERED: "1"
   NEXT_PUBLIC_API_URL: "http://localhost:8000"
+  LOGOUT_REDIRECT_URL: "/cdn-cgi/access/logout"
   INTERNAL_API_URL: "http://cilium-gateway-cilium-gateway.default.svc.cluster.local:80"
   ELASTICSEARCH_URL: "http://elasticsearch:9200"
   MOCK_AUTH_ENABLED: "true"

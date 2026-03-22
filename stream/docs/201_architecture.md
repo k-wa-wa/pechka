@@ -4,14 +4,14 @@
 
 ## 1. 全体アーキテクチャ (System Landscape)
 
-システム全体の基本方針は**「マイクロサービス化」**と**「API Gatewayパターン」**の採用。
-現在は開発環境において、UIを `localhost:3000`、API Gateway(Nginx)を `localhost:8000` で提供するハイブリッド構成をとっている。
+システム全体の基本方針は**「マイクロサービス化」**、**「API Gatewayパターン」**、および**「外部認証（Cloudflare Access / Dev Proxy）への依存」**である。
+認証の入口は全てゲートウェイ（NodePort 30000 / マップ先 localhost:8000）に集約される。
 
 ```mermaid
 graph TD
-    Client["Client Browser (localhost:3000)"]
-    Gateway["Nginx API Gateway (localhost:8000)"]
-    Frontend["Frontend Service (Next.js)"]
+    User["User Browser"]
+    Gateway["Proxy Gateway (localhost:8000)"]
+    Frontend["Frontend App (Next.js)"]
     Catalog["Catalog Service"]
     Metadata["Metadata Service"]
     Auth["Auth Service"]
@@ -20,10 +20,11 @@ graph TD
     DB_Mongo[("MongoDB")]
     ES["Elasticsearch"]
 
-    Client -- UI Request --> Frontend
-    Client -- Client-side API Request --> Gateway
-    Frontend -- Server-side API Request --> Gateway
+    User -- "Access (Auth Check)" --> Gateway
+    Gateway -- "Unauthenticated" --> Login["Proxy Login Page"]
+    Gateway -- "Authenticated" --> Frontend
     
+    User -- "API calls with App JWT" --> Gateway
     Gateway -- /api/catalog/* --> Catalog
     Gateway -- /api/metadata/* --> Metadata
     Gateway -- /api/auth/* --> Auth
@@ -33,29 +34,19 @@ graph TD
     Metadata --> DB_PG
     Auth --> DB_PG
 
-    subgraph Batch/Sync Layer
-        NFS[("NFS Server (Video Source)")]
-        Importer["Batch NFS Importer (Go)"]
-        Analyzer["Thumbnail Analyzer (Python/Sidecar)"]
-        Benthos["Benthos (Sync Engine)"]
-        
-        NFS -- Scan/Read --> Importer
-        Importer -- Analyze Request (HTTP) --> Analyzer
-        Importer -- S3 Upload --> MinIO[("MinIO (S3)")]
-        Importer -- Write --> DB_PG
-        
-        Benthos -- "Poll (updated_at)" --> DB_PG
+    subgraph Batch Layer
+        Importer["NFS Importer"] --> DB_PG
+        Benthos["Benthos (Sync Engine)"] -- Poll --> DB_PG
         Benthos -- Sync --> DB_Mongo
         Benthos -- Sync --> ES
     end
 ```
 
 ### Data Flow (Development)
-1.  **UI表示**: ブラウザから `localhost:3000` にアクセス。
-2.  **Auth Session Exchange (Client-side)**: ブラウザが `localhost:8000/api/v1/auth/session` を叩き、Cloudflare JWT を App JWT に交換する。
-3.  **Client-side Fetch**: ブラウザが取得した App JWT をヘッダー（`Authorization: Bearer ...`）にセットし、`localhost:8000` 経由で各 API を呼び出す。
-4.  **Server-side Fetch (Public only)**: Next.js サーバーサイドでの fetch は、現状認証が不要な公開情報（カタログの一部等）の取得に限定される。認証が必要な情報は原則クライアントサイドで取得する。
-5.  **CORS**: Nginx Gatewayが `localhost:3000` からのリクエストを許可するヘッダーを付与。
+1.  **アクセス制御**: ユーザーが `http://localhost:8000` にアクセスすると、ゲートウェイ（Dev Proxy）が認証を確認する。未認証であれば `/dev-proxy/login`（モック）へ強制リダイレクトされる。
+2.  **App JWT の取得**: フロントエンド（Next.js）はマウント時に `localhost:8000/api/v1/auth/session` を呼び出し、ゲートウェイが付与した認証情報を `App JWT` に交換してローカルに保持する。
+3.  **セキュアな API 通信**: ブラウザが取得した App JWT を `Authorization: Bearer` ヘッダーにセットし、ゲートウェイ経由で各マイクロサービスを呼び出す。各サービスは共通の秘密鍵でトークンの検証を行う。
+4.  **SSO モデル**: フロントエンド自体にログインページは存在せず、全ての認証はゲートウェイ層で完結するシングルサインオン（SSO）モデルを採用。
 
 ## 2. サービス設計詳細
 

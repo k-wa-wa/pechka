@@ -26,16 +26,16 @@ spec:
         volumeMounts:
         - name: postgres-data
           mountPath: /var/lib/postgresql/data
-        - name: init-sql
-          mountPath: /docker-entrypoint-initdb.d/init.sql
+        - name: init-db
+          mountPath: /docker-entrypoint-initdb.d
           readOnly: true
       volumes:
       - name: postgres-data
         emptyDir: {} # dev用なので再起動で消えても良い場合はこれ、永続化するならPVC
-      - name: init-sql
+      - name: init-db
         hostPath:
-          path: /docker-init.sql
-          type: File
+          path: /docker-entrypoint-initdb.d
+          type: Directory
 ---
 apiVersion: v1
 kind: Service

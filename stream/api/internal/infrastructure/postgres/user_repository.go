@@ -71,7 +71,7 @@ func (r *userRepository) Update(ctx context.Context, user *domain.User) error {
 
 func (r *userRepository) FindByEmail(ctx context.Context, email string) (*domain.User, error) {
 	query := `
-		SELECT id, email, display_name, avatar_url, status, last_login, created_at, updated_at
+		SELECT id, email, display_name, COALESCE(avatar_url, ''), status, last_login, created_at, updated_at
 		FROM users
 		WHERE email = $1
 	`
@@ -90,7 +90,7 @@ func (r *userRepository) FindByEmail(ctx context.Context, email string) (*domain
 
 func (r *userRepository) FindByID(ctx context.Context, id uuid.UUID) (*domain.User, error) {
 	query := `
-		SELECT id, email, display_name, avatar_url, status, last_login, created_at, updated_at
+		SELECT id, email, display_name, COALESCE(avatar_url, ''), status, last_login, created_at, updated_at
 		FROM users
 		WHERE id = $1
 	`

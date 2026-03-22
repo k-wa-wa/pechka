@@ -14,65 +14,26 @@ servers:
 
 paths:
   # ==================== Auth Service ====================
-  /api/v1/auth/register:
-    post:
-      summary: Register a new user
+  /api/v1/auth/session:
+    get:
+      summary: Exchange Cloudflare JWT for App JWT
       tags: [Auth]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RegisterRequest'
-      responses:
-        '201':
-          description: User created successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AuthTokens'
-        '400':
-          description: Invalid request
-
-  /api/v1/auth/login:
-    post:
-      summary: Login user
-      tags: [Auth]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/LoginRequest'
+      description: |
+        Called from the client-side (browser) to exchange the 'Cf-Access-Jwt-Assertion' 
+        header (provided by Cloudflare Access or dev-proxy) for an internal App JWT.
       responses:
         '200':
-          description: Login successful
+          description: Session established successfully
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthTokens'
         '401':
-          description: Invalid credentials
+          description: Missing or invalid Cloudflare JWT
+        '500':
+          description: Internal server error (e.g. user creation failed)
 
-  /api/v1/auth/refresh:
-    post:
-      summary: Refresh access token
-      tags: [Auth]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RefreshRequest'
-      responses:
-        '200':
-          description: Tokens refreshed
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AuthTokens'
-        '401':
-          description: Invalid or expired refresh token
+  # ==================== Auth Service ====================
 
   /api/v1/auth/me:
     get:
@@ -316,41 +277,10 @@ components:
 
   schemas:
     # ── Auth ──────────────────────────────────────────────────────────────────
-    RegisterRequest:
-      type: object
-      required: [email, password]
-      properties:
-        email:
-          type: string
-          format: email
-        password:
-          type: string
-          format: password
-
-    LoginRequest:
-      type: object
-      required: [email, password]
-      properties:
-        email:
-          type: string
-          format: email
-        password:
-          type: string
-          format: password
-
-    RefreshRequest:
-      type: object
-      required: [refresh_token]
-      properties:
-        refresh_token:
-          type: string
-
     AuthTokens:
       type: object
       properties:
         access_token:
-          type: string
-        refresh_token:
           type: string
 
     MeResponse:
