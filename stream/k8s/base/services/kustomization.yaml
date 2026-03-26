@@ -1,3 +1,4 @@
 resources:
 - auth.yaml
 - catalog.yaml
+- metadata.yaml

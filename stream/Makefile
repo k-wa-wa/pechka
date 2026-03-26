@@ -1,6 +1,6 @@
 # Makefile for kind development environment
-# Use rootful Docker socket to allow BPF operations inside kind nodes.
-# The system Docker daemon (rootful) runs on /run/docker.sock.
+# Use rootful Docker socket to allow BPF operations and proper network
+# connectivity inside kind nodes (rootless Docker lacks external DNS from nodes).
 export DOCKER_HOST = unix:///run/docker.sock
 
 CLUSTER_NAME = pechka-cluster
@@ -18,11 +18,13 @@ cluster:
 	@if ! kind get clusters | grep -q $(CLUSTER_NAME); then \
 		kind create cluster --name $(CLUSTER_NAME) --config $(KIND_CONFIG); \
 	fi
+	@echo "Increasing inotify limits for kind (required for kube-proxy)..."
+	sudo sysctl fs.inotify.max_user_watches=524288 fs.inotify.max_user_instances=512 > /dev/null
 
 # Pre-pull Cilium images on the host (host DNS works) then load directly into
 # containerd in the kind node, bypassing the broken in-cluster DNS.
-# Note: docker save | ctr import automatically creates digest references that
-# match what the Helm chart specifies, so no extra tagging is needed.
+# Note: docker save | ctr import preserves the digest references that the
+# Helm chart expects, so kubelet can find the images without registry access.
 .PHONY: prefetch-cilium
 prefetch-cilium:
 	@echo "Pulling Cilium images on host..."
@@ -40,11 +42,12 @@ prefetch-cilium:
 .PHONY: setup-cilium
 setup-cilium:
 	@echo "Installing Gateway API CRDs..."
-	kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/experimental-install.yaml
+	kubectl --context kind-$(CLUSTER_NAME) apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/experimental-install.yaml
 	@echo "Installing Cilium via Helm..."
 	helm repo add cilium https://helm.cilium.io/ 2>/dev/null || true
 	helm repo update
 	helm upgrade --install cilium cilium/cilium --namespace kube-system \
+		--kube-context kind-$(CLUSTER_NAME) \
 		--version $(CILIUM_HELM_VERSION) \
 		--set gatewayAPI.enabled=true \
 		--set gatewayAPI.gatewayClass.enabled=true \
@@ -52,12 +55,12 @@ setup-cilium:
 		--set nodePort.enabled=true \
 		--set operator.replicas=1
 	@echo "Waiting for Cilium pods to appear..."
-	@count=0; until kubectl get pods -l app.kubernetes.io/name=cilium-agent -n kube-system -o name 2>/dev/null | grep -q "pod/"; do \
+	@count=0; until kubectl --context kind-$(CLUSTER_NAME) get pods -l app.kubernetes.io/name=cilium-agent -n kube-system -o name 2>/dev/null | grep -q "pod/"; do \
 		count=$$((count+1)); \
 		if [ $$count -ge 90 ]; then echo "ERROR: Timeout (180s) - Cilium pods did not appear. Check: kubectl get pods -n kube-system"; exit 1; fi; \
 		sleep 2; \
 	done
-	kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=cilium-agent -n kube-system --timeout=300s
+	kubectl --context kind-$(CLUSTER_NAME) wait --for=condition=ready pod -l app.kubernetes.io/name=cilium-agent -n kube-system --timeout=300s
 
 .PHONY: build
 build: build-app build-ffmpeg build-analyzer build-frontend build-dev-proxy
@@ -109,7 +112,7 @@ load-dev-proxy:
 
 .PHONY: deploy
 deploy:
-	kubectl apply -k $(K8S_DIR)
+	kubectl --context kind-$(CLUSTER_NAME) apply -k $(K8S_DIR)
 
 .PHONY: down
 down:
@@ -117,35 +120,35 @@ down:
 
 .PHONY: logs
 logs:
-	kubectl get pods
-	@echo "Example: kubectl logs -f deployment/metadata-service"
+	kubectl --context kind-$(CLUSTER_NAME) get pods
+	@echo "Example: kubectl --context kind-$(CLUSTER_NAME) logs -f deployment/metadata-service"
 
 .PHONY: reload
 reload: build load
-	kubectl rollout restart deployment
-	kubectl delete job --all
-	kubectl apply -k $(K8S_DIR)
+	kubectl --context kind-$(CLUSTER_NAME) rollout restart deployment
+	kubectl --context kind-$(CLUSTER_NAME) delete job --all
+	kubectl --context kind-$(CLUSTER_NAME) apply -k $(K8S_DIR)
 
 .PHONY: reload-app
 reload-app: build-app load-app
-	kubectl rollout restart deployment/auth-service deployment/catalog-service
+	kubectl --context kind-$(CLUSTER_NAME) rollout restart deployment/auth-service deployment/catalog-service deployment/metadata-service
 
 .PHONY: reload-frontend
 reload-frontend: build-frontend load-frontend
-	kubectl rollout restart deployment/frontend
+	kubectl --context kind-$(CLUSTER_NAME) rollout restart deployment/frontend
 
 .PHONY: reload-analyzer
 reload-analyzer: build-analyzer load-analyzer
-	kubectl rollout restart deployment/thumbnail-analyzer
+	kubectl --context kind-$(CLUSTER_NAME) rollout restart deployment/thumbnail-analyzer
 
 .PHONY: reload-dev-proxy
 reload-dev-proxy: build-dev-proxy load-dev-proxy
-	kubectl rollout restart deployment/dev-proxy
+	kubectl --context kind-$(CLUSTER_NAME) rollout restart deployment/dev-proxy
 
 .PHONY: reload-batch
 reload-batch: build-app build-ffmpeg load-app load-ffmpeg
-	kubectl delete job --all
-	kubectl apply -k $(K8S_DIR)
+	kubectl --context kind-$(CLUSTER_NAME) delete job --all
+	kubectl --context kind-$(CLUSTER_NAME) apply -k $(K8S_DIR)
 
 .PHONY: clean
 clean: down

@@ -9,6 +9,13 @@ spec:
   - matches:
     - path:
         type: PathPrefix
+        value: /api/metadata
+    backendRefs:
+    - name: metadata-service
+      port: 8083
+  - matches:
+    - path:
+        type: PathPrefix
         value: /api/catalog
     backendRefs:
     - name: catalog-service

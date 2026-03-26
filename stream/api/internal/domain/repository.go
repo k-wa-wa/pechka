@@ -18,6 +18,10 @@ type ContentRepository interface {
 	// Asset operations (assets table)
 	AddAssets(ctx context.Context, contentID uuid.UUID, assets []Asset) error
 
+	// Group permissions (content_group_permissions table)
+	GetGroupPermissions(ctx context.Context, contentID uuid.UUID) ([]GroupPermission, error)
+	SetGroupPermissions(ctx context.Context, contentID uuid.UUID, perms []GroupPermission) error
+
 	// Utility
 	CheckDuplicateByS3Key(ctx context.Context, s3Key string) (bool, error)
 	ListAllShortIDs(ctx context.Context) ([]string, error)

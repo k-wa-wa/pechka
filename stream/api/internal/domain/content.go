@@ -33,6 +33,14 @@ type VideoDetails struct {
 	Director        string `json:"director,omitempty"`
 }
 
+// GroupPermission represents per-group CRUD permissions for a content
+type GroupPermission struct {
+	GroupID   uuid.UUID `json:"group_id"`
+	CanRead   bool      `json:"can_read"`
+	CanWrite  bool      `json:"can_write"`
+	CanDelete bool      `json:"can_delete"`
+}
+
 // Content represents the unified content domain entity (maps to contents table)
 type Content struct {
 	ID          uuid.UUID    `json:"id"`
@@ -42,8 +50,9 @@ type Content struct {
 	Description string       `json:"description"`
 	Rating      *float64     `json:"rating,omitempty"`
 	Tags          []string     `json:"tags"`
-	Visibility    string       `json:"visibility"`
-	AllowedGroups []uuid.UUID  `json:"allowed_groups"`
+	Visibility       string            `json:"visibility"`
+	AllowedGroups    []uuid.UUID       `json:"allowed_groups"`
+	GroupPermissions []GroupPermission `json:"group_permissions"`
 	PublishedAt   *time.Time   `json:"published_at,omitempty"`
 	CreatedAt   time.Time    `json:"created_at"`
 	UpdatedAt   time.Time    `json:"updated_at"`

@@ -3,6 +3,7 @@
 import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { apiClient } from "@/lib/api-client";
 
 export default function EditContentPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -17,18 +18,14 @@ export default function EditContentPage({ params }: { params: Promise<{ id: stri
   useEffect(() => {
     async function fetchContent() {
       try {
-        const res = await fetch(`${API_BASE}/admin/metadata/contents/${id}`);
-        if (res.ok) {
-          const item = await res.json();
-          setContent(item);
-        } else if (res.status === 404) {
+        const res = await apiClient.get(`${API_BASE}/admin/metadata/contents/${id}`);
+        setContent(res.data);
+      } catch (error: any) {
+        if (error.response?.status === 404) {
           setMessage("Content not found");
         } else {
           setMessage("Failed to load content data.");
         }
-      } catch (error) {
-        console.error("Failed to fetch content:", error);
-        setMessage("Failed to load content data.");
       } finally {
         setLoading(false);
       }
@@ -42,28 +39,19 @@ export default function EditContentPage({ params }: { params: Promise<{ id: stri
     setMessage("");
 
     try {
-      const res = await fetch(`${API_BASE}/admin/metadata/contents/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: content.title,
-          description: content.description,
-          rating: parseFloat(content.rating) || 0,
-          content_type: content.content_type,
-          tags: content.tags || [],
-        }),
+      await apiClient.put(`${API_BASE}/admin/metadata/contents/${id}`, {
+        title: content.title,
+        description: content.description,
+        rating: parseFloat(content.rating) || 0,
+        content_type: content.content_type,
+        tags: content.tags || [],
+        visibility: content.visibility || "public",
+        allowed_groups: content.allowed_groups || [],
       });
-
-      if (res.ok) {
-        setMessage("Content updated successfully! Redirecting...");
-        setTimeout(() => router.push("/admin"), 1500);
-      } else {
-        const errorData = await res.json();
-        setMessage(`Error: ${errorData.error || "Failed to update"}`);
-      }
-    } catch (error) {
-      console.error("Failed to update content:", error);
-      setMessage("An unexpected error occurred.");
+      setMessage("Content updated successfully! Redirecting...");
+      setTimeout(() => router.push("/admin"), 1500);
+    } catch (error: any) {
+      setMessage(`Error: ${error.response?.data?.error || "Failed to update"}`);
     } finally {
       setSaving(false);
     }
@@ -106,8 +94,8 @@ export default function EditContentPage({ params }: { params: Promise<{ id: stri
             <div className="lg:col-span-2 space-y-10">
               <div className="space-y-4">
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Content Title</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={content.title}
                   onChange={(e) => setContent({...content, title: e.target.value})}
                   className="w-full bg-white/[0.03] border border-white/10 rounded-2xl px-6 py-4 text-xl font-bold text-white focus:outline-none focus:border-red-600 focus:bg-white/[0.05] transition-all placeholder:text-white/10"
@@ -118,7 +106,7 @@ export default function EditContentPage({ params }: { params: Promise<{ id: stri
 
               <div className="space-y-4">
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Detailed Description</label>
-                <textarea 
+                <textarea
                   value={content.description}
                   onChange={(e) => setContent({...content, description: e.target.value})}
                   rows={8}
@@ -129,12 +117,12 @@ export default function EditContentPage({ params }: { params: Promise<{ id: stri
 
               <div className="space-y-4">
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Tags (Comma separated)</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={(content.tags || []).join(", ")}
                   onChange={(e) => setContent({
-                    ...content, 
-                    tags: e.target.value.split(",").map(t => t.trim()).filter(t => t !== "")
+                    ...content,
+                    tags: e.target.value.split(",").map((t: string) => t.trim()).filter((t: string) => t !== "")
                   })}
                   className="w-full bg-white/[0.03] border border-white/10 rounded-2xl px-6 py-4 text-white font-medium focus:outline-none focus:border-red-600 focus:bg-white/[0.05] transition-all placeholder:text-white/10"
                   placeholder="Action, Sci-Fi, Adventure"
@@ -147,8 +135,8 @@ export default function EditContentPage({ params }: { params: Promise<{ id: stri
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Preview Thumbnail</label>
                 <div className="relative aspect-video rounded-2xl overflow-hidden bg-white/5 border border-white/10 group">
                   {content.assets?.find((a: any) => a.asset_role === "thumbnail")?.public_url ? (
-                    <img 
-                      src={content.assets.find((a: any) => a.asset_role === "thumbnail").public_url} 
+                    <img
+                      src={content.assets.find((a: any) => a.asset_role === "thumbnail").public_url}
                       alt={content.title}
                       className="object-cover w-full h-full group-hover:scale-105 transition-transform duration-700"
                     />
@@ -164,7 +152,7 @@ export default function EditContentPage({ params }: { params: Promise<{ id: stri
 
               <div className="space-y-4">
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Content Format</label>
-                <select 
+                <select
                   value={content.content_type}
                   onChange={(e) => setContent({...content, content_type: e.target.value})}
                   className="w-full bg-white/[0.03] border border-white/10 rounded-2xl px-6 py-4 text-white font-bold focus:outline-none focus:border-red-600 transition-all appearance-none cursor-pointer"
@@ -179,10 +167,10 @@ export default function EditContentPage({ params }: { params: Promise<{ id: stri
               <div className="space-y-4">
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Critic Rating</label>
                 <div className="flex items-center gap-4">
-                  <input 
-                    type="range" 
-                    step="0.1" 
-                    min="0" 
+                  <input
+                    type="range"
+                    step="0.1"
+                    min="0"
                     max="10"
                     value={content.rating || 0}
                     onChange={(e) => setContent({...content, rating: e.target.value})}
@@ -203,13 +191,13 @@ export default function EditContentPage({ params }: { params: Promise<{ id: stri
                 </div>
               )}
             </div>
-            
+
             <div className="flex items-center gap-6">
               <Link href="/admin" className="text-white/40 hover:text-white text-xs font-black uppercase tracking-widest transition-colors">
                 Discard Changes
               </Link>
-              <button 
-                type="submit" 
+              <button
+                type="submit"
                 disabled={saving}
                 className="px-12 py-4 bg-red-600 hover:bg-red-700 disabled:bg-white/5 disabled:text-white/10 text-white rounded-2xl font-black uppercase tracking-widest transition-all shadow-[0_0_40px_rgba(220,38,38,0.2)] active:scale-95 hover:shadow-[0_0_60px_rgba(220,38,38,0.4)]"
               >

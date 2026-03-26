@@ -7,6 +7,7 @@ import (
 	"pechka/streaming-service/api/internal/app/auth"
 	"pechka/streaming-service/api/internal/app/catalog"
 	"pechka/streaming-service/api/internal/app/importer"
+	"pechka/streaming-service/api/internal/app/metadata"
 )
 
 func main() {
@@ -23,12 +24,13 @@ func main() {
 		catalog.Run()
 	case "auth-service":
 		auth.Run()
-
+	case "metadata-service":
+		metadata.Run()
 	case "batch-nfs-importer":
 		importer.Run()
 	default:
 		fmt.Printf("Unknown subcommand: %s\n", subcommand)
-		fmt.Println("Subcommands: catalog-service, auth-service, batch-nfs-importer")
+		fmt.Println("Subcommands: catalog-service, auth-service, metadata-service, batch-nfs-importer")
 		os.Exit(1)
 	}
 }

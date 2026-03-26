@@ -59,6 +59,7 @@ export default function AdminDashboard() {
       ...content,
       visibility: content.visibility || "public",
       allowed_groups: content.allowed_groups || [],
+      group_permissions: content.group_permissions || [],
     });
     setMessage(null);
   };
@@ -80,7 +81,7 @@ export default function AdminDashboard() {
         tags: editTarget.tags || [],
         content_type: editTarget.content_type,
         visibility: editTarget.visibility,
-        allowed_groups: editTarget.allowed_groups || [],
+        group_permissions: editTarget.group_permissions || [],
       });
       setMessage({ text: "保存しました！", ok: true });
       await fetchContents();
@@ -112,6 +113,7 @@ export default function AdminDashboard() {
           ...content,
           ...changes,
           rating: changes.rating ?? content.rating ?? 0,
+          group_permissions: changes.group_permissions ?? content.group_permissions ?? [],
         });
         successCount++;
       }

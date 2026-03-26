@@ -10,14 +10,15 @@ import (
 
 // CreateContentRequest is used to create any type of content.
 type CreateContentRequest struct {
-	ContentType   domain.ContentType   `json:"content_type"`
-	Title         string               `json:"title"`
-	Description   string               `json:"description"`
-	Rating        *float64             `json:"rating,omitempty"`
-	Tags          []string             `json:"tags,omitempty"`
-	Visibility    string               `json:"visibility,omitempty"`
-	AllowedGroups []uuid.UUID          `json:"allowed_groups,omitempty"`
-	VideoDetails  *domain.VideoDetails `json:"video_details,omitempty"`
+	ContentType      domain.ContentType        `json:"content_type"`
+	Title            string                    `json:"title"`
+	Description      string                    `json:"description"`
+	Rating           *float64                  `json:"rating,omitempty"`
+	Tags             []string                  `json:"tags,omitempty"`
+	Visibility       string                    `json:"visibility,omitempty"`
+	AllowedGroups    []uuid.UUID               `json:"allowed_groups,omitempty"`
+	GroupPermissions []domain.GroupPermission  `json:"group_permissions,omitempty"`
+	VideoDetails     *domain.VideoDetails      `json:"video_details,omitempty"`
 }
 
 // AddAssetsRequest is used to attach asset files to a content.
@@ -36,6 +37,7 @@ type ContentUseCase interface {
 	CreateContent(ctx context.Context, req CreateContentRequest) (*domain.Content, error)
 	UpdateContent(ctx context.Context, id uuid.UUID, req CreateContentRequest) (*domain.Content, error)
 	GetContentDetails(ctx context.Context, shortID string) (*domain.Content, error)
+	GetContentByID(ctx context.Context, id uuid.UUID) (*domain.Content, error)
 	ListContents(ctx context.Context) ([]*domain.Content, error)
 	AddAssets(ctx context.Context, contentID uuid.UUID, req AddAssetsRequest) error
 }
@@ -81,6 +83,21 @@ func (u *contentUseCase) UpdateContent(ctx context.Context, id uuid.UUID, req Cr
 	if visibility == "" {
 		visibility = "public"
 	}
+
+	// Derive allowed_groups from group_permissions (can_read=true) when provided
+	allowedGroups := req.AllowedGroups
+	if req.GroupPermissions != nil {
+		allowedGroups = make([]uuid.UUID, 0)
+		for _, p := range req.GroupPermissions {
+			if p.CanRead {
+				allowedGroups = append(allowedGroups, p.GroupID)
+			}
+		}
+	}
+	if allowedGroups == nil {
+		allowedGroups = []uuid.UUID{}
+	}
+
 	c := &domain.Content{
 		ID:            id,
 		Title:         req.Title,
@@ -88,27 +105,63 @@ func (u *contentUseCase) UpdateContent(ctx context.Context, id uuid.UUID, req Cr
 		Rating:        req.Rating,
 		Tags:          req.Tags,
 		Visibility:    visibility,
-		AllowedGroups: req.AllowedGroups,
+		AllowedGroups: allowedGroups,
 		VideoDetails:  req.VideoDetails,
 	}
 	if c.Tags == nil {
 		c.Tags = []string{}
 	}
-	if c.AllowedGroups == nil {
-		c.AllowedGroups = []uuid.UUID{}
-	}
+
 	if err := u.repo.UpdateContent(ctx, c); err != nil {
 		return nil, err
 	}
-	return u.repo.GetContentByID(ctx, id)
+
+	if req.GroupPermissions != nil {
+		if err := u.repo.SetGroupPermissions(ctx, id, req.GroupPermissions); err != nil {
+			return nil, err
+		}
+	}
+
+	result, err := u.repo.GetContentByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	result.GroupPermissions, err = u.repo.GetGroupPermissions(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func (u *contentUseCase) GetContentDetails(ctx context.Context, shortID string) (*domain.Content, error) {
 	return u.repo.GetContentByShortID(ctx, shortID)
 }
 
+func (u *contentUseCase) GetContentByID(ctx context.Context, id uuid.UUID) (*domain.Content, error) {
+	c, err := u.repo.GetContentByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	c.GroupPermissions, err = u.repo.GetGroupPermissions(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
 func (u *contentUseCase) ListContents(ctx context.Context) ([]*domain.Content, error) {
-	return u.repo.ListContents(ctx)
+	contents, err := u.repo.ListContents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range contents {
+		perms, err2 := u.repo.GetGroupPermissions(ctx, c.ID)
+		if err2 != nil {
+			return nil, err2
+		}
+		c.GroupPermissions = perms
+	}
+	return contents, nil
 }
 
 func (u *contentUseCase) AddAssets(ctx context.Context, contentID uuid.UUID, req AddAssetsRequest) error {

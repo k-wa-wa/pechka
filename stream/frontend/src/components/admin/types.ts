@@ -4,6 +4,13 @@ export interface Group {
   description: string;
 }
 
+export interface GroupPermission {
+  group_id: string;
+  can_read: boolean;
+  can_write: boolean;
+  can_delete: boolean;
+}
+
 export interface Content {
   id: string;
   short_id: string;
@@ -15,5 +22,6 @@ export interface Content {
   tags: string[];
   visibility: string;
   allowed_groups: string[];
+  group_permissions: GroupPermission[];
   assets: Array<{ asset_role: string; public_url: string }>;
 }

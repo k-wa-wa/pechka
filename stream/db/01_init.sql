@@ -115,6 +115,18 @@ CREATE TABLE role_permissions (
     PRIMARY KEY (role_id, permission_id)
 );
 
+-- コンテンツごとのグループ別 CRUD 権限テーブル
+-- allowed_groups は can_read=true 行を非正規化したキャッシュとして維持
+CREATE TABLE content_group_permissions (
+    content_id UUID    NOT NULL REFERENCES contents(id) ON DELETE CASCADE,
+    group_id   UUID    NOT NULL REFERENCES groups(id)   ON DELETE CASCADE,
+    can_read   BOOLEAN NOT NULL DEFAULT TRUE,
+    can_write  BOOLEAN NOT NULL DEFAULT FALSE,
+    can_delete BOOLEAN NOT NULL DEFAULT FALSE,
+    PRIMARY KEY (content_id, group_id)
+);
+CREATE INDEX idx_cgp_content_id ON content_group_permissions(content_id);
+
 -- シーディング (初期データ)
 INSERT INTO groups (name, description) VALUES ('Administrators', 'System administrators group');
 INSERT INTO roles (name, description) VALUES ('admin', 'Full access to all resources');

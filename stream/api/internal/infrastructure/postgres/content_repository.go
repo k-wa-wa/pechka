@@ -214,6 +214,77 @@ func (r *contentRepository) getAssets(ctx context.Context, contentID uuid.UUID) 
 	return assets, nil
 }
 
+// ─── Group Permissions ────────────────────────────────────────────────────────
+
+func (r *contentRepository) GetGroupPermissions(ctx context.Context, contentID uuid.UUID) ([]domain.GroupPermission, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT group_id, can_read, can_write, can_delete FROM content_group_permissions WHERE content_id = $1`,
+		contentID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query group permissions: %w", err)
+	}
+	defer rows.Close()
+
+	var perms []domain.GroupPermission
+	for rows.Next() {
+		var p domain.GroupPermission
+		if err := rows.Scan(&p.GroupID, &p.CanRead, &p.CanWrite, &p.CanDelete); err != nil {
+			return nil, fmt.Errorf("failed to scan group permission: %w", err)
+		}
+		perms = append(perms, p)
+	}
+	if perms == nil {
+		perms = []domain.GroupPermission{}
+	}
+	return perms, nil
+}
+
+// SetGroupPermissions replaces all group permissions for a content and keeps
+// contents.allowed_groups in sync (can_read=true rows).
+func (r *contentRepository) SetGroupPermissions(ctx context.Context, contentID uuid.UUID, perms []domain.GroupPermission) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Replace all permissions for this content
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM content_group_permissions WHERE content_id = $1`, contentID,
+	); err != nil {
+		return fmt.Errorf("failed to delete old group permissions: %w", err)
+	}
+
+	var readGroups []uuid.UUID
+	for _, p := range perms {
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO content_group_permissions (content_id, group_id, can_read, can_write, can_delete)
+			 VALUES ($1, $2, $3, $4, $5)`,
+			contentID, p.GroupID, p.CanRead, p.CanWrite, p.CanDelete,
+		); err != nil {
+			return fmt.Errorf("failed to insert group permission: %w", err)
+		}
+		if p.CanRead {
+			readGroups = append(readGroups, p.GroupID)
+		}
+	}
+
+	if readGroups == nil {
+		readGroups = []uuid.UUID{}
+	}
+
+	// Keep allowed_groups in sync with can_read=true entries
+	if _, err := tx.Exec(ctx,
+		`UPDATE contents SET allowed_groups = $1 WHERE id = $2`,
+		readGroups, contentID,
+	); err != nil {
+		return fmt.Errorf("failed to sync allowed_groups: %w", err)
+	}
+
+	return tx.Commit(ctx)
+}
+
 // ─── Utility ─────────────────────────────────────────────────────────────────
 
 func (r *contentRepository) CheckDuplicateByS3Key(ctx context.Context, s3Key string) (bool, error) {

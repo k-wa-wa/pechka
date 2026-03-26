@@ -1,6 +1,7 @@
 "use client";
 
-import type { Content, Group } from "./types";
+import type { Content, Group, GroupPermission } from "./types";
+import { GroupPermissionSelector } from "./GroupPermissionSelector";
 
 interface Props {
   content: Content;
@@ -18,14 +19,6 @@ function getThumbnail(content: Content) {
 
 export function EditModal({ content, groups, saving, message, onChange, onSave, onClose }: Props) {
   const thumbnail = getThumbnail(content);
-
-  const toggleGroup = (groupId: string) => {
-    const current = content.allowed_groups || [];
-    const next = current.includes(groupId)
-      ? current.filter((g) => g !== groupId)
-      : [...current, groupId];
-    onChange({ ...content, allowed_groups: next });
-  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -79,7 +72,7 @@ export function EditModal({ content, groups, saving, message, onChange, onSave, 
             <div className="flex gap-3">
               <button
                 type="button"
-                onClick={() => onChange({ ...content, visibility: "public", allowed_groups: [] })}
+                onClick={() => onChange({ ...content, visibility: "public", group_permissions: [] })}
                 className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest border transition-all ${
                   content.visibility === "public"
                     ? "bg-green-600/20 border-green-500 text-green-400"
@@ -103,32 +96,16 @@ export function EditModal({ content, groups, saving, message, onChange, onSave, 
 
             {content.visibility === "group_only" && (
               <div className="space-y-2">
-                <p className="text-[10px] text-white/30">アクセスを許可するグループを選択</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {groups.map((group) => {
-                    const selected = (content.allowed_groups || []).includes(group.id);
-                    return (
-                      <button
-                        key={group.id}
-                        type="button"
-                        onClick={() => toggleGroup(group.id)}
-                        className={`px-3 py-2 rounded-lg text-xs font-bold text-left border transition-all ${
-                          selected
-                            ? "bg-red-600/20 border-red-500 text-red-400"
-                            : "bg-white/5 border-white/10 text-white/40 hover:text-white hover:border-white/30"
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${selected ? "bg-red-500" : "bg-white/20"}`} />
-                          {group.name}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-                {groups.length === 0 && (
-                  <p className="text-xs text-white/20 italic">グループが見つかりません</p>
-                )}
+                <p className="text-[10px] text-white/30">
+                  グループを追加し R(読取) / W(編集) / D(削除) 権限を設定
+                </p>
+                <GroupPermissionSelector
+                  groups={groups}
+                  value={content.group_permissions || []}
+                  onChange={(perms: GroupPermission[]) =>
+                    onChange({ ...content, group_permissions: perms })
+                  }
+                />
               </div>
             )}
           </div>
