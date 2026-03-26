@@ -60,7 +60,7 @@ func (r *searchRepository) SearchIDs(ctx context.Context, query string, tags []s
 	rbacFilter := map[string]interface{}{
 		"bool": map[string]interface{}{
 			"should": []interface{}{
-				map[string]interface{}{"term": map[string]interface{}{"visibility": "public"}},
+				map[string]interface{}{"term": map[string]interface{}{"visibility.keyword": "public"}},
 			},
 			"minimum_should_match": 1,
 		},
@@ -70,7 +70,7 @@ func (r *searchRepository) SearchIDs(ctx context.Context, query string, tags []s
 		rbacFilter["bool"].(map[string]interface{})["should"] = append(
 			rbacFilter["bool"].(map[string]interface{})["should"].([]interface{}),
 			map[string]interface{}{
-				"terms": map[string]interface{}{"allowed_groups": userGroups},
+				"terms": map[string]interface{}{"allowed_groups.keyword": userGroups},
 			},
 		)
 	}

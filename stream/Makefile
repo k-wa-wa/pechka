@@ -1,17 +1,41 @@
 # Makefile for kind development environment
+# Use rootful Docker socket to allow BPF operations inside kind nodes.
+# The system Docker daemon (rootful) runs on /run/docker.sock.
+export DOCKER_HOST = unix:///run/docker.sock
 
 CLUSTER_NAME = pechka-cluster
 K8S_DIR = k8s/overlays/dev
 KIND_CONFIG = k8s/kind-config.yaml
+CILIUM_VERSION = v1.16.2
+CILIUM_HELM_VERSION = 1.16.2
+CILIUM_ENVOY_TAG = v1.29.9-1726784081-a90146d13b4cd7d168d573396ccf2b3db5a3b047
 
 .PHONY: up
-up: cluster setup-cilium build load deploy
+up: cluster prefetch-cilium setup-cilium build load deploy
 
 .PHONY: cluster
 cluster:
 	@if ! kind get clusters | grep -q $(CLUSTER_NAME); then \
 		kind create cluster --name $(CLUSTER_NAME) --config $(KIND_CONFIG); \
 	fi
+
+# Pre-pull Cilium images on the host (host DNS works) then load directly into
+# containerd in the kind node, bypassing the broken in-cluster DNS.
+# Note: docker save | ctr import automatically creates digest references that
+# match what the Helm chart specifies, so no extra tagging is needed.
+.PHONY: prefetch-cilium
+prefetch-cilium:
+	@echo "Pulling Cilium images on host..."
+	docker pull --platform linux/amd64 quay.io/cilium/cilium:$(CILIUM_VERSION)
+	docker pull --platform linux/amd64 quay.io/cilium/operator-generic:$(CILIUM_VERSION)
+	docker pull --platform linux/amd64 quay.io/cilium/cilium-envoy:$(CILIUM_ENVOY_TAG)
+	@echo "Loading Cilium images into kind node..."
+	docker save quay.io/cilium/cilium:$(CILIUM_VERSION) \
+		| docker exec -i $(CLUSTER_NAME)-control-plane ctr --namespace=k8s.io images import -
+	docker save quay.io/cilium/operator-generic:$(CILIUM_VERSION) \
+		| docker exec -i $(CLUSTER_NAME)-control-plane ctr --namespace=k8s.io images import -
+	docker save quay.io/cilium/cilium-envoy:$(CILIUM_ENVOY_TAG) \
+		| docker exec -i $(CLUSTER_NAME)-control-plane ctr --namespace=k8s.io images import -
 
 .PHONY: setup-cilium
 setup-cilium:
@@ -20,19 +44,19 @@ setup-cilium:
 	@echo "Installing Cilium via Helm..."
 	helm repo add cilium https://helm.cilium.io/ 2>/dev/null || true
 	helm repo update
-	$(eval API_SERVER_IP := $(shell docker inspect $(CLUSTER_NAME)-control-plane --format '{{.NetworkSettings.Networks.kind.IPAddress}}'))
 	helm upgrade --install cilium cilium/cilium --namespace kube-system \
-		--version 1.16.2 \
+		--version $(CILIUM_HELM_VERSION) \
 		--set gatewayAPI.enabled=true \
 		--set gatewayAPI.gatewayClass.enabled=true \
-		--set kubeProxyReplacement=true \
+		--set kubeProxyReplacement=false \
 		--set nodePort.enabled=true \
-		--set loadBalancer.l7.enabled=true \
-		--set k8sServiceHost=$(API_SERVER_IP) \
-		--set k8sServicePort=6443 \
 		--set operator.replicas=1
-	@echo "Waiting for Cilium to be created and ready..."
-	@until [ "$$(kubectl get pods -l app.kubernetes.io/name=cilium-agent -n kube-system -o name | wc -l)" -gt 0 ]; do sleep 2; done
+	@echo "Waiting for Cilium pods to appear..."
+	@count=0; until kubectl get pods -l app.kubernetes.io/name=cilium-agent -n kube-system -o name 2>/dev/null | grep -q "pod/"; do \
+		count=$$((count+1)); \
+		if [ $$count -ge 90 ]; then echo "ERROR: Timeout (180s) - Cilium pods did not appear. Check: kubectl get pods -n kube-system"; exit 1; fi; \
+		sleep 2; \
+	done
 	kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=cilium-agent -n kube-system --timeout=300s
 
 .PHONY: build
@@ -104,7 +128,7 @@ reload: build load
 
 .PHONY: reload-app
 reload-app: build-app load-app
-	kubectl rollout restart deployment/metadata-service deployment/auth-service deployment/catalog-service
+	kubectl rollout restart deployment/auth-service deployment/catalog-service
 
 .PHONY: reload-frontend
 reload-frontend: build-frontend load-frontend

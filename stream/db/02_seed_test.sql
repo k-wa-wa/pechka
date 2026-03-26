@@ -42,6 +42,7 @@ WHERE g.name = 'nfs-admin' AND r.name = 'content-editor';
 INSERT INTO users (id, email, display_name, avatar_url, status) VALUES
     ('550e8400-e29b-41d4-a716-446655440010', 'sys-admin@example.com',  'System Administrator', '', 'active'),
     ('550e8400-e29b-41d4-a716-446655440011', 'nfs-editor@example.com', 'NFS Content Editor',   '', 'active'),
+    ('550e8400-e29b-41d4-a716-446655440014', 'nfs-admin@example.com',  'NFS Admin',            '', 'active'),
     ('550e8400-e29b-41d4-a716-446655440012', 'nfs-viewer@example.com', 'NFS Viewer',           '', 'active'),
     ('550e8400-e29b-41d4-a716-446655440013', 'outsider@example.com',   'Outsider User',        '', 'active');
 
@@ -56,6 +57,10 @@ SELECT '550e8400-e29b-41d4-a716-446655440010', id FROM groups WHERE name = 'Admi
 -- nfs-editor → nfs-admin グループ
 INSERT INTO user_groups (user_id, group_id)
 VALUES ('550e8400-e29b-41d4-a716-446655440011', '550e8400-e29b-41d4-a716-446655441001');
+
+-- nfs-admin → nfs-admin グループ
+INSERT INTO user_groups (user_id, group_id)
+VALUES ('550e8400-e29b-41d4-a716-446655440014', '550e8400-e29b-41d4-a716-446655441001');
 
 -- =====================
 -- ロール直接付与

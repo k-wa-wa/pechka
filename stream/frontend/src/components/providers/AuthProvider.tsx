@@ -72,18 +72,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   useEffect(() => {
-    const initAuth = async () => {
-      const storedToken = localStorage.getItem('app_jwt');
-      if (storedToken) {
-        setToken(storedToken);
-        await fetchMe(storedToken);
-        setIsLoading(false);
-      } else {
-        await refreshSession();
-      }
-    };
-
-    initAuth();
+    // Always refresh session on startup to get a fresh JWT with the latest
+    // group memberships from the DB. The CF/proxy cookie handles re-auth transparently.
+    refreshSession();
   }, []);
 
   return (

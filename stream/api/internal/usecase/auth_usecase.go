@@ -111,7 +111,7 @@ func (u *authUseCase) Session(ctx context.Context, tokenStr string) (*SessionRes
 	if err != nil { return nil, fmt.Errorf("failed fetching permissions: %w", err) }
 
 	groupNames := make([]string, 0)
-	for _, g := range groups { groupNames = append(groupNames, g.Name) }
+	for _, g := range groups { groupNames = append(groupNames, g.ID.String()) }
 
 	roleNames := make([]string, 0)
 	for _, r := range roles { roleNames = append(roleNames, r.Name) }

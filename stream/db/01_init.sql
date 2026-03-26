@@ -182,11 +182,7 @@ SELECT
     c.updated_at,
     c.tags,
     c.visibility,
-    (
-        SELECT array_agg(g.name)
-        FROM groups g
-        WHERE g.id = ANY(c.allowed_groups)
-    ) AS allowed_groups,
+    c.allowed_groups,
     cv.director,
     cv.is_360,
     cv.duration_seconds,

@@ -1,9 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
-import axios from 'axios';
-import { loginAs, getCredentials } from '../helpers/auth';
+import { loginAs } from '../helpers/auth';
 
 const BASE = process.env.BASE_URL || 'http://localhost:8000';
-const METADATA_URL = `${BASE}/api/metadata/v1`;
 
 /**
  * 編集モーダルの動作検証
@@ -16,6 +14,8 @@ const METADATA_URL = `${BASE}/api/metadata/v1`;
  * - Cancel でモーダルが閉じる
  * - Edit All Data で bulk edit モードに入れる
  * - visibility を group_only に変更して保存できる
+ *
+ * NFS インポーター由来のコンテンツが admin テーブルに表示されることを前提とする。
  */
 
 /** admin ページを開き、コンテンツテーブルがレンダリング完了するまで待つ */
@@ -34,24 +34,6 @@ async function openAdminPage(page: Page) {
 }
 
 test.describe('管理画面 編集モーダル', () => {
-  let contentTitle: string;
-
-  test.beforeAll(async () => {
-    const { appToken } = await getCredentials('sys-admin');
-    const headers = { Authorization: `Bearer ${appToken}` };
-    contentTitle = `E2Eテスト用動画-${Date.now()}`;
-    await axios.post(
-      `${METADATA_URL}/admin/metadata/contents`,
-      {
-        content_type: 'video',
-        title: contentTitle,
-        description: 'E2E modal test',
-        video_details: { is_360: false, duration_seconds: 10, director: 'E2E' },
-      },
-      { headers },
-    );
-  });
-
   test('コンテンツタブを切り替えられる', async ({ browser }) => {
     const ctx = await browser.newContext();
     await loginAs(ctx, 'sys-admin');

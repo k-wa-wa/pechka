@@ -92,13 +92,12 @@ func (u *catalogUseCase) SyncContent(ctx context.Context, shortID string, metaRe
 		return fmt.Errorf("content not found in metadata for shortID %s: %w", shortID, err)
 	}
 
-	// Resolve allowed_groups UUIDs to group names (mirrors content_sync_view behaviour)
-	groupNames, err := metaRepo.GetGroupNamesByIDs(ctx, c.AllowedGroups)
-	if err != nil {
-		return fmt.Errorf("failed to resolve group names for %s: %w", shortID, err)
+	allowedGroupIDs := make([]string, 0, len(c.AllowedGroups))
+	for _, id := range c.AllowedGroups {
+		allowedGroupIDs = append(allowedGroupIDs, id.String())
 	}
 
-	catalog := contentToCatalog(c, groupNames)
+	catalog := contentToCatalog(c, allowedGroupIDs)
 
 	if err := u.repo.Upsert(ctx, catalog); err != nil {
 		return err

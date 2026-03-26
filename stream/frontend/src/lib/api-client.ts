@@ -1,6 +1,7 @@
 import axios from 'axios';
 
-const NEXT_PUBLIC_GATEWAY_URL = process.env.NEXT_PUBLIC_GATEWAY_URL || 'http://localhost:30000';
+// 空文字にすることでブラウザの現在オリジンへの相対リクエストになる
+const NEXT_PUBLIC_GATEWAY_URL = process.env.NEXT_PUBLIC_GATEWAY_URL || '';
 
 export const apiClient = axios.create({
   baseURL: NEXT_PUBLIC_GATEWAY_URL,
@@ -18,13 +19,14 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-// Response interceptor to handle 401s (optional: redirect to login if session expires)
+// Response interceptor: on 401, clear the stored JWT so AuthProvider re-fetches it.
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      console.warn('Unauthorized request. Possible session expiry.');
-      // Optionally clear token or trigger re-auth
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('app_jwt');
+      }
     }
     return Promise.reject(error);
   }
