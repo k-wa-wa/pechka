@@ -1,166 +1,299 @@
-# マルチコンテンツ・ストリーミングサービス システムアーキテクチャ設計書
+# ストリーミングサービス システムアーキテクチャ設計書（v2 - 全面改訂）
 
-本ドキュメントでは、`101_requirements.md` で定義された要件を満たすための具体的なシステム構成、データベース設計、およびインフラ構成を定義する。
+`101_requirements.md` (v2) の要件を満たすための新アーキテクチャを定義する。旧設計から大幅に刷新し、**シンプルさ** と **性能** を両立させる。
 
-## 1. 全体アーキテクチャ (System Landscape)
+## 1. 設計方針の変更点（旧 v1 との差分）
 
-システム全体の基本方針は**「マイクロサービス化」**、**「API Gatewayパターン」**、および**「外部認証（Cloudflare Access / Dev Proxy）への依存」**である。
-認証の入口は全てゲートウェイ（NodePort 30000 / マップ先 localhost:8000）に集約される。
+| 項目 | v1（旧） | v2（新） |
+| :--- | :--- | :--- |
+| 認証・認可 | JWT + RBAC（Auth Service） | **廃止**（個人利用） |
+| サービス構成 | Auth / Metadata / Catalog（3サービス） | **単一 API Service** |
+| 検索基盤 | Elasticsearch | **廃止**（PostgreSQL FTS で代替） |
+| 読み取り最適化 | MongoDB（Benthos 同期） | **廃止**（PostgreSQL + API キャッシュ） |
+| HLS 品質 | 単一品質 | **ABR（1080p/720p/480p + audio）** |
+| コンテンツモデル | contents / content_videos / assets | **discs / contents / video_variants / assets** |
+| 削除対象コード | - | users / groups / roles / permissions 全テーブル、auth middleware、JWT |
 
-```mermaid
-graph TD
-    User["User Browser"]
-    Gateway["Proxy Gateway (localhost:8000)"]
-    Frontend["Frontend App (Next.js)"]
-    Catalog["Catalog Service"]
-    Metadata["Metadata Service"]
-    Auth["Auth Service"]
-    
-    DB_PG[("PostgreSQL")]
-    DB_Mongo[("MongoDB")]
-    ES["Elasticsearch"]
+## 2. 全体アーキテクチャ
 
-    User -- "Access (Auth Check)" --> Gateway
-    Gateway -- "Unauthenticated" --> Login["Proxy Login Page"]
-    Gateway -- "Authenticated" --> Frontend
-    
-    User -- "API calls with App JWT" --> Gateway
-    Gateway -- /api/catalog/* --> Catalog
-    Gateway -- /api/metadata/* --> Metadata
-    Gateway -- /api/auth/* --> Auth
-    
-    Catalog --> DB_Mongo
-    Catalog --> ES
-    Metadata --> DB_PG
-    Auth --> DB_PG
+```
+[ブラウザ]
+    │
+    ▼
+[Nginx / Caddy (リバースプロキシ + キャッシュ)]
+    ├─ /api/*  → API Service (Go)
+    ├─ /*      → Frontend (Next.js)
+    └─ /hls/*  → MinIO (HLS セグメント直接配信 / キャッシュ)
 
-    subgraph Batch Layer
-        Importer["NFS Importer"] --> DB_PG
-        Benthos["Benthos (Sync Engine)"] -- Poll --> DB_PG
-        Benthos -- Sync --> DB_Mongo
-        Benthos -- Sync --> ES
-    end
+[API Service (Go)]
+    ├─ PostgreSQL (メタデータ読み書き)
+    └─ MinIO (Presigned URL 生成 / サムネイルアップロード)
+
+[Batch: NFS Importer (Go)]
+    ├─ NFS (HLS ファイルスキャン)
+    ├─ MinIO (HLS セグメントアップロード)
+    ├─ PostgreSQL (コンテンツ登録)
+    └─ Thumbnail Analyzer (Python サイドカー)
+
+[Batch: ETL Pipeline]
+    ├─ Phase 1: Bluray Drive → MakeMKV → NFS (mkv/)
+    └─ Phase 2: NFS (mkv/) → ffmpeg → MinIO (hls/) + PostgreSQL
 ```
 
-### Data Flow (Development)
-1.  **アクセス制御**: ユーザーが `http://localhost:8000` にアクセスすると、ゲートウェイ（Dev Proxy）が認証を確認する。未認証であれば `/dev-proxy/login`（モック）へ強制リダイレクトされる。
-2.  **App JWT の取得**: フロントエンド（Next.js）はマウント時に `localhost:8000/api/v1/auth/session` を呼び出し、ゲートウェイが付与した認証情報を `App JWT` に交換してローカルに保持する。
-3.  **セキュアな API 通信**: ブラウザが取得した App JWT を `Authorization: Bearer` ヘッダーにセットし、ゲートウェイ経由で各マイクロサービスを呼び出す。各サービスは共通の秘密鍵でトークンの検証を行う。
-4.  **SSO モデル**: フロントエンド自体にログインページは存在せず、全ての認証はゲートウェイ層で完結するシングルサインオン（SSO）モデルを採用。
+**削除するコンポーネント:**
+- Auth Service
+- Catalog Service（API Service に統合）
+- Metadata Service（API Service に統合）
+- Dev Proxy（認証プロキシ機能）
+- Benthos (Redpanda Connect)
+- MongoDB
+- Elasticsearch
 
-## 2. サービス設計詳細
+## 3. サービス設計
 
-### 2.1 Auth Service (認証・認可)
-- **役割**: エンドユーザーの登録、ログインセッション管理（JWT発行・検証）、およびAdminユーザーの権限管理を担う。
-- **データストア**: PostgreSQL (ユーザーテーブル、セッショントークンテーブル等)
-- **設計方針**: パスワードのハッシュ化(bcrypt)、JWTによるステートレスな認証機構。将来的にはOAuth等の外部認証プロバイダ追加も視野に入れる。
+### 3.1 API Service (Go)
 
-### 2.2 Metadata Service (メタデータ管理API)
-- **役割**: 映像作品(Title)、エピソード、ジャンル、タグなどのマスターデータ(CRUD)と、アセットパス(S3バケットキー)を管理する。
-- **データストア**: PostgreSQL (リレーショナル・トランザクション処理)
-  - **Short ID (表示用ID)**: Snowflake IDを用いて生成され、クライアントへのレスポンスやURL(例: `/title/7214567890`)で使用される。分散環境での一意性と順序性を両立する。
-- **同期処理 (Benthos による非同期同期)**:
-  - **現状**: Metadata Service は DB 更新のみを行い、**Benthos (Redpanda Connect)** が `updated_at` を元に差分を検知して MongoDB および Elasticsearch へ同期する構成を採用。
+単一の Go サービスが全 API を提供する。
 
-### 2.3 Catalog & Search Service (カタログ・検索API)
-- **役割**: エンドユーザー（フロントエンド）向けの参照特化型API。画面描画に最適化されたペイロードを最速で返却する。
-- **データストア**: MongoDB, **Elasticsearch**
-- **設計方針**:
-  - `MongoDB` へのRead: 各作品情報(Titles, Genres, Assetsパス等)を非正規化した一つのドキュメントとして保持。
-  - `Elasticsearch` への検索: タイトルや概要の全文検索、タグでの絞り込みを担当。
-  - **Sidecar Search パターン**: Catalog Service は ES でマッチした ID リストを元に、MongoDB から完全なドメインオブジェクトを取得して返却する。
+**エンドポイント:**
 
-### 2.4 インフラ・配信層 (CDN & Object Storage)
-- **コンテンツ・画像管理**: アプリケーションサーバーやローカルディスクは利用せず、**MinIO (S3互換・セルフホスト可能)** を利用する。
-- **高速配信**: 画像とHLSセグメントファイル(`.ts`, `.m3u8`)はCDNエッジでキャッシュ。アプリケーションバックエンドにはアクセスさせず、シーク・ローディング時のレイテンシを極小化する。
+| メソッド | パス | 説明 |
+| :--- | :--- | :--- |
+| GET | `/v1/catalog` | コンテンツ一覧（フィルタ・ページング対応） |
+| GET | `/v1/catalog/:short_id` | コンテンツ詳細 |
+| GET | `/v1/catalog/:short_id/variants` | 動画バリアント一覧（ABR プレーヤー用） |
+| GET | `/v1/search?q=...` | キーワード検索（PostgreSQL FTS） |
+| POST | `/v1/admin/contents` | コンテンツ登録 |
+| PUT | `/v1/admin/contents/:id` | コンテンツ更新 |
+| DELETE | `/v1/admin/contents/:id` | コンテンツ削除 |
+| GET | `/v1/admin/contents` | 管理用一覧（status 含む） |
+| GET | `/v1/admin/discs` | ディスク一覧 |
 
-### 2.5 Batch Services & Sidecars
-- **Batch NFS Importer (Go)**: NFS上のHLSファイルをスキャンし、MinIOへのアップロードとメタデータ登録を行う。
-- **Thumbnail Analyzer (Python/FastAPI)**: Importerから呼び出されるサイドカーコンテナ。動画の輝度・音量などの重い解析ロジックを担当。
-- **Benthos (Redpanda Connect)**: PostgreSQLのマスターデータ（Write系）を MongoDB（Read系）および Elasticsearch（検索用）へ同期するプロセス。
+**性能施策:**
+- カタログ一覧はインメモリキャッシュ（TTL 30 秒）。コンテンツ更新時に invalidate。
+- PostgreSQL のインデックス最適化（`short_id`, `status`, `content_type`, `updated_at`）。
+- `short_id` は Snowflake ID（分散環境での一意性・順序性確保）。
 
-- **設計方針**: 解析などのリソース消費が激しい処理や、Pythonのエコシステム（AI/画像処理）を活用したい処理をサイドカーとして分離することで、メインのバッチ処理の安定性と拡張性を確保する。また、書き込み系（RDB）と参照系（NoSQL）を分離するCQRS構成において、同期漏れを補完するための結果整合性を Benthos によるポーリングによって担保する。
+### 3.2 Frontend (Next.js)
 
-## 3. データベーススキーマ設計方針 (PostgreSQL)
+- ログイン/認証 UI を全廃。
+- ABR プレーヤー: `hls.js` を使用。品質選択 UI を提供。
+- 360度動画: `three.js` または `A-Frame` ベースのビューア。
 
-以下に代表的なテーブルの概要（UUIDとShortIDの分離を考慮した形）を示す。
+### 3.3 NFS Importer (Go バッチ)
 
-**`users` (認証用: Auth Service管轄)**
-- `id` (UUID, PK)
-- `email`, `password_hash`, etc.
+`402_batch_nfs_importer.md` を更新して、新データモデルに対応させる。
 
-**`contents` (全コンテンツ共通のベーステーブル: Metadata Service管轄)**
-全てのドキュメントに共通する「ID」「タイトル」「公開状態」などの基本情報を管理する。
-- `id` (UUID, PK) - 内部リレーション用
-- `short_id` (String, Unique, Indexed) - **【外部公開用】**(Snowflake ID)
-- `content_type` (Enum: `video`, `image_gallery`, `ebook`...) - 子テーブルの種別判定用
-- `title` (String) - タイトル名
-- `description` (Text) - あらすじや説明
-- `published_at` (Timestamp)
-- `created_at`, `updated_at`
+- NFS HLS ディレクトリをスキャンし、未登録のコンテンツを検出。
+- `video_variants` テーブルに各品質バリアントを登録。
+- Thumbnail Analyzer サイドカーを呼び出してサムネイルを生成。
 
-*(※ パフォーマンスと型安全を確保するため、コンテンツ種別ごとに専用の子テーブルを切る「Class Table Inheritance」パターンを採用する)*
+### 3.4 Thumbnail Analyzer (Python サイドカー)
 
-**`content_videos` (動画固有データ: Metadata Service管轄)**
-- `content_id` (UUID, PK, FK to `contents.id`)
-- `is_360` (Boolean)
-- `duration_seconds` (Int)
-- `director` (String)
+変更なし。MKV または HLS から複数フレームをサンプリングし、輝度スコアで最適なサムネイルを選択。
 
-*(※ 今後、ネットワーク速度に応じた動的解像度対応(ABR)の導入を検討。その際はマスタープレイリスト等を用いた構成となる。)*
+## 4. データベース設計（PostgreSQL）
 
-**`assets` (実体ファイル管理テーブル: Metadata Service管轄)**
-1つのコンテンツに複数のアセット(動画マニフェスト、ポスター、PDF等)が紐づく。
-- `id` (UUID, PK)
-- `content_id` (UUID, FK to `contents.id`)
-- `asset_role` (VARCHAR)
-- `s3_key` (String) - MinIOオブジェクトキー
+```sql
+-- =====================
+-- Bluray ディスク管理
+-- =====================
+CREATE TABLE discs (
+    id         UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    label      VARCHAR(255) NOT NULL,        -- ディスクラベル (blkid から取得)
+    disc_name  VARCHAR(255),                 -- 人が付けた名前（管理画面で変更可）
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
 
-### 3.2 データベース間のスキーマ整合性 (PostgreSQL -> MongoDB)
+-- =====================
+-- コンテンツ（各タイトル）
+-- =====================
+CREATE TABLE contents (
+    id               UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    short_id         VARCHAR(50)  UNIQUE NOT NULL,  -- Snowflake ID（外部公開用）
+    content_type     VARCHAR(20)  NOT NULL DEFAULT 'video',  -- 'video', 'image_gallery', 'vr360'
+    disc_id          UUID         REFERENCES discs(id),      -- NULL = 手動登録
+    title            VARCHAR(255) NOT NULL,
+    description      TEXT         DEFAULT '',
+    duration_seconds INTEGER,
+    is_360           BOOLEAN      DEFAULT FALSE,
+    tags             TEXT[]       DEFAULT '{}',
+    status           VARCHAR(20)  NOT NULL DEFAULT 'pending',
+    -- status: pending / processing / ready / error
+    published_at     TIMESTAMP WITH TIME ZONE,
+    created_at       TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at       TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_contents_short_id   ON contents(short_id);
+CREATE INDEX idx_contents_status     ON contents(status);
+CREATE INDEX idx_contents_type       ON contents(content_type);
+CREATE INDEX idx_contents_updated_at ON contents(updated_at);
+-- 全文検索インデックス（PostgreSQL FTS）
+CREATE INDEX idx_contents_fts ON contents
+    USING gin(to_tsvector('japanese', title || ' ' || coalesce(description, '')));
 
-- **MongoDBのスキーマ設計方針**:
-  - PostgreSQLのような正規化（ベーステーブル＋専用テーブル＋アセットテーブル）を**そのままMongoDBに持ち込まない**。
-  - Mongoの最大の強みである「1回のREADで画面描画に必要な全データを取得する」形（非正規化）にする。
-  - したがって、Mongo側の `ContentCatalog` コレクションは「PostgreSQLの `contents` + `content_videos` + `assets` をあらかじめJOINして作られた単一の大きなJSONドキュメント」となる。
+-- =====================
+-- 動画バリアント（ABR 各品質）
+-- =====================
+CREATE TABLE video_variants (
+    id           UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    content_id   UUID         NOT NULL REFERENCES contents(id) ON DELETE CASCADE,
+    variant_type VARCHAR(20)  NOT NULL,
+    -- 'master'(マスタープレイリスト), '1080p', '720p', '480p', 'audio'
+    hls_key      TEXT         NOT NULL,  -- MinIO オブジェクトキー（.m3u8）
+    bandwidth    INTEGER,                -- bps（マスタープレイリスト用）
+    resolution   VARCHAR(20),           -- '1920x1080' など（audio は NULL）
+    codecs       VARCHAR(100),          -- 'avc1.640028,mp4a.40.2' など
+    created_at   TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_video_variants_content_id ON video_variants(content_id);
 
-*(Catalog ServiceはMongoの1つのドキュメントを読むだけで、UIが必要とする「タイトル」「動画再生時間」「HLSパス」「ポスター画像パス」のすべてを取得できる)*
+-- =====================
+-- アセット（サムネイル・ポスター等）
+-- =====================
+CREATE TABLE assets (
+    id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    content_id UUID        NOT NULL REFERENCES contents(id) ON DELETE CASCADE,
+    asset_role VARCHAR(50) NOT NULL,  -- 'thumbnail', 'poster'
+    s3_key     TEXT        NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_assets_content_id ON assets(content_id);
+```
 
----
+**削除するテーブル:** `users`, `groups`, `user_groups`, `roles`, `group_roles`, `user_roles`, `permissions`, `role_permissions`, `content_group_permissions`, `content_videos`
 
-## 4. データ同期基盤 (Data Synchronization)
+## 5. ストレージ設計
 
-CQRSアーキテクチャにおける PostgreSQL(Write) と MongoDB/Elasticsearch(Read) のデータ整合性を担保するため、**Redpanda Connect (Benthos)** を用いた「チェックポイント方式」の非同期ポーリング同期を採用している。
+### 5.1 NFS（中間ストレージ）
 
-- **仕組み**:
-  - Benthos が PostgreSQL の `content_sync_view` を 10 秒間隔でポーリングする。
-  - 最後に処理したデータの `updated_at` を PVC上のファイル (`/data/last_sync`) に記録（チェックポイント）し、次回のポーリング時はその時刻以降の差分のみを取得する。
-  - 取得したデータを JSON オブジェクト構造に変換し、MongoDB へ `replace-one` (Upsert) で書き込み、同時に Elasticsearch へインデックスする。
-- **メリット**: 中間ミドルウェア（Kafka等）を持たないため運用が極めてシンプルであり、障害時はチェックポイントファイルを削除するだけで全量再同期が可能。
+```
+/mnt/nfs/
+├── mkv/
+│   └── {DISC_LABEL}/         # MakeMKV 出力 (永続保持)
+│       ├── title_00.mkv
+│       ├── title_01.mkv
+│       └── ...
+└── hls/                       # ffmpeg 出力（MinIO アップロード後も一時的に保持）
+    └── {DISC_LABEL}/
+        └── {title_name}/
+            ├── master.m3u8
+            ├── 1080p.m3u8
+            ├── 1080p_000.ts
+            ├── ...
+```
 
-### 4.1 現在の技術的負債と将来の課題 (Technical Debt)
+### 5.2 MinIO（配信ストレージ）
 
-初期フェーズのMVPとしてシンプルさを優先した結果、将来的なデータ量増大や機能拡張に向けて以下の技術的負債・課題が存在する。
+```
+{bucket}/
+├── hls/
+│   └── {short_id}/
+│       ├── master.m3u8
+│       ├── 1080p.m3u8
+│       ├── 1080p_000.ts
+│       ├── 720p.m3u8
+│       ├── 720p_000.ts
+│       ├── 480p.m3u8
+│       ├── 480p_000.ts
+│       ├── audio.m3u8
+│       └── audio_000.ts
+└── thumbnails/
+    └── {short_id}/
+        ├── thumb_01.jpg
+        └── thumb_02.jpg
+```
 
-1. **ドメインモデルの型妥協 (`_id` の文字列化)**
-   - MongoDB ドライバの挙動と Benthos のバイナリ出力の不整合を回避するため、現状 Go 側の `CatalogContent` 構造体の `ID` を `uuid.UUID` から `string` にダウンキャストしている。将来的に Benthos の BSON バイナリ出力設定を洗練させるか、Go ドライバレベルでの透過的なデコード処理を確立し、ドメインモデルの型安全性を回復する必要がある。
-2. **トランザクション・コミット遅延による取りこぼしリスク**
-   - 実行時間の長いトランザクションがコミットされた際、ポーリングのチェックポイント時刻を過去の `updated_at` がすり抜けてしまい、一時的な同期漏れが発生する可能性がある。将来的には Postgres の WAL を購読する CDC (Debezium等) の導入や、ポーリング時刻に手戻りのマージン（数分程度のオーバーラップスキャン）を持たせる改修が必要。
-3. **完全置換 (`replace-one`) による拡張性の阻害**
-   - 現在 MongoDB への同期はドキュメントの完全置換で行っている。今後「動画の再生回数」や「レコメンド用の学習スコア」など、Catalog側の MongoDB だけで独立して管理したいデータが生まれた場合、Postgres からの定期同期によってそれらが上書き・初期化されてしまう。出力処理を `$set` を用いた部分更新 (`update-one`) に変更する必要がある。
-4. **チェックポイント揮発時の全スキャン負荷**
-   - Kubernetes の PVC が消失しチェックポイントがリセットされた場合、Postgres から MongoDB へ全レコードが一気に再同期される。データ量が数十万件規模になった場合、システム全体に深刻な負荷スパイク（CPU/メモリ枯渇）を引き起こすため、クエリの `LIMIT` によるチャンク化や全量初期ロード専用バッチの分離が求められる。
+## 6. HLS / ABR 設計
 
----
+### 6.1 ffmpeg トランスコードコマンド
 
-## 5. 今後検討すべきアーキテクチャ (Future Considerations)
+```bash
+ffmpeg -i input.mkv \
+  -filter_complex \
+    "[0:v]split=3[v1][v2][v3]; \
+     [v1]scale=1920:1080[v1out]; \
+     [v2]scale=1280:720[v2out]; \
+     [v3]scale=854:480[v3out]" \
+  \
+  -map "[v1out]" -c:v libx264 -preset fast -b:v 6000k -maxrate 6500k -bufsize 12000k \
+  -map 0:a:0 -c:a aac -b:a 192k \
+  -f hls -hls_time 6 -hls_list_size 0 \
+  -hls_segment_filename "1080p_%04d.ts" 1080p.m3u8 \
+  \
+  -map "[v2out]" -c:v libx264 -preset fast -b:v 3000k -maxrate 3500k -bufsize 6000k \
+  -map 0:a:0 -c:a aac -b:a 128k \
+  -f hls -hls_time 6 -hls_list_size 0 \
+  -hls_segment_filename "720p_%04d.ts" 720p.m3u8 \
+  \
+  -map "[v3out]" -c:v libx264 -preset fast -b:v 1500k -maxrate 2000k -bufsize 3000k \
+  -map 0:a:0 -c:a aac -b:a 128k \
+  -f hls -hls_time 6 -hls_list_size 0 \
+  -hls_segment_filename "480p_%04d.ts" 480p.m3u8 \
+  \
+  -map 0:a:0 -vn -c:a aac -b:a 192k \
+  -f hls -hls_time 6 -hls_list_size 0 \
+  -hls_segment_filename "audio_%04d.ts" audio.m3u8
+```
 
-初期フェーズから作り込むとオーバースペックになるため一旦見送るが、中長期的に必要となるメジャーな技術要素。
+**GPU 対応 (h264_nvenc):** NVIDIA GPU が利用可能な場合は `-c:v libx264` を `-c:v h264_nvenc -preset p4` に切り替える。
 
-- **高度な検索機能の拡充**
-  - 現状導入済みの Elasticsearch を活用し、「表記ゆれ」「サジェスト」「重み付け調整」などの機能を強化する。
-- **コンテンツ種別の動的拡張**
-  - 現在の Video, Image, 360VR 以外にも、ドキュメント(PDF)や音声(Audio)など、配信対象を広げられる設計を維持する。
-- **メッセージキュー (Event Driven Architecture)**
-  - 上記の「PostgreSQL -> MongoDB -> Elasticsearch」という段階的な同期をポーリング（Benthos）に頼るのが苦しくなったフェーズでは、RabbitMQやKafkaといったメッセージブローカーを導入。デッドレターキュー(DLQ)を用いた確実なイベント配信基盤(Event Sourcing/CQRS)へと進化させる。
-- **論理削除 (Soft Delete)**
-  - コンテンツを誤って削除した場合の復旧手段。RDB上で `deleted_at` カラムを持つ。この際、MinIO上の数十GBのHLSファイル等の物理削除のタイミングをどう設計するかが論点となる。
+### 6.2 マスタープレイリスト (.m3u8)
+
+```m3u8
+#EXTM3U
+#EXT-X-VERSION:3
+
+#EXT-X-STREAM-INF:BANDWIDTH=6192000,RESOLUTION=1920x1080,CODECS="avc1.640028,mp4a.40.2"
+1080p.m3u8
+
+#EXT-X-STREAM-INF:BANDWIDTH=3128000,RESOLUTION=1280x720,CODECS="avc1.4d001f,mp4a.40.2"
+720p.m3u8
+
+#EXT-X-STREAM-INF:BANDWIDTH=1628000,RESOLUTION=854x480,CODECS="avc1.42e01f,mp4a.40.2"
+480p.m3u8
+
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="Audio Only",DEFAULT=NO,URI="audio.m3u8"
+```
+
+## 7. キャッシュ戦略
+
+| 対象 | キャッシュ層 | TTL |
+| :--- | :--- | :--- |
+| HLS セグメント (`.ts`) | Nginx / Cloudflare | 1年（不変） |
+| HLS マニフェスト (`.m3u8`) | Nginx | 30秒（更新される可能性あり） |
+| API カタログ一覧 | API インメモリ（Go sync.Map） | 30秒 |
+| サムネイル・ポスター | Nginx / Cloudflare | 1週間 |
+
+## 8. 実装フェーズ計画
+
+### Phase 0（現在）: アーキテクチャ確定・ドキュメント整備
+- [x] 新要件・アーキテクチャ設計書の作成
+- [ ] OWNER のレビューと承認
+
+### Phase 1: クリーンアップ（旧コードの削除）
+- Auth Service の削除
+- Auth ミドルウェア・JWT 関連コードの削除
+- Benthos 設定の削除
+- `users`, `groups`, `roles` 等テーブルの削除
+- テスト（e2e/api）の認証関連コードの削除
+
+### Phase 2: 新データモデル実装
+- 新 DB スキーマ (`discs`, `contents`, `video_variants`, `assets`) の実装
+- NFS Importer の新モデル対応
+
+### Phase 3: API Service リファクタ
+- Auth / Metadata / Catalog の統合
+- 新エンドポイント実装
+- PostgreSQL FTS 検索実装
+- インメモリキャッシュ実装
+
+### Phase 4: Bluray ETL パイプライン実装
+- ABR ffmpeg トランスコードスクリプト
+- NFS Importer の `video_variants` 対応
+- K8s Job / Argo Workflow 設計・実装
+
+### Phase 5: フロントエンドリファクタ
+- 認証 UI の削除
+- `hls.js` ABR プレーヤーへの置き換え
+- 品質選択 UI の実装
