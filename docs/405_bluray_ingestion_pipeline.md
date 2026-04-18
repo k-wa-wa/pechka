@@ -70,35 +70,50 @@ psql -c "INSERT INTO discs (label) VALUES ('${DISC_LABEL}') ON CONFLICT DO NOTHI
 
 ### 3.3 ffmpeg コマンド
 
+画質バリアントごとに**独立 K8s Job として並列実行**する。各 Job が完了次第 MinIO にアップロードし、そのバリアントを即時視聴可能にする（品質ごとの段階的公開）。
+
+**original（元品質リマックス）:**
 ```bash
 ffmpeg -i "${INPUT_MKV}" \
-  -filter_complex \
-    "[0:v]split=3[v1][v2][v3]; \
-     [v1]scale=1920:1080[v1out]; \
-     [v2]scale=1280:720[v2out]; \
-     [v3]scale=854:480[v3out]" \
-  \
-  -map "[v1out]" -c:v libx264 -preset fast -b:v 6000k -maxrate 6500k -bufsize 12000k \
-  -map 0:a:0   -c:a aac -b:a 192k \
+  -c:v copy -c:a aac -b:a 192k \
   -f hls -hls_time 6 -hls_list_size 0 \
-  -hls_segment_filename "${OUTPUT_DIR}/1080p_%04d.ts" "${OUTPUT_DIR}/1080p.m3u8" \
-  \
-  -map "[v2out]" -c:v libx264 -preset fast -b:v 3000k -maxrate 3500k -bufsize 6000k \
-  -map 0:a:0   -c:a aac -b:a 128k \
+  -hls_segment_filename "${OUTPUT_DIR}/original_%04d.ts" "${OUTPUT_DIR}/original.m3u8"
+```
+
+**1080p:**
+```bash
+ffmpeg -i "${INPUT_MKV}" \
+  -vf scale=1920:1080 -c:v libx264 -preset fast -b:v 6000k -maxrate 6500k -bufsize 12000k \
+  -c:a aac -b:a 192k \
   -f hls -hls_time 6 -hls_list_size 0 \
-  -hls_segment_filename "${OUTPUT_DIR}/720p_%04d.ts" "${OUTPUT_DIR}/720p.m3u8" \
-  \
-  -map "[v3out]" -c:v libx264 -preset fast -b:v 1500k -maxrate 2000k -bufsize 3000k \
-  -map 0:a:0   -c:a aac -b:a 128k \
+  -hls_segment_filename "${OUTPUT_DIR}/1080p_%04d.ts" "${OUTPUT_DIR}/1080p.m3u8"
+```
+
+**720p:**
+```bash
+ffmpeg -i "${INPUT_MKV}" \
+  -vf scale=1280:720 -c:v libx264 -preset fast -b:v 3000k -maxrate 3500k -bufsize 6000k \
+  -c:a aac -b:a 128k \
   -f hls -hls_time 6 -hls_list_size 0 \
-  -hls_segment_filename "${OUTPUT_DIR}/480p_%04d.ts" "${OUTPUT_DIR}/480p.m3u8" \
-  \
-  -map 0:a:0 -vn -c:a aac -b:a 192k \
+  -hls_segment_filename "${OUTPUT_DIR}/720p_%04d.ts" "${OUTPUT_DIR}/720p.m3u8"
+```
+
+**480p:**
+```bash
+ffmpeg -i "${INPUT_MKV}" \
+  -vf scale=854:480 -c:v libx264 -preset fast -b:v 1500k -maxrate 2000k -bufsize 3000k \
+  -c:a aac -b:a 128k \
+  -f hls -hls_time 6 -hls_list_size 0 \
+  -hls_segment_filename "${OUTPUT_DIR}/480p_%04d.ts" "${OUTPUT_DIR}/480p.m3u8"
+```
+
+**audio のみ:**
+```bash
+ffmpeg -i "${INPUT_MKV}" \
+  -vn -c:a aac -b:a 192k \
   -f hls -hls_time 6 -hls_list_size 0 \
   -hls_segment_filename "${OUTPUT_DIR}/audio_%04d.ts" "${OUTPUT_DIR}/audio.m3u8"
 ```
-
-**GPU 対応:** NVIDIA GPU 搭載ノードでは `-c:v libx264` を `-c:v h264_nvenc -preset p4` に切り替え。
 
 ### 3.4 マスタープレイリスト生成
 
@@ -134,14 +149,15 @@ mc cp --recursive "${OUTPUT_DIR}/" "minio/${BUCKET}/hls/${SHORT_ID}/"
 INSERT INTO contents (short_id, disc_id, title, status)
 VALUES ('${SHORT_ID}', '${DISC_ID}', '${TITLE}', 'processing');
 
--- バリアント登録
+-- バリアント登録（各 Job 完了後に個別 INSERT）
 INSERT INTO video_variants (content_id, variant_type, hls_key, bandwidth, resolution)
 VALUES
-  ('${CONTENT_ID}', 'master', 'hls/${SHORT_ID}/master.m3u8', NULL, NULL),
-  ('${CONTENT_ID}', '1080p',  'hls/${SHORT_ID}/1080p.m3u8',  6192000, '1920x1080'),
-  ('${CONTENT_ID}', '720p',   'hls/${SHORT_ID}/720p.m3u8',   3128000, '1280x720'),
-  ('${CONTENT_ID}', '480p',   'hls/${SHORT_ID}/480p.m3u8',   1628000, '854x480'),
-  ('${CONTENT_ID}', 'audio',  'hls/${SHORT_ID}/audio.m3u8',  192000,  NULL);
+  ('${CONTENT_ID}', 'master',   'resources/hls/${SHORT_ID}/master.m3u8',   NULL,    NULL),
+  ('${CONTENT_ID}', 'original', 'resources/hls/${SHORT_ID}/original.m3u8', NULL,    NULL),
+  ('${CONTENT_ID}', '1080p',    'resources/hls/${SHORT_ID}/1080p.m3u8',    6192000, '1920x1080'),
+  ('${CONTENT_ID}', '720p',     'resources/hls/${SHORT_ID}/720p.m3u8',     3128000, '1280x720'),
+  ('${CONTENT_ID}', '480p',     'resources/hls/${SHORT_ID}/480p.m3u8',     1628000, '854x480'),
+  ('${CONTENT_ID}', 'audio',    'resources/hls/${SHORT_ID}/audio.m3u8',    192000,  NULL);
 
 -- ステータス更新
 UPDATE contents SET status = 'ready', published_at = NOW() WHERE id = '${CONTENT_ID}';
@@ -219,9 +235,13 @@ spec:
 - Phase 1 Job 完了後にスクリプトが Phase 2 Job を生成（各 MKV タイトルごとに1 Job）。
 - または Argo Workflow の DAG でフェーズを定義。
 
-## 6. 未解決課題・将来対応
+## 6. 課題・将来対応
 
-- **GPU トランスコード**: h264_nvenc 対応のための Node Selector / taint 設定。
-- **進捗監視**: トランスコード進捗を PostgreSQL に記録し、管理 UI で確認できるようにする。
+### 優先度：高
+
+- **進捗監視**: トランスコード進捗（バリアントごとの完了状態）を PostgreSQL に記録し、管理 UI でリアルタイム確認できるようにする。
+
+### 優先度：通常
+
 - **エラーハンドリング**: Job 失敗時の再実行戦略（MKV は保持しているので再実行可能）。
 - **複数音声トラック**: MKV に複数音声トラックがある場合の扱い（字幕・多言語対応）。

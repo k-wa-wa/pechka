@@ -10,8 +10,8 @@
 | 書き込み DB | PostgreSQL（Single Source of Truth） |
 | 読み取り DB | MongoDB（Benthos により PostgreSQL から同期、高速読み取り最適化） |
 | 全文検索 | Elasticsearch（PostgreSQL から同期） |
-| HLS 品質 | ABR（1080p / 720p / 480p + audio のみ） |
-| キャッシュ | API インメモリキャッシュ + Nginx HLS キャッシュ |
+| HLS 品質 | ABR（original / 1080p / 720p / 480p + audio） |
+| キャッシュ | Nginx HLS キャッシュ（API インメモリキャッシュは使用しない） |
 
 ## 2. 全体アーキテクチャ
 
@@ -22,7 +22,7 @@
 [Nginx / Caddy (リバースプロキシ + HLS キャッシュ)]
     ├─ /api/*  → API Service (Go)
     ├─ /*      → Frontend (Next.js)
-    └─ /hls/*  → MinIO (HLS セグメント直接配信)
+    └─ /resources/hls/*  → MinIO (HLS セグメント直接配信)
 
 [API Service (Go)]
     ├─ MongoDB     (コンテンツ一覧・詳細取得 — 読み取り最適化)
@@ -31,8 +31,10 @@
     └─ MinIO       (Presigned URL 生成 / サムネイルアップロード)
 
 [Benthos (Redpanda Connect)]
-    └─ PostgreSQL → MongoDB 同期パイプライン
-       （INSERT/UPDATE/DELETE イベントをキャプチャし MongoDB へ反映）
+    ├─ PostgreSQL → MongoDB 同期パイプライン
+    │  （INSERT/UPDATE/DELETE イベントをキャプチャし MongoDB へ反映）
+    └─ PostgreSQL → Elasticsearch 同期パイプライン
+       （同 CDC イベントを fan-out して全文検索インデックスへ反映）
 
 [Batch: NFS Importer (Go)]
     ├─ NFS         (HLS ファイルスキャン)
@@ -71,7 +73,6 @@
 | GET | `/v1/admin/discs` | ディスク一覧 |
 
 **性能施策:**
-- カタログ一覧は API インメモリキャッシュ（TTL 30 秒）。コンテンツ更新時に invalidate。
 - MongoDB は非正規化ドキュメント構造で高速読み取りを実現（JOIN 不要）。
 - `short_id` は Snowflake ID（分散環境での一意性・順序性確保）。
 
@@ -92,11 +93,17 @@
   "variants": [               // 非正規化（JOIN 不要）
     {
       "variant_type": "master",
-      "hls_key": "hls/01HXXX/master.m3u8"
+      "hls_key": "resources/hls/01HXXX/master.m3u8"
+    },
+    {
+      "variant_type": "original",
+      "hls_key": "resources/hls/01HXXX/original.m3u8",
+      "bandwidth": null,
+      "resolution": null
     },
     {
       "variant_type": "1080p",
-      "hls_key": "hls/01HXXX/1080p.m3u8",
+      "hls_key": "resources/hls/01HXXX/1080p.m3u8",
       "bandwidth": 6192000,
       "resolution": "1920x1080"
     }
@@ -214,7 +221,7 @@ CREATE TABLE video_variants (
     id           UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
     content_id   UUID         NOT NULL REFERENCES contents(id) ON DELETE CASCADE,
     variant_type VARCHAR(20)  NOT NULL,
-    -- 'master'(マスタープレイリスト), '1080p', '720p', '480p', 'audio'
+    -- 'master'(マスタープレイリスト), 'original'(元品質), '1080p', '720p', '480p', 'audio'
     hls_key      TEXT         NOT NULL,  -- MinIO オブジェクトキー（.m3u8）
     bandwidth    INTEGER,                -- bps（マスタープレイリスト用）
     resolution   VARCHAR(20),           -- '1920x1080' など（audio は NULL）
@@ -260,17 +267,20 @@ CREATE INDEX idx_assets_content_id ON assets(content_id);
 
 ```
 {bucket}/
-├── hls/
-│   └── {short_id}/
-│       ├── master.m3u8
-│       ├── 1080p.m3u8
-│       ├── 1080p_000.ts
-│       ├── 720p.m3u8
-│       ├── 720p_000.ts
-│       ├── 480p.m3u8
-│       ├── 480p_000.ts
-│       ├── audio.m3u8
-│       └── audio_000.ts
+├── resources/
+│   └── hls/
+│       └── {short_id}/
+│           ├── master.m3u8
+│           ├── original.m3u8   # 元品質（libx264 CRF or copy）
+│           ├── original_000.ts
+│           ├── 1080p.m3u8
+│           ├── 1080p_000.ts
+│           ├── 720p.m3u8
+│           ├── 720p_000.ts
+│           ├── 480p.m3u8
+│           ├── 480p_000.ts
+│           ├── audio.m3u8
+│           └── audio_000.ts
 └── thumbnails/
     └── {short_id}/
         ├── thumb_01.jpg
@@ -279,43 +289,63 @@ CREATE INDEX idx_assets_content_id ON assets(content_id);
 
 ## 6. HLS / ABR 設計
 
-### 6.1 ffmpeg トランスコードコマンド
+### 6.1 ffmpeg トランスコード方針
 
+画質バリアントごとに**独立した K8s Job として並列実行**し、完成したバリアントから順次ステータスを `ready` に更新して視聴可能にする。
+
+**original（元品質リマックス）:**
 ```bash
 ffmpeg -i input.mkv \
-  -filter_complex \
-    "[0:v]split=3[v1][v2][v3]; \
-     [v1]scale=1920:1080[v1out]; \
-     [v2]scale=1280:720[v2out]; \
-     [v3]scale=854:480[v3out]" \
-  \
-  -map "[v1out]" -c:v libx264 -preset fast -b:v 6000k -maxrate 6500k -bufsize 12000k \
-  -map 0:a:0   -c:a aac -b:a 192k \
+  -c:v copy -c:a aac -b:a 192k \
   -f hls -hls_time 6 -hls_list_size 0 \
-  -hls_segment_filename "1080p_%04d.ts" 1080p.m3u8 \
-  \
-  -map "[v2out]" -c:v libx264 -preset fast -b:v 3000k -maxrate 3500k -bufsize 6000k \
-  -map 0:a:0   -c:a aac -b:a 128k \
+  -hls_segment_filename "original_%04d.ts" original.m3u8
+```
+
+**1080p:**
+```bash
+ffmpeg -i input.mkv \
+  -vf scale=1920:1080 -c:v libx264 -preset fast -b:v 6000k -maxrate 6500k -bufsize 12000k \
+  -c:a aac -b:a 192k \
   -f hls -hls_time 6 -hls_list_size 0 \
-  -hls_segment_filename "720p_%04d.ts" 720p.m3u8 \
-  \
-  -map "[v3out]" -c:v libx264 -preset fast -b:v 1500k -maxrate 2000k -bufsize 3000k \
-  -map 0:a:0   -c:a aac -b:a 128k \
+  -hls_segment_filename "1080p_%04d.ts" 1080p.m3u8
+```
+
+**720p:**
+```bash
+ffmpeg -i input.mkv \
+  -vf scale=1280:720 -c:v libx264 -preset fast -b:v 3000k -maxrate 3500k -bufsize 6000k \
+  -c:a aac -b:a 128k \
   -f hls -hls_time 6 -hls_list_size 0 \
-  -hls_segment_filename "480p_%04d.ts" 480p.m3u8 \
-  \
-  -map 0:a:0 -vn -c:a aac -b:a 192k \
+  -hls_segment_filename "720p_%04d.ts" 720p.m3u8
+```
+
+**480p:**
+```bash
+ffmpeg -i input.mkv \
+  -vf scale=854:480 -c:v libx264 -preset fast -b:v 1500k -maxrate 2000k -bufsize 3000k \
+  -c:a aac -b:a 128k \
+  -f hls -hls_time 6 -hls_list_size 0 \
+  -hls_segment_filename "480p_%04d.ts" 480p.m3u8
+```
+
+**audio のみ:**
+```bash
+ffmpeg -i input.mkv \
+  -vn -c:a aac -b:a 192k \
   -f hls -hls_time 6 -hls_list_size 0 \
   -hls_segment_filename "audio_%04d.ts" audio.m3u8
 ```
 
-**GPU 対応 (h264_nvenc):** NVIDIA GPU が利用可能な場合は `-c:v libx264` を `-c:v h264_nvenc -preset p4` に切り替える。
+各 Job 完了後に MinIO へアップロードし、PostgreSQL の `video_variants` に登録してそのバリアントを即時視聴可能にする。
 
 ### 6.2 マスタープレイリスト (.m3u8)
 
 ```m3u8
 #EXTM3U
 #EXT-X-VERSION:3
+
+#EXT-X-STREAM-INF:BANDWIDTH=0,CODECS="avc1.640028,mp4a.40.2"
+original.m3u8
 
 #EXT-X-STREAM-INF:BANDWIDTH=6192000,RESOLUTION=1920x1080,CODECS="avc1.640028,mp4a.40.2"
 1080p.m3u8
@@ -335,9 +365,10 @@ ffmpeg -i input.mkv \
 | :--- | :--- | :--- |
 | HLS セグメント (`.ts`) | Nginx | 1年（不変） |
 | HLS マニフェスト (`.m3u8`) | Nginx | 30秒 |
-| API カタログ一覧 | API インメモリ（Go sync.Map） | 30秒 |
 | サムネイル・ポスター | Nginx | 1週間 |
 | MongoDB ドキュメント | MongoDB（インメモリキャッシュ） | 常時 |
+
+> API 層のインメモリキャッシュは使用しない。MongoDB が読み取り最適化されているため不要。
 
 ## 8. 実装フェーズ計画
 
@@ -369,5 +400,4 @@ ffmpeg -i input.mkv \
 
 ### Phase 5: 最適化・運用整備
 - Nginx HLS キャッシュチューニング
-- GPU トランスコード対応（h264_nvenc）
 - 監視・ログ整備
