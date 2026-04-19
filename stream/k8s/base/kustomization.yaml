@@ -1,8 +1,0 @@
-resources:
-- services
-- batches
-- cilium
-- frontend
-- configmap.yaml
-- secret.yaml
-- nfs-pvc.yaml
