@@ -1,0 +1,90 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-config
+  namespace: pechka
+data:
+  POSTGRES_DB: pechka
+  PGDATA: /var/lib/postgresql/data/pgdata
+  # logical replication is required for Benthos CDC
+  postgresql.conf: |
+    wal_level = logical
+    max_replication_slots = 10
+    max_wal_senders = 10
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: pechka
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: pechka
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          ports:
+            - containerPort: 5432
+          envFrom:
+            - configMapRef:
+                name: postgres-config
+            - secretRef:
+                name: postgres-secret
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: config
+              mountPath: /etc/postgresql/postgresql.conf
+              subPath: postgresql.conf
+          command:
+            - docker-entrypoint.sh
+            - postgres
+            - -c
+            - config_file=/etc/postgresql/postgresql.conf
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "pechka", "-d", "pechka"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: postgres-pvc
+        - name: config
+          configMap:
+            name: postgres-config
+            items:
+              - key: postgresql.conf
+                path: postgresql.conf
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: pechka
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
