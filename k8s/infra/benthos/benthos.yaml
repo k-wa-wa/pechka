@@ -66,17 +66,6 @@ data:
             level: ERROR
             message: "CDC write failed: ${! error() }"
 ---
-apiVersion: v1
-kind: Secret
-metadata:
-  name: benthos-secret
-  namespace: pechka
-type: Opaque
-stringData:
-  POSTGRES_DSN: "postgres://pechka:changeme@postgres:5432/pechka?sslmode=disable"
-  MONGO_URL: "mongodb://pechka:changeme@mongodb:27017/pechka?authSource=admin"
-  ELASTICSEARCH_URL: "http://elasticsearch:9200"
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:

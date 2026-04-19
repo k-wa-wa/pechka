@@ -1,15 +1,4 @@
 apiVersion: v1
-kind: Secret
-metadata:
-  name: mongodb-secret
-  namespace: pechka
-type: Opaque
-stringData:
-  MONGO_INITDB_ROOT_USERNAME: pechka
-  MONGO_INITDB_ROOT_PASSWORD: changeme
-  MONGO_INITDB_DATABASE: pechka
----
-apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: mongodb-pvc

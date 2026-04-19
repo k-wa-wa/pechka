@@ -1,14 +1,4 @@
 apiVersion: v1
-kind: Secret
-metadata:
-  name: minio-secret
-  namespace: pechka
-type: Opaque
-stringData:
-  MINIO_ROOT_USER: pechka
-  MINIO_ROOT_PASSWORD: changeme_minio
----
-apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: minio-pvc

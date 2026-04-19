@@ -13,16 +13,6 @@ data:
     max_wal_senders = 10
 ---
 apiVersion: v1
-kind: Secret
-metadata:
-  name: postgres-secret
-  namespace: pechka
-type: Opaque
-stringData:
-  POSTGRES_USER: pechka
-  POSTGRES_PASSWORD: changeme
----
-apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: postgres-pvc
