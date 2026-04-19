@@ -62,6 +62,7 @@ psql -c "INSERT INTO discs (label) VALUES ('${DISC_LABEL}') ON CONFLICT DO NOTHI
 
 | バリアント | 解像度 | 映像ビットレート | 音声 |
 | :--- | :--- | :--- | :--- |
+| original | 元品質 | 映像コピー（再エンコードなし） | AAC 192 kbps |
 | 1080p | 1920x1080 | 6 Mbps | AAC 192 kbps |
 | 720p | 1280x720 | 3 Mbps | AAC 128 kbps |
 | 480p | 854x480 | 1.5 Mbps | AAC 128 kbps |
@@ -139,7 +140,7 @@ EOF
 
 ```bash
 # HLS ファイルを MinIO にアップロード
-mc cp --recursive "${OUTPUT_DIR}/" "minio/${BUCKET}/hls/${SHORT_ID}/"
+mc cp --recursive "${OUTPUT_DIR}/" "minio/${BUCKET}/resources/hls/${SHORT_ID}/"
 ```
 
 ### 3.6 PostgreSQL 登録
