@@ -1,0 +1,116 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: benthos-streams
+  namespace: pechka
+data:
+  contents.yaml: |
+    input:
+      postgres_cdc:
+        dsn: "${POSTGRES_DSN}"
+        slot_name: benthos_slot
+        snapshot: true
+        tables:
+          - public.contents
+          - public.video_variants
+          - public.assets
+          - public.discs
+
+    pipeline:
+      processors:
+        - branch:
+            request_map: |
+              root = if this.table == "contents" { this } else { deleted() }
+            processors:
+              - mapping: |
+                  let op  = this.operation
+                  let row = this.after | this.before
+                  root._id              = $row.short_id
+                  root.short_id         = $row.short_id
+                  root.content_type     = $row.content_type
+                  root.title            = $row.title
+                  root.description      = $row.description
+                  root.duration_seconds = $row.duration_seconds
+                  root.is_360           = $row.is_360
+                  root.tags             = $row.tags
+                  root.status           = $row.status
+                  root.published_at     = $row.published_at
+                  root.updated_at       = $row.updated_at
+                  root._deleted         = $op == "delete"
+
+    output:
+      fallback:
+        - broker:
+            pattern: fan_out
+            outputs:
+              - mongodb:
+                  url: "${MONGO_URL}"
+                  database: pechka
+                  collection: contents
+                  operation: update-one
+                  upsert: true
+                  filter_map: 'root = {"_id": this._id}'
+                  document_map: |
+                    root = if this._deleted {
+                      {"$set": {"status": "deleted"}}
+                    } else {
+                      {"$set": this.without("_deleted")}
+                    }
+              - elasticsearch:
+                  urls:
+                    - "${ELASTICSEARCH_URL}"
+                  index: pechka_contents
+                  id: '${! json("short_id") }'
+                  action: index
+        - log:
+            level: ERROR
+            message: "CDC write failed: ${! error() }"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: benthos-secret
+  namespace: pechka
+type: Opaque
+stringData:
+  POSTGRES_DSN: "postgres://pechka:changeme@postgres:5432/pechka?sslmode=disable"
+  MONGO_URL: "mongodb://pechka:changeme@mongodb:27017/pechka?authSource=admin"
+  ELASTICSEARCH_URL: "http://elasticsearch:9200"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: benthos
+  namespace: pechka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: benthos
+  template:
+    metadata:
+      labels:
+        app: benthos
+    spec:
+      containers:
+        - name: benthos
+          image: ghcr.io/redpanda-data/connect:latest
+          args:
+            - streams
+            - /streams/contents.yaml
+          envFrom:
+            - secretRef:
+                name: benthos-secret
+          volumeMounts:
+            - name: streams
+              mountPath: /streams
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 4195
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: streams
+          configMap:
+            name: benthos-streams

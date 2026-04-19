@@ -1,0 +1,71 @@
+# Benthos stream: PostgreSQL CDC → MongoDB + Elasticsearch fan-out
+#
+# Prerequisites:
+#   - PostgreSQL must have wal_level=logical
+#   - Replication slot "benthos_slot" will be created automatically
+#   - MongoDB contents collection stores denormalized documents
+#   - Elasticsearch index "pechka_contents" must exist (see elasticsearch.yaml)
+input:
+  postgres_cdc:
+    dsn: "${POSTGRES_DSN}"
+    slot_name: benthos_slot
+    snapshot: true
+    tables:
+      - public.contents
+      - public.video_variants
+      - public.assets
+      - public.discs
+
+pipeline:
+  processors:
+    - branch:
+        request_map: |
+          # Pass through only contents table events; skip others for now
+          root = if this.table == "contents" { this } else { deleted() }
+        processors:
+          - mapping: |
+              # Map CDC event to MongoDB upsert document
+              let op   = this.operation   # "insert", "update", "delete"
+              let row  = this.after | this.before
+              root.short_id      = $row.short_id
+              root.content_type  = $row.content_type
+              root.title         = $row.title
+              root.description   = $row.description
+              root.duration_seconds = $row.duration_seconds
+              root.is_360        = $row.is_360
+              root.tags          = $row.tags
+              root.status        = $row.status
+              root.published_at  = $row.published_at
+              root.updated_at    = $row.updated_at
+              root._deleted      = $op == "delete"
+              root._id           = $row.short_id
+
+output:
+  fallback:
+    - broker:
+        pattern: fan_out
+        outputs:
+          - mongodb:
+              url: "${MONGO_URL}"
+              database: pechka
+              collection: contents
+              operation: update-one
+              upsert: true
+              filter_map: 'root = {"_id": this._id}'
+              document_map: |
+                root = if this._deleted {
+                  {"$set": {"status": "deleted"}}
+                } else {
+                  {"$set": this.without("_deleted")}
+                }
+
+          - elasticsearch:
+              urls:
+                - "${ELASTICSEARCH_URL}"
+              index: pechka_contents
+              id: '${! json("short_id") }'
+              action: index
+
+    - log:
+        level: ERROR
+        message: "Failed to write CDC event: ${! error() }"
