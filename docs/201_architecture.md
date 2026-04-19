@@ -196,7 +196,7 @@ CREATE TABLE discs (
 CREATE TABLE contents (
     id               UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
     short_id         VARCHAR(50)  UNIQUE NOT NULL,  -- Snowflake ID（外部公開用）
-    content_type     VARCHAR(20)  NOT NULL DEFAULT 'video',  -- 'video', 'image_gallery', 'vr360'
+    content_type     VARCHAR(20)  NOT NULL DEFAULT 'video',  -- 'video', 'image_gallery', 'vr360', 'document'
     disc_id          UUID         REFERENCES discs(id),      -- NULL = 手動登録
     title            VARCHAR(255) NOT NULL,
     description      TEXT         DEFAULT '',
@@ -401,3 +401,12 @@ original.m3u8
 ### Phase 5: 最適化・運用整備
 - Nginx HLS キャッシュチューニング
 - 監視・ログ整備
+
+### Phase 6: ドキュメント・多様コンテンツ取り込み
+- NAS・ファイルサーバ上の PDF・テキスト等取り込みパイプライン
+- Elasticsearch フルテキストインデックス拡充
+- `content_type: document` 対応の閲覧 UI（Next.js）
+
+### Phase 7: AI インプット活用
+- コンテンツのベクトル化（動画文字起こし・ドキュメント埋め込み等）
+- RAG 基盤連携・LLM への資料供給パイプライン設計
