@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 
@@ -12,13 +13,25 @@ import (
 	pgRepo "github.com/k-wa-wa/pechka/api/internal/repository/postgres"
 )
 
+type pgContentRepository interface {
+	List(ctx context.Context, params pgRepo.ListContentsParams) ([]*domain.Content, error)
+	Create(ctx context.Context, params pgRepo.CreateContentParams) (*domain.Content, error)
+	Update(ctx context.Context, params pgRepo.UpdateContentParams) (*domain.Content, error)
+	Delete(ctx context.Context, id string) error
+}
+
+type pgDiscRepository interface {
+	List(ctx context.Context) ([]*domain.Disc, error)
+	Create(ctx context.Context, params pgRepo.CreateDiscParams) (*domain.Disc, error)
+}
+
 type AdminHandler struct {
-	contentRepo *pgRepo.ContentRepository
-	discRepo    *pgRepo.DiscRepository
+	contentRepo pgContentRepository
+	discRepo    pgDiscRepository
 	snowflake   *snowflake.Node
 }
 
-func NewAdminHandler(contentRepo *pgRepo.ContentRepository, discRepo *pgRepo.DiscRepository, node *snowflake.Node) *AdminHandler {
+func NewAdminHandler(contentRepo pgContentRepository, discRepo pgDiscRepository, node *snowflake.Node) *AdminHandler {
 	return &AdminHandler{contentRepo: contentRepo, discRepo: discRepo, snowflake: node}
 }
 

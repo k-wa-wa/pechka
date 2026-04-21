@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 
@@ -11,15 +12,21 @@ import (
 	mongoRepo "github.com/k-wa-wa/pechka/api/internal/repository/mongo"
 )
 
-type CatalogHandler struct {
-	contentRepo *mongoRepo.ContentRepository
+type mongoContentRepository interface {
+	List(ctx context.Context, params mongoRepo.ListParams) ([]*domain.MongoContent, error)
+	GetByShortID(ctx context.Context, shortID string) (*domain.MongoContent, error)
+	GetVariantsByShortID(ctx context.Context, shortID string) ([]domain.MongoVariant, error)
 }
 
-func NewCatalogHandler(contentRepo *mongoRepo.ContentRepository) *CatalogHandler {
-	return &CatalogHandler{contentRepo: contentRepo}
+type ContentsHandler struct {
+	contentRepo mongoContentRepository
 }
 
-func (h *CatalogHandler) List(c echo.Context) error {
+func NewContentsHandler(contentRepo mongoContentRepository) *ContentsHandler {
+	return &ContentsHandler{contentRepo: contentRepo}
+}
+
+func (h *ContentsHandler) List(c echo.Context) error {
 	limit, _ := strconv.ParseInt(c.QueryParam("limit"), 10, 64)
 	if limit <= 0 || limit > 100 {
 		limit = 20
@@ -49,7 +56,7 @@ func (h *CatalogHandler) List(c echo.Context) error {
 	return c.JSON(http.StatusOK, contents)
 }
 
-func (h *CatalogHandler) Get(c echo.Context) error {
+func (h *ContentsHandler) Get(c echo.Context) error {
 	shortID := c.Param("short_id")
 	content, err := h.contentRepo.GetByShortID(c.Request().Context(), shortID)
 	if err != nil {
@@ -61,7 +68,7 @@ func (h *CatalogHandler) Get(c echo.Context) error {
 	return c.JSON(http.StatusOK, content)
 }
 
-func (h *CatalogHandler) GetVariants(c echo.Context) error {
+func (h *ContentsHandler) GetVariants(c echo.Context) error {
 	shortID := c.Param("short_id")
 	variants, err := h.contentRepo.GetVariantsByShortID(c.Request().Context(), shortID)
 	if err != nil {

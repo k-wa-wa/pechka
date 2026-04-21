@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 
@@ -9,11 +10,15 @@ import (
 	elasticRepo "github.com/k-wa-wa/pechka/api/internal/repository/elastic"
 )
 
-type SearchHandler struct {
-	contentRepo *elasticRepo.ContentRepository
+type elasticContentRepository interface {
+	Search(ctx context.Context, query string, limit, offset int) ([]*elasticRepo.SearchResult, error)
 }
 
-func NewSearchHandler(contentRepo *elasticRepo.ContentRepository) *SearchHandler {
+type SearchHandler struct {
+	contentRepo elasticContentRepository
+}
+
+func NewSearchHandler(contentRepo elasticContentRepository) *SearchHandler {
 	return &SearchHandler{contentRepo: contentRepo}
 }
 

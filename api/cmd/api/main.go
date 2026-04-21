@@ -3,18 +3,17 @@ package main
 import (
 	"context"
 	"log"
-	"os"
+	"net/http"
 
 	"github.com/bwmarrin/snowflake"
 	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"net/http"
-
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
+	"github.com/k-wa-wa/pechka/api/internal/config"
 	"github.com/k-wa-wa/pechka/api/internal/handler"
 	elasticRepo "github.com/k-wa-wa/pechka/api/internal/repository/elastic"
 	mongoRepo "github.com/k-wa-wa/pechka/api/internal/repository/mongo"
@@ -22,23 +21,24 @@ import (
 )
 
 func main() {
+	cfg := config.Load()
 	ctx := context.Background()
 
-	pgPool, err := pgxpool.New(ctx, mustEnv("POSTGRES_DSN"))
+	pgPool, err := pgxpool.New(ctx, cfg.PostgresDSN)
 	if err != nil {
 		log.Fatalf("postgres: %v", err)
 	}
 	defer pgPool.Close()
 
-	mongoClient, err := mongo.Connect(options.Client().ApplyURI(mustEnv("MONGO_URL")))
+	mongoClient, err := mongo.Connect(options.Client().ApplyURI(cfg.MongoURL))
 	if err != nil {
 		log.Fatalf("mongo: %v", err)
 	}
 	defer mongoClient.Disconnect(ctx)
-	mongoDB := mongoClient.Database(getEnv("MONGO_DB", "stream"))
+	mongoDB := mongoClient.Database(cfg.MongoDB)
 
 	esClient, err := elasticsearch.NewClient(elasticsearch.Config{
-		Addresses: []string{mustEnv("ELASTICSEARCH_URL")},
+		Addresses: []string{cfg.ElasticsearchURL},
 	})
 	if err != nil {
 		log.Fatalf("elasticsearch: %v", err)
@@ -54,7 +54,7 @@ func main() {
 	mgContent := mongoRepo.NewContentRepository(mongoDB)
 	esContent := elasticRepo.NewContentRepository(esClient)
 
-	catalogH := handler.NewCatalogHandler(mgContent)
+	contentsH := handler.NewContentsHandler(mgContent)
 	searchH := handler.NewSearchHandler(esContent)
 	adminH := handler.NewAdminHandler(pgContent, pgDisc, sfNode)
 
@@ -69,9 +69,9 @@ func main() {
 
 	v1 := e.Group("/v1")
 
-	v1.GET("/catalog", catalogH.List)
-	v1.GET("/catalog/:short_id", catalogH.Get)
-	v1.GET("/catalog/:short_id/variants", catalogH.GetVariants)
+	v1.GET("/contents", contentsH.List)
+	v1.GET("/contents/:short_id", contentsH.Get)
+	v1.GET("/contents/:short_id/variants", contentsH.GetVariants)
 	v1.GET("/search", searchH.Search)
 
 	admin := v1.Group("/admin")
@@ -82,21 +82,5 @@ func main() {
 	admin.GET("/discs", adminH.ListDiscs)
 	admin.POST("/discs", adminH.CreateDisc)
 
-	port := getEnv("PORT", "8080")
-	log.Fatal(e.Start(":" + port))
-}
-
-func mustEnv(key string) string {
-	v := os.Getenv(key)
-	if v == "" {
-		log.Fatalf("required env %s is not set", key)
-	}
-	return v
-}
-
-func getEnv(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
+	log.Fatal(e.Start(":" + cfg.Port))
 }
