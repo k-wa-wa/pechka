@@ -1,0 +1,60 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Name format: thumbnail-<short-id>
+  name: thumbnail-placeholder
+  namespace: pechka
+  labels:
+    app: thumbnail-analyzer
+    phase: etl-load
+spec:
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      containers:
+        - name: thumbnail-analyzer
+          image: ghcr.io/k-wa-wa/pechka/etl-thumbnail:latest
+          args:
+            - "--input"
+            - ""  # /mnt/nfs/mkv/<disc-label>/<title>.mkv
+            - "--short-id"
+            - ""
+            - "--content-id"
+            - ""
+          env:
+            - name: MINIO_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: minio-bucket
+            - name: MINIO_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: minio-url
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pechka-minio
+                  key: access-key
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pechka-minio
+                  key: secret-key
+            - name: POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: pechka-postgres
+                  key: dsn
+          volumeMounts:
+            - name: nfs-mkv
+              mountPath: /mnt/nfs/mkv
+              readOnly: true
+      volumes:
+        - name: nfs-mkv
+          nfs:
+            server: "${NFS_SERVER}"
+            path: /mkv
+      restartPolicy: Never
+  backoffLimit: 2

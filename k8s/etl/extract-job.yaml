@@ -1,0 +1,53 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bluray-extract  # Override at apply time: e.g. bluray-extract-disc-label
+  namespace: pechka
+  labels:
+    app: bluray-extract
+    phase: etl-extract
+spec:
+  ttlSecondsAfterFinished: 86400  # 1 day
+  template:
+    spec:
+      # Pin to a node with a Bluray drive
+      # nodeName: <bluray-node>
+      # Or use nodeAffinity:
+      # affinity:
+      #   nodeAffinity:
+      #     requiredDuringSchedulingIgnoredDuringExecution:
+      #       nodeSelectorTerms:
+      #         - matchExpressions:
+      #             - key: pechka/bluray-drive
+      #               operator: Exists
+      containers:
+        - name: makemkv
+          image: ghcr.io/k-wa-wa/pechka/etl-extract:latest
+          env:
+            - name: DEVICE
+              value: /dev/sr0
+            - name: NFS_MKV_DIR
+              value: /mnt/nfs/mkv
+            - name: POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: pechka-postgres
+                  key: dsn
+          volumeMounts:
+            - name: nfs-mkv
+              mountPath: /mnt/nfs/mkv
+            - name: bluray-dev
+              mountPath: /dev/sr0
+          securityContext:
+            privileged: true
+      volumes:
+        - name: nfs-mkv
+          nfs:
+            server: "${NFS_SERVER}"
+            path: /mkv
+        - name: bluray-dev
+          hostPath:
+            path: /dev/sr0
+            type: BlockDevice
+      restartPolicy: Never
+  backoffLimit: 0
