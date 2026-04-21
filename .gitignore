@@ -1,4 +1,4 @@
 .DS_Store
 .env
 nohup.out
-run.sh
+.last_run_timestamp
