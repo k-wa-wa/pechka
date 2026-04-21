@@ -1,0 +1,417 @@
+openapi: "3.0.3"
+info:
+  title: pechka API
+  version: "1.0.0"
+
+paths:
+  /health:
+    get:
+      summary: ヘルスチェック
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /v1/contents:
+    get:
+      summary: コンテンツ一覧取得
+      parameters:
+        - name: content_type
+          in: query
+          schema:
+            $ref: "#/components/schemas/ContentType"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MongoContent"
+
+  /v1/contents/{short_id}:
+    get:
+      summary: コンテンツ詳細取得
+      parameters:
+        - name: short_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MongoContent"
+        "404":
+          description: Not Found
+
+  /v1/contents/{short_id}/variants:
+    get:
+      summary: 動画バリアント一覧取得
+      parameters:
+        - name: short_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MongoVariant"
+        "404":
+          description: Not Found
+
+  /v1/search:
+    get:
+      summary: コンテンツ全文検索
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SearchResult"
+        "400":
+          description: Bad Request (q is required)
+
+  /v1/admin/contents:
+    get:
+      summary: 管理用コンテンツ一覧取得
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/ContentStatus"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Content"
+    post:
+      summary: コンテンツ登録
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateContentRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Content"
+        "400":
+          description: Bad Request
+
+  /v1/admin/contents/{id}:
+    put:
+      summary: コンテンツ更新
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateContentRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Content"
+        "404":
+          description: Not Found
+    delete:
+      summary: コンテンツ削除
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+
+  /v1/admin/discs:
+    get:
+      summary: ディスク一覧取得
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Disc"
+    post:
+      summary: ディスク登録
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDiscRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Disc"
+        "400":
+          description: Bad Request
+
+components:
+  schemas:
+    ContentType:
+      type: string
+      enum: [video, image_gallery, vr360, document]
+
+    ContentStatus:
+      type: string
+      enum: [pending, processing, ready, error]
+
+    Content:
+      type: object
+      properties:
+        id:
+          type: string
+        short_id:
+          type: string
+        content_type:
+          $ref: "#/components/schemas/ContentType"
+        disc_id:
+          type: string
+          nullable: true
+        title:
+          type: string
+        description:
+          type: string
+        duration_seconds:
+          type: integer
+          nullable: true
+        is_360:
+          type: boolean
+        tags:
+          type: array
+          items:
+            type: string
+        status:
+          $ref: "#/components/schemas/ContentStatus"
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    MongoContent:
+      type: object
+      properties:
+        short_id:
+          type: string
+        content_type:
+          $ref: "#/components/schemas/ContentType"
+        title:
+          type: string
+        description:
+          type: string
+        duration_seconds:
+          type: integer
+          nullable: true
+        is_360:
+          type: boolean
+        tags:
+          type: array
+          items:
+            type: string
+        status:
+          $ref: "#/components/schemas/ContentStatus"
+        disc_label:
+          type: string
+          nullable: true
+        thumbnail_key:
+          type: string
+          nullable: true
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+
+    MongoVariant:
+      type: object
+      properties:
+        variant_type:
+          type: string
+        hls_key:
+          type: string
+        bandwidth:
+          type: integer
+          nullable: true
+        resolution:
+          type: string
+          nullable: true
+        codecs:
+          type: string
+          nullable: true
+
+    SearchResult:
+      type: object
+      properties:
+        short_id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        content_type:
+          $ref: "#/components/schemas/ContentType"
+        tags:
+          type: array
+          items:
+            type: string
+        status:
+          $ref: "#/components/schemas/ContentStatus"
+
+    Disc:
+      type: object
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        disc_name:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    CreateContentRequest:
+      type: object
+      required: [content_type, title]
+      properties:
+        content_type:
+          $ref: "#/components/schemas/ContentType"
+        disc_id:
+          type: string
+          nullable: true
+        title:
+          type: string
+        description:
+          type: string
+        duration_seconds:
+          type: integer
+          nullable: true
+        is_360:
+          type: boolean
+        tags:
+          type: array
+          items:
+            type: string
+
+    UpdateContentRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        tags:
+          type: array
+          items:
+            type: string
+          nullable: true
+        status:
+          $ref: "#/components/schemas/ContentStatus"
+
+    CreateDiscRequest:
+      type: object
+      required: [label]
+      properties:
+        label:
+          type: string
+        disc_name:
+          type: string
+          nullable: true

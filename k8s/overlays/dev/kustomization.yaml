@@ -3,6 +3,7 @@ kind: Kustomization
 resources:
   - namespace.yaml
   - ../../infra
+  - ../../api
   - postgres
   - minio
   - secrets.yaml
