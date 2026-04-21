@@ -28,3 +28,44 @@ jobs:
 
       - name: Test
         run: CGO_ENABLED=0 go test ./...
+
+  etl-load:
+    name: ETL Load (Go)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: etl/load
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: etl/load/go.mod
+          cache-dependency-path: etl/load/go.sum
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Build
+        run: CGO_ENABLED=0 go build ./...
+
+  etl-thumbnail:
+    name: ETL Thumbnail (Python)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: etl/thumbnail
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: etl/thumbnail/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Lint
+        run: python -m py_compile analyze.py

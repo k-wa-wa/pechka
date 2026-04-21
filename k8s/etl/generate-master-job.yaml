@@ -1,0 +1,43 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Name format: generate-master-<short-id>
+  name: generate-master-placeholder
+  namespace: pechka
+  labels:
+    app: generate-master
+    phase: etl-transform
+spec:
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      containers:
+        - name: generate-master
+          image: ghcr.io/k-wa-wa/pechka/etl-transform:latest
+          command: ["/usr/local/bin/generate_master.sh"]
+          env:
+            - name: SHORT_ID
+              value: ""
+            - name: CONTENT_ID
+              value: ""
+            - name: OUTPUT_DIR
+              value: /tmp/hls/master
+            - name: MINIO_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: minio-bucket
+            - name: MINIO_ALIAS
+              value: minio
+            - name: POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: pechka-postgres
+                  key: dsn
+            - name: MC_HOST_minio
+              valueFrom:
+                secretKeyRef:
+                  name: pechka-minio
+                  key: mc-host
+      restartPolicy: Never
+  backoffLimit: 2
