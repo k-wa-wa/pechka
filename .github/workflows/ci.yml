@@ -47,6 +47,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Generate types
+        run: npx next typegen
+
       - name: Type check
         run: npx tsc --noEmit
 
