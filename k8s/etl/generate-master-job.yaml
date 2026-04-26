@@ -14,7 +14,7 @@ spec:
       containers:
         - name: generate-master
           image: ghcr.io/k-wa-wa/pechka/etl-transform:latest
-          command: ["/usr/local/bin/generate_master.sh"]
+          command: ["/usr/local/bin/generate-master"]
           env:
             - name: SHORT_ID
               value: ""
@@ -27,17 +27,25 @@ spec:
                 configMapKeyRef:
                   name: pechka-config
                   key: minio-bucket
-            - name: MINIO_ALIAS
-              value: minio
+            - name: MINIO_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: minio-url
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pechka-minio
+                  key: access-key
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pechka-minio
+                  key: secret-key
             - name: POSTGRES_DSN
               valueFrom:
                 secretKeyRef:
                   name: pechka-postgres
                   key: dsn
-            - name: MC_HOST_minio
-              valueFrom:
-                secretKeyRef:
-                  name: pechka-minio
-                  key: mc-host
       restartPolicy: Never
   backoffLimit: 2

@@ -1,9 +1,14 @@
+FROM golang:1.25 AS builder
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY main.go .
+RUN CGO_ENABLED=0 go build -o extract .
+
 FROM ubuntu:22.04
 
 RUN apt-get update && apt-get install -y \
     wget \
-    curl \
-    postgresql-client \
     util-linux \
     && rm -rf /var/lib/apt/lists/*
 
@@ -26,7 +31,6 @@ RUN wget -q "https://www.makemkv.com/download/makemkv-oss-1.17.7.tar.gz" -O /tmp
     && rm -rf /tmp/makemkv-* \
     && rm -rf /var/lib/apt/lists/*
 
-COPY extract.sh /usr/local/bin/extract.sh
-RUN chmod +x /usr/local/bin/extract.sh
+COPY --from=builder /app/extract /usr/local/bin/extract
 
-ENTRYPOINT ["/usr/local/bin/extract.sh"]
+ENTRYPOINT ["/usr/local/bin/extract"]

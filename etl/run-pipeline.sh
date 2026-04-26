@@ -112,8 +112,12 @@ spec:
               value: ${VARIANT}
             - name: CONTENT_ID
               value: "PLACEHOLDER"
-            - name: MINIO_ALIAS
-              value: minio
+            - name: MINIO_URL
+              value: "${MINIO_URL:-minio:9000}"
+            - name: MINIO_ACCESS_KEY
+              value: "${MINIO_ACCESS_KEY}"
+            - name: MINIO_SECRET_KEY
+              value: "${MINIO_SECRET_KEY}"
           volumeMounts:
             - name: nfs-mkv
               mountPath: /mnt/nfs/mkv
@@ -152,7 +156,7 @@ spec:
       containers:
         - name: generate-master
           image: ${REGISTRY}/etl-transform:${IMAGE_TAG}
-          command: ["/usr/local/bin/generate_master.sh"]
+          command: ["/usr/local/bin/generate-master"]
           env:
             - name: SHORT_ID
               value: "${SHORT_ID:-PLACEHOLDER}"
@@ -160,8 +164,12 @@ spec:
               value: "PLACEHOLDER"
             - name: OUTPUT_DIR
               value: /tmp/hls/master
-            - name: MINIO_ALIAS
-              value: minio
+            - name: MINIO_URL
+              value: "${MINIO_URL:-minio:9000}"
+            - name: MINIO_ACCESS_KEY
+              value: "${MINIO_ACCESS_KEY}"
+            - name: MINIO_SECRET_KEY
+              value: "${MINIO_SECRET_KEY}"
       restartPolicy: Never
   backoffLimit: 2
 EOF
