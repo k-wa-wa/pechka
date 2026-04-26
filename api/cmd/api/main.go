@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
+	"os"
 
 	"github.com/bwmarrin/snowflake"
 	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/labstack/echo-contrib/echoprometheus"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -21,18 +23,23 @@ import (
 )
 
 func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
+
 	cfg := config.Load()
 	ctx := context.Background()
 
 	pgPool, err := pgxpool.New(ctx, cfg.PostgresDSN)
 	if err != nil {
-		log.Fatalf("postgres: %v", err)
+		slog.Error("postgres connection failed", "error", err)
+		os.Exit(1)
 	}
 	defer pgPool.Close()
 
 	mongoClient, err := mongo.Connect(options.Client().ApplyURI(cfg.MongoURL))
 	if err != nil {
-		log.Fatalf("mongo: %v", err)
+		slog.Error("mongo connection failed", "error", err)
+		os.Exit(1)
 	}
 	defer mongoClient.Disconnect(ctx)
 	mongoDB := mongoClient.Database(cfg.MongoDB)
@@ -41,12 +48,14 @@ func main() {
 		Addresses: []string{cfg.ElasticsearchURL},
 	})
 	if err != nil {
-		log.Fatalf("elasticsearch: %v", err)
+		slog.Error("elasticsearch connection failed", "error", err)
+		os.Exit(1)
 	}
 
 	sfNode, err := snowflake.NewNode(1)
 	if err != nil {
-		log.Fatalf("snowflake: %v", err)
+		slog.Error("snowflake node init failed", "error", err)
+		os.Exit(1)
 	}
 
 	pgContent := pgRepo.NewContentRepository(pgPool)
@@ -59,13 +68,42 @@ func main() {
 	adminH := handler.NewAdminHandler(pgContent, pgDisc, sfNode)
 
 	e := echo.New()
-	e.Use(middleware.Logger())
+	e.HideBanner = true
+	e.Use(echoprometheus.NewMiddleware("pechka_api"))
+	e.Use(middleware.RequestID())
+	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
+		LogStatus:   true,
+		LogURI:      true,
+		LogMethod:   true,
+		LogLatency:  true,
+		LogRemoteIP: true,
+		LogError:    true,
+		HandleError: true,
+		LogValuesFunc: func(c echo.Context, v middleware.RequestLoggerValues) error {
+			attrs := []any{
+				"method", v.Method,
+				"uri", v.URI,
+				"status", v.Status,
+				"latency_ms", v.Latency.Milliseconds(),
+				"remote_ip", v.RemoteIP,
+				"request_id", c.Response().Header().Get(echo.HeaderXRequestID),
+			}
+			if v.Error != nil {
+				attrs = append(attrs, "error", v.Error)
+				slog.ErrorContext(c.Request().Context(), "request", attrs...)
+			} else {
+				slog.InfoContext(c.Request().Context(), "request", attrs...)
+			}
+			return nil
+		},
+	}))
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORS())
 
 	e.GET("/health", func(c echo.Context) error {
 		return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 	})
+	e.GET("/metrics", echoprometheus.NewHandler())
 
 	v1 := e.Group("/v1")
 
@@ -82,5 +120,9 @@ func main() {
 	admin.GET("/discs", adminH.ListDiscs)
 	admin.POST("/discs", adminH.CreateDisc)
 
-	log.Fatal(e.Start(":" + cfg.Port))
+	slog.Info("starting server", "port", cfg.Port)
+	if err := e.Start(":" + cfg.Port); err != nil {
+		slog.Error("server stopped", "error", err)
+		os.Exit(1)
+	}
 }

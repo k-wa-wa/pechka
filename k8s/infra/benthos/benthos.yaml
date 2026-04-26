@@ -5,6 +5,18 @@ metadata:
   namespace: pechka
 data:
   contents.yaml: |
+    http:
+      enabled: true
+      address: "0.0.0.0:4195"
+
+    logger:
+      level: INFO
+      format: json
+
+    metrics:
+      prometheus:
+        use_histogram_timing: true
+
     input:
       postgres_cdc:
         dsn: "${POSTGRES_DSN}"
@@ -40,31 +52,38 @@ data:
 
     output:
       fallback:
-        - broker:
-            pattern: fan_out
-            outputs:
-              - mongodb:
-                  url: "${MONGO_URL}"
-                  database: pechka
-                  collection: contents
-                  operation: update-one
-                  upsert: true
-                  filter_map: 'root = {"_id": this._id}'
-                  document_map: |
-                    root = if this._deleted {
-                      {"$set": {"status": "deleted"}}
-                    } else {
-                      {"$set": this.without("_deleted")}
-                    }
-              - elasticsearch:
-                  urls:
-                    - "${ELASTICSEARCH_URL}"
-                  index: pechka_contents
-                  id: '${! json("short_id") }'
-                  action: index
+        - retry:
+            max_retries: 5
+            backoff:
+              initial_interval: 1s
+              max_interval: 30s
+              max_elapsed_time: 5m
+            output:
+              broker:
+                pattern: fan_out
+                outputs:
+                  - mongodb:
+                      url: "${MONGO_URL}"
+                      database: pechka
+                      collection: contents
+                      operation: update-one
+                      upsert: true
+                      filter_map: 'root = {"_id": this._id}'
+                      document_map: |
+                        root = if this._deleted {
+                          {"$set": {"status": "deleted"}}
+                        } else {
+                          {"$set": this.without("_deleted")}
+                        }
+                  - elasticsearch:
+                      urls:
+                        - "${ELASTICSEARCH_URL}"
+                      index: pechka_contents
+                      id: '${! json("short_id") }'
+                      action: index
         - log:
             level: ERROR
-            message: "CDC write failed: ${! error() }"
+            message: "CDC write failed after retries: ${! error() } | msg: ${! content() }"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -80,6 +99,10 @@ spec:
     metadata:
       labels:
         app: benthos
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "4195"
+        prometheus.io/path: "/metrics"
     spec:
       containers:
         - name: benthos
@@ -90,16 +113,46 @@ spec:
           envFrom:
             - secretRef:
                 name: benthos-secret
+          ports:
+            - containerPort: 4195
+              name: http
           volumeMounts:
             - name: streams
               mountPath: /streams
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: 4195
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
           readinessProbe:
             httpGet:
               path: /ready
               port: 4195
             initialDelaySeconds: 10
             periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
       volumes:
         - name: streams
           configMap:
             name: benthos-streams
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: benthos
+  namespace: pechka
+spec:
+  selector:
+    app: benthos
+  ports:
+    - port: 4195
+      targetPort: 4195
+      name: http
