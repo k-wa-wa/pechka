@@ -1,0 +1,64 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Name format: transcode-<short-id>-<variant>
+  # e.g.: transcode-123456789-1080p
+  name: transcode-placeholder
+  namespace: pechka
+  labels:
+    app: transcode
+    phase: etl-transform
+spec:
+  ttlSecondsAfterFinished: 86400  # 1 day
+  template:
+    spec:
+      containers:
+        - name: ffmpeg
+          image: ghcr.io/k-wa-wa/pechka/etl-transform:latest
+          env:
+            - name: INPUT_MKV
+              value: ""  # /mnt/nfs/mkv/<disc-label>/<title>.mkv
+            - name: OUTPUT_DIR
+              value: ""  # e.g. /tmp/hls
+            - name: SHORT_ID
+              value: ""
+            - name: VARIANT
+              value: ""  # original | 1080p | 720p | 480p | audio
+            - name: CONTENT_ID
+              value: ""
+            - name: MINIO_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: minio-bucket
+            - name: MINIO_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: minio-url
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pechka-minio
+                  key: access-key
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pechka-minio
+                  key: secret-key
+            - name: POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: pechka-postgres
+                  key: dsn
+          volumeMounts:
+            - name: nfs-mkv
+              mountPath: /mnt/nfs/mkv
+              readOnly: true
+      volumes:
+        - name: nfs-mkv
+          nfs:
+            server: "${NFS_SERVER}"
+            path: /mkv
+      restartPolicy: Never
+  backoffLimit: 2
