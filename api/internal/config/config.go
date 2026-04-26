@@ -1,7 +1,7 @@
 package config
 
 import (
-	"log"
+	"log/slog"
 	"os"
 )
 
@@ -26,7 +26,8 @@ func Load() *Config {
 func mustEnv(key string) string {
 	v := os.Getenv(key)
 	if v == "" {
-		log.Fatalf("required env %s is not set", key)
+		slog.Error("required env var is not set", "key", key)
+		os.Exit(1)
 	}
 	return v
 }
