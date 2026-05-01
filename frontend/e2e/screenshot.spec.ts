@@ -38,14 +38,20 @@ test("05-admin", async ({ page }) => {
   await page.screenshot({ path: path.join(SCREENSHOTS, "05-admin.png"), fullPage: true });
 });
 
-test("06-admin-new-content", async ({ page }) => {
-  await page.goto("/admin/contents/new");
+test("06-admin-edit-content", async ({ page }) => {
+  await page.goto("/admin/contents/id-1");
   await page.waitForLoadState("networkidle");
-  await page.screenshot({ path: path.join(SCREENSHOTS, "06-admin-new-content.png"), fullPage: true });
+  await page.screenshot({ path: path.join(SCREENSHOTS, "06-admin-edit-content.png"), fullPage: true });
 });
 
 test("07-content-detail", async ({ page }) => {
   await page.goto("/contents/abc123");
   await page.waitForLoadState("networkidle");
   await page.screenshot({ path: path.join(SCREENSHOTS, "07-content-detail.png"), fullPage: true });
+});
+
+test("08-vr-content", async ({ page }) => {
+  await page.goto("/contents/def456");
+  await page.waitForLoadState("networkidle");
+  await page.screenshot({ path: path.join(SCREENSHOTS, "08-vr-content.png"), fullPage: true });
 });

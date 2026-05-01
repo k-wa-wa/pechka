@@ -15,7 +15,7 @@ export default async function EditContentPage({
 
   return (
     <div className="max-w-2xl space-y-4">
-      <h1 className="text-xl font-bold text-gray-900">コンテンツ編集</h1>
+      <h1 className="text-xl font-bold" style={{ color: "var(--gh-text)" }}>コンテンツ編集</h1>
       <ContentForm content={content} discs={discs} />
     </div>
   );

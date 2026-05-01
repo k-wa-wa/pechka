@@ -20,11 +20,17 @@ export function SearchBar() {
         value={q}
         onChange={(e) => setQ(e.target.value)}
         placeholder="タイトル・タグで検索..."
-        className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        className="flex-1 rounded-lg px-3 py-2 text-sm focus:outline-none"
+        style={{
+          background: "var(--gh-surface)",
+          border: "1px solid var(--gh-border)",
+          color: "var(--gh-text)",
+        }}
       />
       <button
         type="submit"
-        className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 transition-colors"
+        className="px-4 py-2 rounded-lg text-sm font-medium transition-opacity hover:opacity-80"
+        style={{ background: "var(--nf-red)", color: "#fff" }}
       >
         検索
       </button>

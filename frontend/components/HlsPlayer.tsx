@@ -13,7 +13,7 @@ export function HlsPlayer({ variants }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const [levels, setLevels] = useState<Level[]>([]);
-  const [currentLevel, setCurrentLevel] = useState(-1); // -1 = auto
+  const [currentLevel, setCurrentLevel] = useState(-1);
 
   const masterVariant = variants.find((v) => v.variant_type === "master");
 
@@ -50,18 +50,22 @@ export function HlsPlayer({ variants }: Props) {
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 p-2" style={{ background: "#000" }}>
       <video
         ref={videoRef}
         controls
-        className="w-full rounded-lg bg-black aspect-video"
+        className="w-full aspect-video"
+        style={{ background: "#000" }}
       />
       {levels.length > 0 && (
-        <div className="flex gap-2 flex-wrap">
-          <span className="text-sm text-gray-500">画質:</span>
+        <div className="flex gap-2 flex-wrap px-1 pb-1">
+          <span className="text-sm" style={{ color: "var(--gh-muted)" }}>画質:</span>
           <button
             onClick={() => selectLevel(-1)}
-            className={`text-sm px-2 py-0.5 rounded ${currentLevel === -1 ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-800"}`}
+            className="text-xs px-2 py-0.5 rounded transition-colors"
+            style={currentLevel === -1
+              ? { background: "var(--nf-red)", color: "#fff" }
+              : { background: "var(--tag-bg)", color: "var(--gh-muted)" }}
           >
             自動
           </button>
@@ -69,7 +73,10 @@ export function HlsPlayer({ variants }: Props) {
             <button
               key={i}
               onClick={() => selectLevel(i)}
-              className={`text-sm px-2 py-0.5 rounded ${currentLevel === i ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-800"}`}
+              className="text-xs px-2 py-0.5 rounded transition-colors"
+              style={currentLevel === i
+                ? { background: "var(--nf-red)", color: "#fff" }
+                : { background: "var(--tag-bg)", color: "var(--gh-muted)" }}
             >
               {level.height ? `${level.height}p` : `${Math.round((level.bitrate ?? 0) / 1000)}kbps`}
             </button>

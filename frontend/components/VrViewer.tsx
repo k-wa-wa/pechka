@@ -17,7 +17,6 @@ export function VrViewer({ variants }: Props) {
   useEffect(() => {
     if (!containerRef.current || !src) return;
 
-    // Dynamically load A-Frame to avoid SSR issues
     import("aframe").then(() => {
       if (!containerRef.current) return;
       containerRef.current.innerHTML = `
@@ -34,8 +33,10 @@ export function VrViewer({ variants }: Props) {
 
   return (
     <div>
-      <div ref={containerRef} className="w-full rounded-lg overflow-hidden bg-black" style={{ height: 500 }} />
-      <p className="text-sm text-gray-500 mt-1">マウスドラッグまたはデバイスを動かして視点を変更できます</p>
+      <div ref={containerRef} className="w-full overflow-hidden" style={{ height: 500, background: "#000" }} />
+      <p className="text-sm px-3 py-1.5" style={{ color: "var(--gh-muted)" }}>
+        マウスドラッグまたはデバイスを動かして視点を変更できます
+      </p>
     </div>
   );
 }

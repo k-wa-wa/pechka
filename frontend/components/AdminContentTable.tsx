@@ -5,6 +5,20 @@ import { useState } from "react";
 import { type Content, type Disc, api } from "@/lib/api";
 import { formatDuration } from "@/lib/utils";
 
+const STATUS_STYLE: Record<string, { bg: string; text: string }> = {
+  ready: { bg: "#1a3a2a", text: "#3fb950" },
+  processing: { bg: "#332900", text: "#d29922" },
+  error: { bg: "#3d0d0d", text: "#f85149" },
+  pending: { bg: "#21262d", text: "#8b949e" },
+};
+
+const TYPE_LABELS: Record<string, string> = {
+  video: "動画",
+  vr360: "VR",
+  image_gallery: "画像",
+  document: "ドキュメント",
+};
+
 interface Props {
   contents: Content[];
   discs: Disc[];
@@ -21,59 +35,52 @@ export function AdminContentTable({ contents: initial, discs }: Props) {
   }
 
   if (contents.length === 0) {
-    return <p className="text-gray-500 text-center py-12">コンテンツがありません</p>;
+    return <p className="text-center py-12" style={{ color: "var(--gh-muted)" }}>コンテンツがありません（ETL パイプライン経由で追加されます）</p>;
   }
 
   return (
     <table className="w-full text-sm">
       <thead>
-        <tr className="border-b border-gray-200 bg-gray-50">
-          <th className="text-left px-4 py-3 font-medium text-gray-700">タイトル</th>
-          <th className="text-left px-4 py-3 font-medium text-gray-700">種別</th>
-          <th className="text-left px-4 py-3 font-medium text-gray-700">ディスク</th>
-          <th className="text-left px-4 py-3 font-medium text-gray-700">尺</th>
-          <th className="text-left px-4 py-3 font-medium text-gray-700">ステータス</th>
-          <th className="text-left px-4 py-3 font-medium text-gray-700">操作</th>
+        <tr style={{ borderBottom: "1px solid var(--gh-border)", background: "#161b22" }}>
+          <th className="text-left px-4 py-3 font-medium" style={{ color: "var(--gh-muted)" }}>タイトル</th>
+          <th className="text-left px-4 py-3 font-medium" style={{ color: "var(--gh-muted)" }}>種別</th>
+          <th className="text-left px-4 py-3 font-medium" style={{ color: "var(--gh-muted)" }}>ディスク</th>
+          <th className="text-left px-4 py-3 font-medium" style={{ color: "var(--gh-muted)" }}>尺</th>
+          <th className="text-left px-4 py-3 font-medium" style={{ color: "var(--gh-muted)" }}>ステータス</th>
+          <th className="text-left px-4 py-3 font-medium" style={{ color: "var(--gh-muted)" }}>操作</th>
         </tr>
       </thead>
       <tbody>
-        {contents.map((c) => (
-          <tr key={c.id} className="border-b border-gray-100 hover:bg-gray-50">
-            <td className="px-4 py-3">
-              <Link href={`/contents/${c.short_id}`} className="text-blue-600 hover:underline">
-                {c.title}
-              </Link>
-            </td>
-            <td className="px-4 py-3 text-gray-600">{c.content_type}</td>
-            <td className="px-4 py-3 text-gray-600">{c.disc_id ? discMap[c.disc_id] ?? "-" : "-"}</td>
-            <td className="px-4 py-3 text-gray-600">{formatDuration(c.duration_seconds)}</td>
-            <td className="px-4 py-3">
-              <span className={`px-2 py-0.5 rounded text-xs ${
-                c.status === "ready" ? "bg-green-100 text-green-700" :
-                c.status === "error" ? "bg-red-100 text-red-700" :
-                "bg-yellow-100 text-yellow-700"
-              }`}>
-                {c.status}
-              </span>
-            </td>
-            <td className="px-4 py-3">
-              <div className="flex gap-2">
-                <Link
-                  href={`/admin/contents/${c.id}`}
-                  className="text-blue-600 hover:underline"
-                >
-                  編集
+        {contents.map((c) => {
+          const s = STATUS_STYLE[c.status] ?? STATUS_STYLE.pending;
+          return (
+            <tr key={c.id} className="transition-colors hover:opacity-80" style={{ borderBottom: "1px solid var(--gh-border)" }}>
+              <td className="px-4 py-3">
+                <Link href={`/contents/${c.short_id}`} style={{ color: "var(--gh-accent)" }} className="hover:underline">
+                  {c.title}
                 </Link>
-                <button
-                  onClick={() => handleDelete(c.id, c.title)}
-                  className="text-red-600 hover:underline"
-                >
-                  削除
-                </button>
-              </div>
-            </td>
-          </tr>
-        ))}
+              </td>
+              <td className="px-4 py-3" style={{ color: "var(--gh-muted)" }}>{TYPE_LABELS[c.content_type] ?? c.content_type}</td>
+              <td className="px-4 py-3" style={{ color: "var(--gh-muted)" }}>{c.disc_id ? discMap[c.disc_id] ?? "-" : "-"}</td>
+              <td className="px-4 py-3 font-mono" style={{ color: "var(--gh-muted)" }}>{formatDuration(c.duration_seconds)}</td>
+              <td className="px-4 py-3">
+                <span className="px-2 py-0.5 rounded text-xs font-medium" style={{ background: s.bg, color: s.text }}>
+                  {c.status}
+                </span>
+              </td>
+              <td className="px-4 py-3">
+                <div className="flex gap-3">
+                  <Link href={`/admin/contents/${c.id}`} style={{ color: "var(--gh-accent)" }} className="hover:underline">
+                    編集
+                  </Link>
+                  <button onClick={() => handleDelete(c.id, c.title)} style={{ color: "#f85149" }} className="hover:underline">
+                    削除
+                  </button>
+                </div>
+              </td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );

@@ -35,11 +35,12 @@ export default async function HomePage({
             <a
               key={t.value}
               href={t.value ? `/?type=${t.value}` : "/"}
-              className={`text-sm px-3 py-1.5 rounded-full border transition-colors ${
+              className="text-sm px-3 py-1.5 rounded-full transition-colors font-medium"
+              style={
                 (contentType ?? "") === t.value
-                  ? "bg-blue-600 text-white border-blue-600"
-                  : "bg-white text-gray-700 border-gray-300 hover:border-blue-400"
-              }`}
+                  ? { background: "var(--nf-red)", color: "#fff", border: "1px solid var(--nf-red)" }
+                  : { background: "transparent", color: "var(--gh-muted)", border: "1px solid var(--gh-border)" }
+              }
             >
               {t.label}
             </a>
@@ -48,7 +49,7 @@ export default async function HomePage({
       </div>
 
       {contents.length === 0 ? (
-        <p className="text-gray-500 text-center py-16">コンテンツがありません</p>
+        <p className="text-center py-16" style={{ color: "var(--gh-muted)" }}>コンテンツがありません</p>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
           {contents.map((c) => (
