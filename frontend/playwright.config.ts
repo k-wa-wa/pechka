@@ -28,7 +28,7 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
     },
     {
-      command: 'NEXT_PUBLIC_API_URL=http://localhost:9001 npm run build && HOSTNAME=0.0.0.0 PORT=9002 node .next/standalone/server.js',
+      command: 'NEXT_PUBLIC_API_URL=http://localhost:9001 npm run build && cp -r .next/static .next/standalone/.next/static && cp -r public .next/standalone/public && HOSTNAME=0.0.0.0 PORT=9002 node .next/standalone/server.js',
       port: 9002,
       timeout: 120_000,
       reuseExistingServer: !process.env.CI,
