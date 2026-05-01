@@ -14,7 +14,7 @@ spec:
         bluray-disk-device: "true"
       containers:
         - name: makemkv
-          image: ghcr.io/k-wa-wa/pechka-file-server-extract-mkv:latest
+          image: ghcr.io/k-wa-wa/pechka/etl-extract:latest
           env:
             - name: DEVICE
               value: /dev/sr1

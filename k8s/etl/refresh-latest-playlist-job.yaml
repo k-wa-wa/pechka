@@ -12,7 +12,7 @@ spec:
     spec:
       containers:
         - name: refresh-latest-playlist
-          image: ghcr.io/k-wa-wa/pechka-file-server-refresh-latest-playlist:latest
+          image: ghcr.io/k-wa-wa/pechka/etl-refresh-latest-playlist:latest
           env:
             - name: MINIO_BUCKET
               valueFrom:

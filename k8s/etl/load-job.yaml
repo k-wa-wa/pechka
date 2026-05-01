@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: data-importer
-          image: ghcr.io/k-wa-wa/pechka-file-server-data-importer:latest
+          image: ghcr.io/k-wa-wa/pechka/etl-load:latest
           env:
             - name: HLS_RESOURCE_DIR
               value: /mnt/hls
