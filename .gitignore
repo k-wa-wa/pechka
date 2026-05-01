@@ -6,3 +6,6 @@ etl/load/load
 etl/extract/extract
 etl/transform/transform
 etl/refresh-latest-playlist/refresh-latest-playlist
+frontend/node_modules/
+frontend/.next/
+frontend/tsconfig.tsbuildinfo
