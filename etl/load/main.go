@@ -15,33 +15,58 @@ import (
 )
 
 type Config struct {
-	NFSHLSDir    string
-	MinioBucket  string
-	MinioURL     string
-	MinioAccess  string
-	MinioSecret  string
-	MinioUseSSL  bool
-	PostgresDSN  string
-	DiscLabel    string
-	ContentTitle string
-	ContentType  string
-	Is360        bool
+	HLSResourceDir string
+	MinioBucket    string
+	MinioURL       string
+	MinioAccess    string
+	MinioSecret    string
+	MinioUseSSL    bool
+	PostgresDSN    string
+	DiscLabel      string
+	ContentTitle   string
+	ContentType    string
+	Is360          bool
 }
 
 func configFromEnv() Config {
 	return Config{
-		NFSHLSDir:    getenv("NFS_HLS_DIR", "/mnt/nfs/hls"),
-		MinioBucket:  mustGetenv("MINIO_BUCKET"),
-		MinioURL:     mustGetenv("MINIO_URL"),
-		MinioAccess:  mustGetenv("MINIO_ACCESS_KEY"),
-		MinioSecret:  mustGetenv("MINIO_SECRET_KEY"),
-		MinioUseSSL:  os.Getenv("MINIO_USE_SSL") == "true",
-		PostgresDSN:  mustGetenv("POSTGRES_DSN"),
-		DiscLabel:    mustGetenv("DISC_LABEL"),
-		ContentTitle: mustGetenv("CONTENT_TITLE"),
-		ContentType:  getenv("CONTENT_TYPE", "video"),
-		Is360:        os.Getenv("IS_360") == "true",
+		HLSResourceDir: hlsResourceDir(),
+		MinioBucket:    mustGetenv("MINIO_BUCKET"),
+		MinioURL:       mustGetenv("MINIO_URL"),
+		MinioAccess:    mustGetenv("MINIO_ACCESS_KEY"),
+		MinioSecret:    mustGetenv("MINIO_SECRET_KEY"),
+		MinioUseSSL:    os.Getenv("MINIO_USE_SSL") == "true",
+		PostgresDSN:    postgresDSN(),
+		DiscLabel:      mustGetenv("DISC_LABEL"),
+		ContentTitle:   mustGetenv("CONTENT_TITLE"),
+		ContentType:    getenv("CONTENT_TYPE", "video"),
+		Is360:          os.Getenv("IS_360") == "true",
 	}
+}
+
+// hlsResourceDir resolves HLS directory from environment.
+// Prefers HLS_RESOURCE_DIR (nuage-cluster convention) over NFS_HLS_DIR.
+func hlsResourceDir() string {
+	if v := os.Getenv("HLS_RESOURCE_DIR"); v != "" {
+		return v
+	}
+	return getenv("NFS_HLS_DIR", "/mnt/hls")
+}
+
+// postgresDSN builds a connection string from individual env vars (nuage-cluster convention)
+// or falls back to POSTGRES_DSN if set.
+func postgresDSN() string {
+	if dsn := os.Getenv("POSTGRES_DSN"); dsn != "" {
+		return dsn
+	}
+	host := mustGetenv("DB_HOST")
+	port := getenv("DB_PORT", "5432")
+	user := mustGetenv("DB_USER")
+	password := mustGetenv("DB_PASSWORD")
+	dbname := mustGetenv("DB_NAME")
+	sslmode := getenv("SSL_MODE", "disable")
+	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+		host, port, user, password, dbname, sslmode)
 }
 
 func mustGetenv(key string) string {
@@ -94,7 +119,7 @@ func main() {
 	}
 	log.Printf("Content created: id=%s short_id=%s", contentID, shortID)
 
-	hlsDir := filepath.Join(cfg.NFSHLSDir, cfg.DiscLabel)
+	hlsDir := filepath.Join(cfg.HLSResourceDir, cfg.DiscLabel)
 	variants, err := uploadHLS(ctx, minioClient, cfg.MinioBucket, shortID, hlsDir)
 	if err != nil {
 		log.Fatalf("failed to upload HLS: %v", err)

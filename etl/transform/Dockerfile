@@ -1,10 +1,9 @@
-FROM golang:1.25 AS builder
+FROM golang:1.22 AS builder
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
-COPY cmd/ cmd/
-RUN CGO_ENABLED=0 go build -o transcode ./cmd/transcode \
-    && CGO_ENABLED=0 go build -o generate-master ./cmd/generate-master
+COPY main.go .
+RUN CGO_ENABLED=0 go build -o transform .
 
 FROM ubuntu:22.04
 
@@ -14,7 +13,6 @@ RUN apt-get update && apt-get install -y \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /app/transcode /usr/local/bin/transcode
-COPY --from=builder /app/generate-master /usr/local/bin/generate-master
+COPY --from=builder /app/transform /usr/local/bin/transform
 
-ENTRYPOINT ["/usr/local/bin/transcode"]
+ENTRYPOINT ["/usr/local/bin/transform"]

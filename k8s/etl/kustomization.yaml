@@ -6,6 +6,6 @@ namespace: pechka
 resources:
   - extract-job.yaml
   - transcode-job.yaml
-  - generate-master-job.yaml
   - load-job.yaml
+  - refresh-latest-playlist-job.yaml
   - thumbnail-job.yaml

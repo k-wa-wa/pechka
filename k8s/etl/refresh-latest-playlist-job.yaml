@@ -1,27 +1,19 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  # Name format: generate-master-<short-id>
-  name: generate-master-placeholder
+  name: refresh-latest-playlist
   namespace: pechka
   labels:
-    app: generate-master
-    phase: etl-transform
+    app: refresh-latest-playlist
+    phase: etl-load
 spec:
   ttlSecondsAfterFinished: 86400
   template:
     spec:
       containers:
-        - name: generate-master
-          image: ghcr.io/k-wa-wa/pechka/etl-transform:latest
-          command: ["/usr/local/bin/generate-master"]
+        - name: refresh-latest-playlist
+          image: ghcr.io/k-wa-wa/pechka-file-server-refresh-latest-playlist:latest
           env:
-            - name: SHORT_ID
-              value: ""
-            - name: CONTENT_ID
-              value: ""
-            - name: OUTPUT_DIR
-              value: /tmp/hls/master
             - name: MINIO_BUCKET
               valueFrom:
                 configMapKeyRef:
@@ -42,10 +34,23 @@ spec:
                 secretKeyRef:
                   name: pechka-minio
                   key: secret-key
-            - name: POSTGRES_DSN
+            - name: DB_HOST
+              value: primary.pg-cluster.svc.cluster.local
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USER
               valueFrom:
                 secretKeyRef:
-                  name: pechka-postgres
-                  key: dsn
+                  name: postgres-credentials
+                  key: user
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: password
+            - name: DB_NAME
+              value: pechka
+            - name: SSL_MODE
+              value: disable
       restartPolicy: Never
   backoffLimit: 2

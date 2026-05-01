@@ -27,11 +27,32 @@ func mustGetenv(key string) string {
 	return v
 }
 
+func getenv(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
+func postgresDSN() string {
+	if dsn := os.Getenv("POSTGRES_DSN"); dsn != "" {
+		return dsn
+	}
+	host := mustGetenv("DB_HOST")
+	port := getenv("DB_PORT", "5432")
+	user := mustGetenv("DB_USER")
+	password := mustGetenv("DB_PASSWORD")
+	dbname := mustGetenv("DB_NAME")
+	sslmode := getenv("SSL_MODE", "disable")
+	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+		host, port, user, password, dbname, sslmode)
+}
+
 func configFromEnv() Config {
 	return Config{
 		Device:      mustGetenv("DEVICE"),
 		NFSMkvDir:   mustGetenv("NFS_MKV_DIR"),
-		PostgresDSN: mustGetenv("POSTGRES_DSN"),
+		PostgresDSN: postgresDSN(),
 	}
 }
 

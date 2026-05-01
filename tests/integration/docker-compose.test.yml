@@ -52,7 +52,7 @@ services:
     volumes:
       - ./fixtures:/fixtures:ro
     environment:
-      NFS_HLS_DIR: /fixtures/hls
+      HLS_RESOURCE_DIR: /fixtures/hls
       DISC_LABEL: TEST_DISC_001
       CONTENT_TITLE: Integration Test Video
       CONTENT_TYPE: video

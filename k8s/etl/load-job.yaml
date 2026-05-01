@@ -1,8 +1,9 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  # Name format: nfs-import-<disc-label>
-  name: nfs-import-placeholder
+  # Name format: load-hls-<disc-label>
+  # e.g.: load-hls-MY_DISC
+  name: load-hls-placeholder
   namespace: pechka
   labels:
     app: nfs-importer
@@ -12,11 +13,11 @@ spec:
   template:
     spec:
       containers:
-        - name: nfs-importer
-          image: ghcr.io/k-wa-wa/pechka/etl-load:latest
+        - name: data-importer
+          image: ghcr.io/k-wa-wa/pechka-file-server-data-importer:latest
           env:
-            - name: NFS_HLS_DIR
-              value: /mnt/nfs/hls
+            - name: HLS_RESOURCE_DIR
+              value: /mnt/hls
             - name: DISC_LABEL
               value: ""
             - name: CONTENT_TITLE
@@ -45,19 +46,31 @@ spec:
                 secretKeyRef:
                   name: pechka-minio
                   key: secret-key
-            - name: POSTGRES_DSN
+            - name: DB_HOST
+              value: primary.pg-cluster.svc.cluster.local
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USER
               valueFrom:
                 secretKeyRef:
-                  name: pechka-postgres
-                  key: dsn
+                  name: postgres-credentials
+                  key: user
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: password
+            - name: DB_NAME
+              value: pechka
+            - name: SSL_MODE
+              value: disable
           volumeMounts:
             - name: nfs-hls
-              mountPath: /mnt/nfs/hls
+              mountPath: /mnt/hls
               readOnly: true
       volumes:
         - name: nfs-hls
-          nfs:
-            server: "${NFS_SERVER}"
-            path: /hls
+          persistentVolumeClaim:
+            claimName: nfs-hls-readonly-pvc
       restartPolicy: Never
   backoffLimit: 2

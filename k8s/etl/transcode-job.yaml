@@ -1,8 +1,8 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  # Name format: transcode-<short-id>-<variant>
-  # e.g.: transcode-123456789-1080p
+  # Name format: transcode-<disc-label>-video or transcode-<disc-label>-audio
+  # e.g.: transcode-MY_DISC-video
   name: transcode-placeholder
   namespace: pechka
   labels:
@@ -14,51 +14,27 @@ spec:
     spec:
       containers:
         - name: ffmpeg
-          image: ghcr.io/k-wa-wa/pechka/etl-transform:latest
-          env:
-            - name: INPUT_MKV
-              value: ""  # /mnt/nfs/mkv/<disc-label>/<title>.mkv
-            - name: OUTPUT_DIR
-              value: ""  # e.g. /tmp/hls
-            - name: SHORT_ID
-              value: ""
-            - name: VARIANT
-              value: ""  # original | 1080p | 720p | 480p | audio
-            - name: CONTENT_ID
-              value: ""
-            - name: MINIO_BUCKET
-              valueFrom:
-                configMapKeyRef:
-                  name: pechka-config
-                  key: minio-bucket
-            - name: MINIO_URL
-              valueFrom:
-                configMapKeyRef:
-                  name: pechka-config
-                  key: minio-url
-            - name: MINIO_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: pechka-minio
-                  key: access-key
-            - name: MINIO_SECRET_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: pechka-minio
-                  key: secret-key
-            - name: POSTGRES_DSN
-              valueFrom:
-                secretKeyRef:
-                  name: pechka-postgres
-                  key: dsn
+          image: ghcr.io/k-wa-wa/pechka-file-server-transform-mkv:latest
+          args:
+            - "to-hls"
+            - "-input"
+            - ""  # /mnt/bluray/mkv/<disc-label>/<title>.mkv
+            - "-output"
+            - ""  # /mnt/hls/<disc-label>
+            - "-mode"
+            - ""  # video or audio
           volumeMounts:
-            - name: nfs-mkv
-              mountPath: /mnt/nfs/mkv
+            - name: nfs-bluray
+              mountPath: /mnt/bluray
               readOnly: true
+            - name: nfs-hls
+              mountPath: /mnt/hls
       volumes:
-        - name: nfs-mkv
-          nfs:
-            server: "${NFS_SERVER}"
-            path: /mkv
+        - name: nfs-bluray
+          persistentVolumeClaim:
+            claimName: nfs-bluray-pvc
+        - name: nfs-hls
+          persistentVolumeClaim:
+            claimName: nfs-hls-pvc
       restartPolicy: Never
   backoffLimit: 2

@@ -89,6 +89,26 @@ jobs:
       - name: Build
         run: CGO_ENABLED=0 go build ./...
 
+  etl-refresh-latest-playlist:
+    name: ETL Refresh Latest Playlist (Go)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: etl/refresh-latest-playlist
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: etl/refresh-latest-playlist/go.mod
+          cache-dependency-path: etl/refresh-latest-playlist/go.sum
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Build
+        run: CGO_ENABLED=0 go build ./...
+
   etl-thumbnail:
     name: ETL Thumbnail (Python)
     runs-on: ubuntu-latest
