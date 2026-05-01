@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:vrt": "playwright test",
+    "test:vrt:update": "playwright test --update-snapshots"
   },
   "dependencies": {
     "aframe": "^1.7.1",
@@ -16,6 +18,7 @@
     "react-dom": "19.2.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@tailwindcss/postcss": "^4",
     "@types/aframe": "^1.2.9",
     "@types/node": "^20",

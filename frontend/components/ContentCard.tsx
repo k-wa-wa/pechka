@@ -1,3 +1,5 @@
+'use client'
+
 import Link from 'next/link'
 import type { MongoContent, ContentType } from '@/lib/types'
 
