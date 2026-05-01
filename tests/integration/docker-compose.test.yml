@@ -1,5 +1,3 @@
-version: "3.8"
-
 # ETL TL Integration Test Environment
 # Use: sh tests/integration/run.sh (local) or via CI workflow
 
@@ -75,20 +73,20 @@ services:
         set -e
         echo "=== Verifying integration test results ==="
 
-        STATUS=$(psql -h postgres -U postgres -d pechka_test -At -c \
+        STATUS=$$(psql -h postgres -U postgres -d pechka_test -At -c \
           "SELECT status FROM contents WHERE title = 'Integration Test Video' LIMIT 1")
-        echo "Content status: $STATUS"
-        [ "$STATUS" = "ready" ] || { echo "FAIL: expected ready, got '$STATUS'"; exit 1; }
+        echo "Content status: $$STATUS"
+        [ "$$STATUS" = "ready" ] || { echo "FAIL: expected ready, got '$$STATUS'"; exit 1; }
 
-        DISC=$(psql -h postgres -U postgres -d pechka_test -At -c \
+        DISC=$$(psql -h postgres -U postgres -d pechka_test -At -c \
           "SELECT label FROM discs WHERE label = 'TEST_DISC_001'")
-        echo "Disc: $DISC"
-        [ "$DISC" = "TEST_DISC_001" ] || { echo "FAIL: disc not found"; exit 1; }
+        echo "Disc: $$DISC"
+        [ "$$DISC" = "TEST_DISC_001" ] || { echo "FAIL: disc not found"; exit 1; }
 
-        COUNT=$(psql -h postgres -U postgres -d pechka_test -At -c \
+        COUNT=$$(psql -h postgres -U postgres -d pechka_test -At -c \
           "SELECT COUNT(*) FROM video_variants v JOIN contents c ON c.id = v.content_id \
            WHERE c.title = 'Integration Test Video'")
-        echo "Variant count: $COUNT"
-        [ "$COUNT" -gt "0" ] || { echo "FAIL: no variants registered"; exit 1; }
+        echo "Variant count: $$COUNT"
+        [ "$$COUNT" -gt "0" ] || { echo "FAIL: no variants registered"; exit 1; }
 
         echo "=== All checks passed ==="
