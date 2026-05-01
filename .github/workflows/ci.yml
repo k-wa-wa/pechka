@@ -167,7 +167,7 @@ jobs:
 
       - name: Verify results
         run: |
-          docker compose -f tests/integration/docker-compose.test.yml run --rm verify
+          docker compose -f tests/integration/docker-compose.test.yml run --no-deps --rm verify
 
       - name: Cleanup
         if: always()

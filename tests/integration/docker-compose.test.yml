@@ -65,8 +65,8 @@ services:
   verify:
     image: postgres:15-alpine
     depends_on:
-      load-integration-test:
-        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
     environment:
       PGPASSWORD: testpass
     entrypoint: ["/bin/sh", "-c"]

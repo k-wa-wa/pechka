@@ -40,7 +40,7 @@ echo "[3/4] Running load integration test..."
 docker compose -f docker-compose.test.yml run --rm load-integration-test
 
 echo "[4/4] Verifying results..."
-docker compose -f docker-compose.test.yml run --rm verify
+docker compose -f docker-compose.test.yml run --no-deps --rm verify
 
 echo ""
 echo "=== All integration tests passed ==="
