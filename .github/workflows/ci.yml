@@ -109,3 +109,46 @@ jobs:
 
       - name: Lint
         run: python -m py_compile analyze.py
+
+  etl-integration:
+    name: ETL TL Integration Test
+    runs-on: ubuntu-latest
+    needs: [etl-load, etl-transform]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate HLS fixtures
+        run: sh tests/integration/fixtures/setup.sh
+
+      - name: Build load binary
+        run: |
+          docker build -t pechka/etl-load:test etl/load/
+
+      - name: Start infrastructure (PostgreSQL + MinIO)
+        run: |
+          docker compose -f tests/integration/docker-compose.test.yml up -d postgres minio
+          docker compose -f tests/integration/docker-compose.test.yml up minio-init
+
+      - name: Wait for PostgreSQL
+        run: |
+          docker compose -f tests/integration/docker-compose.test.yml exec -T postgres \
+            sh -c 'until pg_isready -U postgres; do sleep 1; done'
+
+      - name: Apply DB migrations
+        run: |
+          docker compose -f tests/integration/docker-compose.test.yml exec -T \
+            -e PGPASSWORD=testpass postgres \
+            psql -U postgres -d pechka_test \
+            < db/migrations/001_create_tables.up.sql
+
+      - name: Run load integration test
+        run: |
+          docker compose -f tests/integration/docker-compose.test.yml run --rm load-integration-test
+
+      - name: Verify results
+        run: |
+          docker compose -f tests/integration/docker-compose.test.yml run --rm verify
+
+      - name: Cleanup
+        if: always()
+        run: docker compose -f tests/integration/docker-compose.test.yml down -v --remove-orphans

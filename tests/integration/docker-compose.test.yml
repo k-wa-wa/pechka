@@ -1,0 +1,94 @@
+version: "3.8"
+
+# ETL TL Integration Test Environment
+# Use: sh tests/integration/run.sh (local) or via CI workflow
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: pechka_test
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: testpass
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  minio:
+    image: minio/minio:latest
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: testaccess
+      MINIO_ROOT_PASSWORD: testsecret
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:9000/minio/health/live"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        mc alias set local http://minio:9000 testaccess testsecret
+        mc mb local/pechka --ignore-existing
+        echo "Bucket ready"
+
+  load-integration-test:
+    image: pechka/etl-load:test
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./fixtures:/fixtures:ro
+    environment:
+      NFS_HLS_DIR: /fixtures/hls
+      DISC_LABEL: TEST_DISC_001
+      CONTENT_TITLE: Integration Test Video
+      CONTENT_TYPE: video
+      MINIO_BUCKET: pechka
+      MINIO_URL: minio:9000
+      MINIO_ACCESS_KEY: testaccess
+      MINIO_SECRET_KEY: testsecret
+      POSTGRES_DSN: "postgresql://postgres:testpass@postgres:5432/pechka_test"
+
+  verify:
+    image: postgres:15-alpine
+    depends_on:
+      load-integration-test:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: testpass
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        echo "=== Verifying integration test results ==="
+
+        STATUS=$(psql -h postgres -U postgres -d pechka_test -At -c \
+          "SELECT status FROM contents WHERE title = 'Integration Test Video' LIMIT 1")
+        echo "Content status: $STATUS"
+        [ "$STATUS" = "ready" ] || { echo "FAIL: expected ready, got '$STATUS'"; exit 1; }
+
+        DISC=$(psql -h postgres -U postgres -d pechka_test -At -c \
+          "SELECT label FROM discs WHERE label = 'TEST_DISC_001'")
+        echo "Disc: $DISC"
+        [ "$DISC" = "TEST_DISC_001" ] || { echo "FAIL: disc not found"; exit 1; }
+
+        COUNT=$(psql -h postgres -U postgres -d pechka_test -At -c \
+          "SELECT COUNT(*) FROM video_variants v JOIN contents c ON c.id = v.content_id \
+           WHERE c.title = 'Integration Test Video'")
+        echo "Variant count: $COUNT"
+        [ "$COUNT" -gt "0" ] || { echo "FAIL: no variants registered"; exit 1; }
+
+        echo "=== All checks passed ==="
