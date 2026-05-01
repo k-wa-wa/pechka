@@ -4,6 +4,7 @@ resources:
   - namespace.yaml
   - ../../infra
   - ../../api
+  - ../../frontend
   - postgres
   - minio
   - secrets.yaml
