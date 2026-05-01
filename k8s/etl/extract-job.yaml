@@ -1,0 +1,57 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bluray-extract  # Override at apply time: e.g. bluray-extract-disc-label
+  namespace: pechka
+  labels:
+    app: bluray-extract
+    phase: etl-extract
+spec:
+  ttlSecondsAfterFinished: 86400  # 1 day
+  template:
+    spec:
+      nodeSelector:
+        bluray-disk-device: "true"
+      containers:
+        - name: makemkv
+          image: ghcr.io/k-wa-wa/pechka/etl-extract:latest
+          env:
+            - name: DEVICE
+              value: /dev/sr1
+            - name: NFS_MKV_DIR
+              value: /mnt/bluray/mkv
+            - name: DB_HOST
+              value: primary.pg-cluster.svc.cluster.local
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: user
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: password
+            - name: DB_NAME
+              value: pechka
+            - name: SSL_MODE
+              value: disable
+          volumeMounts:
+            - name: nfs-bluray
+              mountPath: /mnt/bluray
+            - name: bluray-dev
+              mountPath: /dev/sr1
+          securityContext:
+            privileged: true
+      volumes:
+        - name: nfs-bluray
+          persistentVolumeClaim:
+            claimName: nfs-bluray-pvc
+        - name: bluray-dev
+          hostPath:
+            path: /dev/sr1
+            type: BlockDevice
+      restartPolicy: Never
+  backoffLimit: 0

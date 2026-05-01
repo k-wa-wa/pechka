@@ -1,0 +1,76 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Name format: load-hls-<disc-label>
+  # e.g.: load-hls-MY_DISC
+  name: load-hls-placeholder
+  namespace: pechka
+  labels:
+    app: nfs-importer
+    phase: etl-load
+spec:
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      containers:
+        - name: data-importer
+          image: ghcr.io/k-wa-wa/pechka/etl-load:latest
+          env:
+            - name: HLS_RESOURCE_DIR
+              value: /mnt/hls
+            - name: DISC_LABEL
+              value: ""
+            - name: CONTENT_TITLE
+              value: ""
+            - name: CONTENT_TYPE
+              value: video
+            - name: IS_360
+              value: "false"
+            - name: MINIO_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: minio-bucket
+            - name: MINIO_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: minio-url
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pechka-minio
+                  key: access-key
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pechka-minio
+                  key: secret-key
+            - name: DB_HOST
+              value: primary.pg-cluster.svc.cluster.local
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: user
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: password
+            - name: DB_NAME
+              value: pechka
+            - name: SSL_MODE
+              value: disable
+          volumeMounts:
+            - name: nfs-hls
+              mountPath: /mnt/hls
+              readOnly: true
+      volumes:
+        - name: nfs-hls
+          persistentVolumeClaim:
+            claimName: nfs-hls-readonly-pvc
+      restartPolicy: Never
+  backoffLimit: 2

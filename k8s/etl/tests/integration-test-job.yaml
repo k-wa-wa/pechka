@@ -1,0 +1,162 @@
+# ETL TL (Transform/Load) Integration Test Job
+# Runs against real k8s infra (PostgreSQL + MinIO in pechka namespace).
+# Uses pre-generated HLS fixture files — no Bluray drive required.
+#
+# Usage:
+#   kubectl apply -f k8s/etl/tests/integration-test-job.yaml
+#   kubectl wait --for=condition=complete job/etl-tl-integration-test --timeout=300s
+#   kubectl logs -l job-name=etl-tl-integration-test
+#   kubectl delete -f k8s/etl/tests/integration-test-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: etl-tl-integration-test
+  namespace: pechka
+  labels:
+    app: etl-integration-test
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: etl-integration-test
+    spec:
+      restartPolicy: Never
+      initContainers:
+        # Step 1: Generate minimal HLS fixture files (no Bluray needed)
+        - name: generate-fixtures
+          image: python:3.12-alpine
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              DISC_LABEL="TEST_DISC_$(date +%s)"
+              DISC_DIR=/fixtures/hls/${DISC_LABEL}
+              mkdir -p "$DISC_DIR"
+
+              # 720p playlist
+              printf '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:10.000000,\n720p_0000.ts\n#EXT-X-ENDLIST\n' > "$DISC_DIR/720p.m3u8"
+
+              # 480p playlist
+              printf '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:10.000000,\n480p_0000.ts\n#EXT-X-ENDLIST\n' > "$DISC_DIR/480p.m3u8"
+
+              # master playlist
+              printf '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:BANDWIDTH=3128000,RESOLUTION=1280x720,CODECS="avc1.4d001f,mp4a.40.2"\n720p.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=1628000,RESOLUTION=854x480,CODECS="avc1.42e01f,mp4a.40.2"\n480p.m3u8\n' > "$DISC_DIR/master.m3u8"
+
+              # Minimal TS segments (188-byte null packet * 10)
+              python3 -c "
+              pkt = bytes([0x47, 0x40, 0x00, 0x10]) + bytes(184)
+              import sys; sys.stdout.buffer.write(pkt * 10)
+              " > "$DISC_DIR/720p_0000.ts"
+              cp "$DISC_DIR/720p_0000.ts" "$DISC_DIR/480p_0000.ts"
+
+              # Write disc label for later steps
+              echo "$DISC_LABEL" > /fixtures/disc_label.txt
+              echo "Fixtures ready: $DISC_DIR ($(ls $DISC_DIR | wc -l) files)"
+          volumeMounts:
+            - name: fixtures
+              mountPath: /fixtures
+
+        # Step 2: Apply DB migrations (idempotent — OK to re-run)
+        - name: migrate
+          image: postgres:15-alpine
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              psql "$POSTGRES_DSN" \
+                -c "CREATE TABLE IF NOT EXISTS discs (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), label VARCHAR(255) NOT NULL UNIQUE, disc_name VARCHAR(255), created_at TIMESTAMPTZ DEFAULT NOW())" \
+                -c "CREATE TABLE IF NOT EXISTS contents (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), short_id VARCHAR(50) UNIQUE NOT NULL, content_type VARCHAR(20) NOT NULL, disc_id UUID REFERENCES discs(id), title VARCHAR(255) NOT NULL, description TEXT DEFAULT '', duration_seconds INTEGER, is_360 BOOLEAN DEFAULT FALSE, tags TEXT[] DEFAULT '{}', status VARCHAR(20) NOT NULL, published_at TIMESTAMPTZ, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())" \
+                -c "CREATE TABLE IF NOT EXISTS video_variants (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), content_id UUID NOT NULL REFERENCES contents(id) ON DELETE CASCADE, variant_type VARCHAR(20) NOT NULL, hls_key TEXT NOT NULL, bandwidth INTEGER, resolution VARCHAR(20), codecs VARCHAR(100), created_at TIMESTAMPTZ DEFAULT NOW())"
+              echo "Migration complete"
+          env:
+            - name: POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: pechka-postgres
+                  key: dsn
+
+        # Step 3: Run load component with fixture HLS files
+        - name: load
+          image: ghcr.io/k-wa-wa/pechka/etl-load:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              export DISC_LABEL=$(cat /fixtures/disc_label.txt)
+              echo "Loading disc: $DISC_LABEL"
+              /usr/local/bin/load
+          env:
+            - name: NFS_HLS_DIR
+              value: /fixtures/hls
+            - name: CONTENT_TITLE
+              value: ETL Integration Test
+            - name: CONTENT_TYPE
+              value: video
+            - name: MINIO_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: minio-bucket
+            - name: MINIO_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: minio-url
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pechka-minio
+                  key: access-key
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pechka-minio
+                  key: secret-key
+            - name: POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: pechka-postgres
+                  key: dsn
+          volumeMounts:
+            - name: fixtures
+              mountPath: /fixtures
+
+      # Main container: verify results after all init containers succeed
+      containers:
+        - name: verify
+          image: postgres:15-alpine
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              DISC_LABEL=$(cat /fixtures/disc_label.txt)
+              echo "=== Verifying integration test results for $DISC_LABEL ==="
+
+              STATUS=$(psql "$POSTGRES_DSN" -At -c \
+                "SELECT c.status FROM contents c JOIN discs d ON d.id = c.disc_id \
+                 WHERE d.label = '$DISC_LABEL' LIMIT 1")
+              echo "Content status: $STATUS"
+              [ "$STATUS" = "ready" ] || { echo "FAIL: expected ready, got '$STATUS'"; exit 1; }
+
+              VARIANT_COUNT=$(psql "$POSTGRES_DSN" -At -c \
+                "SELECT COUNT(*) FROM video_variants v \
+                 JOIN contents c ON c.id = v.content_id \
+                 JOIN discs d ON d.id = c.disc_id \
+                 WHERE d.label = '$DISC_LABEL'")
+              echo "Variant count: $VARIANT_COUNT"
+              [ "$VARIANT_COUNT" -gt "0" ] || { echo "FAIL: no variants registered"; exit 1; }
+
+              echo "=== All checks passed ==="
+          env:
+            - name: POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: pechka-postgres
+                  key: dsn
+          volumeMounts:
+            - name: fixtures
+              mountPath: /fixtures
+
+      volumes:
+        - name: fixtures
+          emptyDir: {}

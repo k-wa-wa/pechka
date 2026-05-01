@@ -2,3 +2,7 @@
 .env
 nohup.out
 .last_run_timestamp
+etl/load/load
+etl/extract/extract
+etl/transform/transform
+etl/refresh-latest-playlist/refresh-latest-playlist

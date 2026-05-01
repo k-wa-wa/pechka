@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Name format: transcode-<disc-label>-video or transcode-<disc-label>-audio
+  # e.g.: transcode-MY_DISC-video
+  name: transcode-placeholder
+  namespace: pechka
+  labels:
+    app: transcode
+    phase: etl-transform
+spec:
+  ttlSecondsAfterFinished: 86400  # 1 day
+  template:
+    spec:
+      containers:
+        - name: ffmpeg
+          image: ghcr.io/k-wa-wa/pechka/etl-transform:latest
+          args:
+            - "to-hls"
+            - "-input"
+            - ""  # /mnt/bluray/mkv/<disc-label>/<title>.mkv
+            - "-output"
+            - ""  # /mnt/hls/<disc-label>
+            - "-mode"
+            - ""  # video or audio
+          volumeMounts:
+            - name: nfs-bluray
+              mountPath: /mnt/bluray
+              readOnly: true
+            - name: nfs-hls
+              mountPath: /mnt/hls
+      volumes:
+        - name: nfs-bluray
+          persistentVolumeClaim:
+            claimName: nfs-bluray-pvc
+        - name: nfs-hls
+          persistentVolumeClaim:
+            claimName: nfs-hls-pvc
+      restartPolicy: Never
+  backoffLimit: 2

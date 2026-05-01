@@ -1,0 +1,56 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: refresh-latest-playlist
+  namespace: pechka
+  labels:
+    app: refresh-latest-playlist
+    phase: etl-load
+spec:
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      containers:
+        - name: refresh-latest-playlist
+          image: ghcr.io/k-wa-wa/pechka/etl-refresh-latest-playlist:latest
+          env:
+            - name: MINIO_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: minio-bucket
+            - name: MINIO_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: minio-url
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pechka-minio
+                  key: access-key
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pechka-minio
+                  key: secret-key
+            - name: DB_HOST
+              value: primary.pg-cluster.svc.cluster.local
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: user
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: password
+            - name: DB_NAME
+              value: pechka
+            - name: SSL_MODE
+              value: disable
+      restartPolicy: Never
+  backoffLimit: 2
