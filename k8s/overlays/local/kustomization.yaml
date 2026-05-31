@@ -1,8 +1,8 @@
 resources:
-  - ../../infra
-  - ../../api
-  - ../../frontend
-  - ../../etl
+  - ../../base/infra
+  - ../../base/api
+  - ../../base/frontend
+  - ../../base/etl
   - postgres
   - minio
   - secrets.yaml

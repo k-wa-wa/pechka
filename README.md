@@ -26,37 +26,29 @@
 
 Kind (Kubernetes in Docker) を使ってローカルに本番同等の環境を構築します。
 
-### 1. クラスタの作成とデプロイ
+### 1. 一括セットアップ
 
 ```bash
-# クラスタ作成
-kind create cluster --name pechka-cluster
-
-# namespace 作成（kustomize が自動作成しないため必要）
-kubectl apply -f k8s/namespace.yaml
-
-# dev overlay を適用（全リソースを一括デプロイ）
-kubectl apply -k k8s/overlays/dev
+bash scripts/dev-up.sh
 ```
 
-### 2. コンテナイメージのビルドと Kind へのロード
+このスクリプトは以下を自動で実行します:
+- Kind クラスタの作成 (`pechka-cluster`)
+- namespace の作成と local overlay の適用 (`k8s/overlays/local`)
+- API・フロントエンド・全 ETL コンポーネントのイメージビルド
+- Kind クラスタへのイメージロードと Deployment 再起動
+
+個別に実行したい場合:
 
 ```bash
-# ETL イメージをビルドして Kind クラスタにロード
-bash etl/build-and-load.sh
+# クラスタ作成とマニフェスト適用のみ
+bash scripts/kind-setup.sh
 
-# API・フロントエンドイメージをロード
-kind load docker-image \
-  ghcr.io/k-wa-wa/pechka-api:latest \
-  ghcr.io/k-wa-wa/pechka-frontend:latest \
-  --name pechka-cluster
-
-# Deployment を再起動してイメージを反映
-kubectl rollout restart deployment/api deployment/frontend -n pechka
-kubectl rollout status deployment/api deployment/frontend -n pechka
+# イメージビルド・ロード・Deployment 再起動のみ
+bash scripts/build-and-load.sh
 ```
 
-### 3. ポートフォワードとアクセス確認
+### 2. ポートフォワードとアクセス確認
 
 ```bash
 # バックグラウンドでポートフォワード起動
