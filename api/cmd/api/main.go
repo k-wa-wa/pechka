@@ -105,7 +105,7 @@ func main() {
 	})
 	e.GET("/metrics", echoprometheus.NewHandler())
 
-	v1 := e.Group("/v1")
+	v1 := e.Group("/api/v1")
 
 	v1.GET("/contents", contentsH.List)
 	v1.GET("/contents/:short_id", contentsH.Get)

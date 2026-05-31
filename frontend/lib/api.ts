@@ -8,7 +8,11 @@ import type {
   ContentType,
 } from './types'
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? ''
+// Server components use API_URL (internal k8s service); browser uses relative URL via nginx
+const API_BASE =
+  typeof window === 'undefined'
+    ? (process.env.API_URL ?? 'http://api:8080')
+    : (process.env.NEXT_PUBLIC_API_URL ?? '')
 
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, options)
