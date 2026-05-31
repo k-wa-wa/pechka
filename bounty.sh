@@ -21,10 +21,10 @@ if [ "$NEEDS_UPDATE" = true ]; then
     echo "$(date): 更新が検出されました。処理を開始します"
 
     ~/.local/bin/claude --dangerously-skip-permissions -p "
-    CLAUDE.md の自動開発タスクの手順に従って、GitHub 上のタスクを処理してください。
+    BOUNTY.md の自動開発タスクの手順に従って、GitHub 上のタスクを処理してください。
     タスクがないと判断した場合は、すぐに処理を終了してください。
     "
-    # npx @google/gemini-cli --yolo "CLAUDE.md の自動開発タスクの手順に従って、GitHub 上のタスクを処理してください。claudeが途中で辞めたタスクがあるかもしれないので注意して"
+    # npx @google/gemini-cli --yolo "BOUNTY.md の自動開発タスクの手順に従って、GitHub 上のタスクを処理してください。claudeが途中で辞めたタスクがあるかもしれないので注意して"
 
     # 終了後にタイムスタンプを更新
     echo "$NOW" > "$TIMESTAMP_FILE"
