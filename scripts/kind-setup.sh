@@ -14,6 +14,8 @@ fi
 echo ""
 echo "=== Deploying to Kind ==="
 kubectl apply -f k8s/base/namespace.yaml
+# Wait for the default service account to be created before applying the overlay
+kubectl wait serviceaccount/default -n pechka --for=jsonpath='{.metadata.name}'=default --timeout=30s
 kubectl apply -k k8s/overlays/local
 
 echo ""
