@@ -43,9 +43,11 @@ data:
       server {
         listen 80;
 
-        # HLS TS セグメント
-        location ~* \.ts$ {
+        # HLS TS セグメント: /resources/... → MinIO pechka バケットへ転送
+        location ~* ^/resources/.*\.ts$ {
+          rewrite ^/resources/(.*)$ /pechka/resources/$1 break;
           proxy_pass         http://minio:9000;
+          proxy_set_header   Host minio:9000;
           proxy_cache        ts_cache;
           proxy_cache_valid  200 365d;
           proxy_cache_use_stale error timeout updating;
@@ -55,8 +57,10 @@ data:
         }
 
         # HLS マニフェスト
-        location ~* \.m3u8$ {
+        location ~* ^/resources/.*\.m3u8$ {
+          rewrite ^/resources/(.*)$ /pechka/resources/$1 break;
           proxy_pass         http://minio:9000;
+          proxy_set_header   Host minio:9000;
           proxy_cache        m3u8_cache;
           proxy_cache_valid  200 30s;
           proxy_cache_use_stale error timeout;
@@ -66,7 +70,9 @@ data:
 
         # サムネイル
         location /thumbnails/ {
+          rewrite ^/thumbnails/(.*)$ /pechka/thumbnails/$1 break;
           proxy_pass         http://minio:9000;
+          proxy_set_header   Host minio:9000;
           proxy_cache        thumb_cache;
           proxy_cache_valid  200 7d;
           proxy_cache_use_stale error timeout updating;
@@ -75,8 +81,9 @@ data:
           add_header X-Cache-Status $upstream_cache_status;
         }
 
-        # MinIO resources (HLS 等の直接配信パス)
+        # MinIO resources (HLS 等の直接配信パス、その他拡張子)
         location /resources/ {
+          rewrite ^/resources/(.*)$ /pechka/resources/$1 break;
           proxy_pass         http://minio:9000;
           proxy_set_header   Host minio:9000;
           proxy_set_header   X-Real-IP $remote_addr;
