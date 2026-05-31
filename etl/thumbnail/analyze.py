@@ -5,6 +5,7 @@ the brightest, most representative frames as thumbnails, then uploads to MinIO."
 import argparse
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -18,17 +19,45 @@ MAX_THUMBNAILS = 5
 def extract_frames(input_path: str, output_dir: str, interval: int) -> list[str]:
     """Extract frames every `interval` seconds using ffmpeg."""
     output_pattern = str(Path(output_dir) / "frame_%04d.jpg")
-    subprocess.run(
-        [
-            "ffmpeg", "-i", input_path,
-            "-vf", f"fps=1/{interval},scale=320:-1",
-            "-q:v", "2",
-            output_pattern,
-        ],
-        check=True,
-        capture_output=True,
-    )
-    return sorted(Path(output_dir).glob("frame_*.jpg"))
+    try:
+        subprocess.run(
+            [
+                "ffmpeg", "-i", input_path,
+                "-vf", f"fps=1/{interval},scale=320:-1",
+                "-pix_fmt", "yuvj420p",
+                "-q:v", "2",
+                output_pattern,
+            ],
+            check=True,
+            capture_output=True,
+        )
+    except subprocess.CalledProcessError as e:
+        print("ffmpeg stdout:", e.stdout.decode(), file=sys.stderr)
+        print("ffmpeg stderr:", e.stderr.decode(), file=sys.stderr)
+        raise
+    
+    frames = sorted(Path(output_dir).glob("frame_*.jpg"))
+    if not frames:
+        print("No frames extracted with fps filter. Falling back to extracting the first frame...", file=sys.stderr)
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg", "-i", input_path,
+                    "-vframes", "1",
+                    "-vf", "scale=320:-1",
+                    "-pix_fmt", "yuvj420p",
+                    "-q:v", "2",
+                    str(Path(output_dir) / "frame_0001.jpg"),
+                ],
+                check=True,
+                capture_output=True,
+            )
+            frames = sorted(Path(output_dir).glob("frame_*.jpg"))
+        except subprocess.CalledProcessError as e:
+            print("ffmpeg fallback stdout:", e.stdout.decode(), file=sys.stderr)
+            print("ffmpeg fallback stderr:", e.stderr.decode(), file=sys.stderr)
+            raise
+    return frames
 
 
 def brightness_score(path: str) -> float:

@@ -50,7 +50,7 @@ spec:
               if ! bin/elasticsearch-plugin list | grep -q analysis-kuromoji; then
                 bin/elasticsearch-plugin install --batch analysis-kuromoji
               fi
-              cp -r /usr/share/elasticsearch/plugins /tmp/plugins
+              cp -r /usr/share/elasticsearch/plugins/. /tmp/plugins/
           volumeMounts:
             - name: plugins
               mountPath: /tmp/plugins

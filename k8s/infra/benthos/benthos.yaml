@@ -5,50 +5,84 @@ metadata:
   namespace: pechka
 data:
   contents.yaml: |
-    http:
-      enabled: true
-      address: "0.0.0.0:4195"
-
-    logger:
-      level: INFO
-      format: json
-
-    metrics:
-      prometheus:
-        use_histogram_timing: true
-
     input:
-      postgres_cdc:
-        dsn: "${POSTGRES_DSN}"
-        slot_name: benthos_slot
-        snapshot: true
-        tables:
-          - public.contents
-          - public.video_variants
-          - public.assets
-          - public.discs
+      generate:
+        mapping: 'root = {}'
+        interval: 2s
 
     pipeline:
       processors:
-        - branch:
-            request_map: |
-              root = if this.table == "contents" { this } else { deleted() }
-            processors:
-              - mapping: |
-                  let op  = this.operation
-                  let row = this.after | this.before
-                  root._id              = $row.short_id
-                  root.short_id         = $row.short_id
-                  root.content_type     = $row.content_type
-                  root.title            = $row.title
-                  root.description      = $row.description
-                  root.duration_seconds = $row.duration_seconds
-                  root.is_360           = $row.is_360
-                  root.tags             = $row.tags
-                  root.status           = $row.status
-                  root.published_at     = $row.published_at
-                  root.updated_at       = $row.updated_at
-                  root._deleted         = $op == "delete"
+        - sql_raw:
+            driver: postgres
+            dsn: "${POSTGRES_DSN}"
+            query: |
+              SELECT 
+                  c.short_id,
+                  c.content_type,
+                  c.title,
+                  c.description,
+                  c.duration_seconds,
+                  c.is_360,
+                  array_to_json(c.tags) AS tags,
+                  c.status,
+                  c.published_at,
+                  c.updated_at,
+                  d.label AS disc_label,
+                  COALESCE(
+                      (SELECT json_agg(json_build_object(
+                          'variant_type', v.variant_type,
+                          'hls_key', v.hls_key,
+                          'bandwidth', v.bandwidth,
+                          'resolution', v.resolution
+                       )) 
+                       FROM video_variants v 
+                       WHERE v.content_id = c.id
+                      ), '[]'::json
+                  ) AS variants
+              FROM contents c
+              LEFT JOIN discs d ON c.disc_id = d.id;
+        - mapping: |
+            root = if this.type() == "object" {
+              if this.short_id != null {
+                [{
+                  "short_id": this.short_id,
+                  "content_type": this.content_type,
+                  "title": this.title,
+                  "description": this.description,
+                  "duration_seconds": this.duration_seconds,
+                  "is_360": this.is_360,
+                  "tags": this.tags.parse_json().catch(this.tags),
+                  "status": this.status,
+                  "published_at": this.published_at,
+                  "updated_at": this.updated_at,
+                  "disc_label": this.disc_label,
+                  "variants": this.variants.parse_json().catch(this.variants)
+                }]
+              } else { deleted() }
+            } else if this.type() == "array" {
+              if this.length() == 0 {
+                deleted()
+              } else {
+                this.map_each(item -> {
+                  "short_id": item.short_id,
+                  "content_type": item.content_type,
+                  "title": item.title,
+                  "description": item.description,
+                  "duration_seconds": item.duration_seconds,
+                  "is_360": item.is_360,
+                  "tags": item.tags.parse_json().catch(item.tags),
+                  "status": item.status,
+                  "published_at": item.published_at,
+                  "updated_at": item.updated_at,
+                  "disc_label": item.disc_label,
+                  "variants": item.variants.parse_json().catch(item.variants)
+                })
+              }
+            } else {
+              deleted()
+            }
+        - unarchive:
+            format: json_array
 
     output:
       fallback:
@@ -68,22 +102,17 @@ data:
                       collection: contents
                       operation: update-one
                       upsert: true
-                      filter_map: 'root = {"_id": this._id}'
-                      document_map: |
-                        root = if this._deleted {
-                          {"$set": {"status": "deleted"}}
-                        } else {
-                          {"$set": this.without("_deleted")}
-                        }
+                      filter_map: 'root = {"_id": this.short_id}'
+                      document_map: 'root = {"$set": this}'
+                      write_concern:
+                        w: "1"
                   - elasticsearch:
                       urls:
                         - "${ELASTICSEARCH_URL}"
                       index: pechka_contents
                       id: '${! json("short_id") }'
                       action: index
-        - log:
-            level: ERROR
-            message: "CDC write failed after retries: ${! error() } | msg: ${! content() }"
+        - stdout: {}
 ---
 apiVersion: apps/v1
 kind: Deployment

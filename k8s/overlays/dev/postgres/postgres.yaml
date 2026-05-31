@@ -8,6 +8,7 @@ data:
   PGDATA: /var/lib/postgresql/data/pgdata
   # logical replication is required for Benthos CDC
   postgresql.conf: |
+    listen_addresses = '*'
     wal_level = logical
     max_replication_slots = 10
     max_wal_senders = 10

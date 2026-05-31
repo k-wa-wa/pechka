@@ -16,9 +16,12 @@ spec:
       containers:
         - name: api
           image: ghcr.io/k-wa-wa/pechka-api:latest
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
           env:
+            - name: PORT
+              value: "8080"
             - name: POSTGRES_DSN
               valueFrom:
                 secretKeyRef:
@@ -30,7 +33,7 @@ spec:
                   name: api-secret
                   key: MONGO_URL
             - name: MONGO_DB
-              value: stream
+              value: pechka
             - name: ELASTICSEARCH_URL
               valueFrom:
                 secretKeyRef:

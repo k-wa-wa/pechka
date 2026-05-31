@@ -13,8 +13,8 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install MakeMKV
-RUN wget -q "https://www.makemkv.com/download/makemkv-oss-1.17.7.tar.gz" -O /tmp/makemkv-oss.tar.gz \
-    && wget -q "https://www.makemkv.com/download/makemkv-bin-1.17.7.tar.gz" -O /tmp/makemkv-bin.tar.gz \
+RUN wget -q "https://www.makemkv.com/download/makemkv-oss-1.18.3.tar.gz" -O /tmp/makemkv-oss.tar.gz \
+    && wget -q "https://www.makemkv.com/download/makemkv-bin-1.18.3.tar.gz" -O /tmp/makemkv-bin.tar.gz \
     && apt-get update && apt-get install -y \
         build-essential \
         pkg-config \
@@ -24,10 +24,11 @@ RUN wget -q "https://www.makemkv.com/download/makemkv-oss-1.17.7.tar.gz" -O /tmp
         libavcodec-dev \
         libgl1-mesa-dev \
         qtbase5-dev \
+        zlib1g-dev \
     && tar -xzf /tmp/makemkv-oss.tar.gz -C /tmp \
     && tar -xzf /tmp/makemkv-bin.tar.gz -C /tmp \
-    && cd /tmp/makemkv-oss-1.17.7 && ./configure && make && make install \
-    && cd /tmp/makemkv-bin-1.17.7 && make && make install \
+    && cd /tmp/makemkv-oss-1.18.3 && ./configure && make && make install \
+    && cd /tmp/makemkv-bin-1.18.3 && mkdir -p tmp && touch tmp/eula_accepted && make && make install \
     && rm -rf /tmp/makemkv-* \
     && rm -rf /var/lib/apt/lists/*
 
