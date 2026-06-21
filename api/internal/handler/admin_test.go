@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -179,6 +180,54 @@ func TestAdminHandler_CreateDisc_MissingLabel(t *testing.T) {
 	he := err.(*echo.HTTPError)
 	if he.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", he.Code)
+	}
+}
+
+func TestAdminHandler_DeleteContent_Success(t *testing.T) {
+	contentRepo := &mockPgContentRepo{
+		deleteFn: func(_ context.Context, _ string) error {
+			return nil
+		},
+	}
+
+	h := handler.NewAdminHandler(contentRepo, &mockPgDiscRepo{}, newSnowflakeNode(t))
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodDelete, "/v1/admin/contents/123", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetParamNames("id")
+	c.SetParamValues("123")
+
+	if err := h.DeleteContent(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("expected 204, got %d", rec.Code)
+	}
+}
+
+func TestAdminHandler_DeleteContent_InternalError(t *testing.T) {
+	contentRepo := &mockPgContentRepo{
+		deleteFn: func(_ context.Context, _ string) error {
+			return errors.New("db error")
+		},
+	}
+
+	h := handler.NewAdminHandler(contentRepo, &mockPgDiscRepo{}, newSnowflakeNode(t))
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodDelete, "/v1/admin/contents/123", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetParamNames("id")
+	c.SetParamValues("123")
+
+	err := h.DeleteContent(c)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	he := err.(*echo.HTTPError)
+	if he.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", he.Code)
 	}
 }
 
