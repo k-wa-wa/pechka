@@ -3,7 +3,13 @@ kind: Ingress
 metadata:
   name: pechka-ingress
   namespace: pechka
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
+  tls:
+    - hosts:
+        - pechka.nuage.cluster.wpc
+      secretName: pechka-tls
   rules:
     - host: pechka.nuage.cluster.wpc
       http:

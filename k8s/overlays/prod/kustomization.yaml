@@ -32,7 +32,7 @@ patches:
       apiVersion: batch/v1
       kind: Job
       metadata:
-        name: placeholder
+        name: bluray-extract
       spec:
         suspend: true
     target:
@@ -43,7 +43,7 @@ patches:
       apiVersion: batch/v1
       kind: Job
       metadata:
-        name: placeholder
+        name: transcode-placeholder
       spec:
         suspend: true
     target:
@@ -54,7 +54,7 @@ patches:
       apiVersion: batch/v1
       kind: Job
       metadata:
-        name: placeholder
+        name: load-hls-placeholder
       spec:
         suspend: true
     target:
@@ -65,7 +65,7 @@ patches:
       apiVersion: batch/v1
       kind: Job
       metadata:
-        name: placeholder
+        name: refresh-latest-playlist
       spec:
         suspend: true
     target:
@@ -76,7 +76,7 @@ patches:
       apiVersion: batch/v1
       kind: Job
       metadata:
-        name: placeholder
+        name: thumbnail-placeholder
       spec:
         suspend: true
     target:

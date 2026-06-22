@@ -34,6 +34,13 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
           readinessProbe:
             httpGet:
               path: /minio/health/live
@@ -44,6 +51,7 @@ spec:
     - metadata:
         name: data
       spec:
+        storageClassName: standard
         accessModes:
           - ReadWriteOnce
         resources:
