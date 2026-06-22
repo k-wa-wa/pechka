@@ -54,7 +54,7 @@ spec:
               mc alias set minio http://$MINIO_URL $MINIO_ACCESS_KEY $MINIO_SECRET_KEY
 
               echo "=== Migrating HLS resources from NFS to MinIO ==="
-              mc cp --recursive /nfs/hls/ minio/$MINIO_BUCKET/resources/
+              mc cp --recursive /nfs/hls/ minio/$MINIO_BUCKET/resources/hls/
               echo "HLS resources migration complete."
 
               echo "=== Migrating thumbnails from NFS to MinIO ==="
