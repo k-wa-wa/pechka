@@ -79,6 +79,13 @@ patches:
         name: thumbnail-placeholder
       spec:
         suspend: true
+        template:
+          spec:
+            volumes:
+              - name: nfs-mkv
+                nfs:
+                  server: 192.168.5.151
+                  path: /mkv
     target:
       kind: Job
       name: thumbnail-placeholder
