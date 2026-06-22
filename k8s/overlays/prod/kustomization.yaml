@@ -1,0 +1,61 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - ../../base/infra
+  - ../../base/api
+  - ../../base/frontend
+  - ../../base/etl
+  - minio
+  - ingress.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+configMapGenerator:
+  - name: pechka-config
+    namespace: pechka
+    literals:
+      - minio-bucket=pechka
+      - minio-url=minio:9000
+
+images:
+  - name: ghcr.io/k-wa-wa/pechka-api
+    newTag: v1.0.0
+  - name: ghcr.io/k-wa-wa/pechka-frontend
+    newTag: v1.0.0
+
+patches:
+  # MongoDB: replace PVC volume with emptyDir
+  - patch: |
+      - op: replace
+        path: /spec/template/spec/volumes/0
+        value:
+          name: data
+          emptyDir: {}
+    target:
+      kind: StatefulSet
+      name: mongodb
+
+  # Elasticsearch: replace PVC volume with emptyDir
+  - patch: |
+      - op: replace
+        path: /spec/template/spec/volumes/0
+        value:
+          name: data
+          emptyDir: {}
+    target:
+      kind: StatefulSet
+      name: elasticsearch
+
+  # All Jobs: suspend on deploy
+  - patch: |
+      apiVersion: batch/v1
+      kind: Job
+      metadata:
+        name: placeholder
+      spec:
+        suspend: true
+    target:
+      kind: Job
