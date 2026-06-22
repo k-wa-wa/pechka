@@ -14,11 +14,17 @@ spec:
       initContainers:
         - name: wait-for-minio
           image: busybox
+          env:
+            - name: MINIO_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: minio-url
           command:
             - sh
             - -c
             - |
-              until wget -q -O- http://minio:9000/minio/health/live; do
+              until wget -q -O- http://$MINIO_URL/minio/health/live; do
                 echo "Waiting for MinIO..."
                 sleep 5
               done
@@ -54,12 +60,12 @@ spec:
               mc alias set minio http://$MINIO_URL $MINIO_ACCESS_KEY $MINIO_SECRET_KEY
 
               echo "=== Migrating HLS resources from NFS to MinIO ==="
-              mc cp --recursive /nfs/hls/ minio/$MINIO_BUCKET/resources/hls/
+              mc mirror /nfs/hls/ minio/$MINIO_BUCKET/resources/hls/
               echo "HLS resources migration complete."
 
               echo "=== Migrating thumbnails from NFS to MinIO ==="
               if [ -d /nfs/thumbnails ] && [ "$(ls -A /nfs/thumbnails 2>/dev/null)" ]; then
-                mc cp --recursive /nfs/thumbnails/ minio/$MINIO_BUCKET/thumbnails/
+                mc mirror /nfs/thumbnails/ minio/$MINIO_BUCKET/thumbnails/
                 echo "Thumbnails migration complete."
               else
                 echo "No thumbnails directory found at /nfs/thumbnails, skipping."
