@@ -1,0 +1,90 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nfs-to-minio-migration
+  namespace: pechka
+  labels:
+    app: nfs-to-minio-migration
+    phase: migration
+spec:
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+        - name: wait-for-minio
+          image: busybox
+          command:
+            - sh
+            - -c
+            - |
+              until wget -q -O- http://minio:9000/minio/health/live; do
+                echo "Waiting for MinIO..."
+                sleep 5
+              done
+      containers:
+        - name: mc
+          image: quay.io/minio/mc:latest
+          env:
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pechka-minio
+                  key: access-key
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pechka-minio
+                  key: secret-key
+            - name: MINIO_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: minio-url
+            - name: MINIO_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: minio-bucket
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              mc alias set minio http://$MINIO_URL $MINIO_ACCESS_KEY $MINIO_SECRET_KEY
+
+              echo "=== Migrating HLS resources from NFS to MinIO ==="
+              mc cp --recursive /nfs/hls/ minio/$MINIO_BUCKET/resources/
+              echo "HLS resources migration complete."
+
+              echo "=== Migrating thumbnails from NFS to MinIO ==="
+              if [ -d /nfs/thumbnails ] && [ "$(ls -A /nfs/thumbnails 2>/dev/null)" ]; then
+                mc cp --recursive /nfs/thumbnails/ minio/$MINIO_BUCKET/thumbnails/
+                echo "Thumbnails migration complete."
+              else
+                echo "No thumbnails directory found at /nfs/thumbnails, skipping."
+              fi
+
+              echo "=== Setting anonymous read access for HLS resources ==="
+              mc anonymous set download minio/$MINIO_BUCKET/resources/hls
+              echo "Migration finished successfully."
+          volumeMounts:
+            - name: nfs-hls
+              mountPath: /nfs/hls
+              readOnly: true
+            - name: nfs-thumbnails
+              mountPath: /nfs/thumbnails
+              readOnly: true
+      volumes:
+        - name: nfs-hls
+          nfs:
+            # nuage-cluster NFS server address (e.g. 192.168.x.x or nfs.nuage.cluster.wpc)
+            server: "${NFS_SERVER}"
+            path: /srv/nfs/hls
+            readOnly: true
+        - name: nfs-thumbnails
+          nfs:
+            server: "${NFS_SERVER}"
+            path: /srv/nfs/thumbnails
+            readOnly: true
+  backoffLimit: 2
