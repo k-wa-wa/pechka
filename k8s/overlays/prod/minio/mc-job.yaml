@@ -10,11 +10,17 @@ spec:
       initContainers:
         - name: wait-for-minio
           image: busybox:1.36
+          env:
+            - name: MINIO_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: minio-url
           command:
             - sh
             - -c
             - |
-              until wget -q -O- http://192.168.5.151:9000/minio/health/live; do
+              until wget -q -O- http://$MINIO_URL/minio/health/live; do
                 echo "Waiting for MinIO..."
                 sleep 5
               done
@@ -22,6 +28,11 @@ spec:
         - name: mc
           image: quay.io/minio/mc:RELEASE.2024-06-18T18-51-29Z
           env:
+            - name: MINIO_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: minio-url
             - name: MINIO_ROOT_USER
               valueFrom:
                 secretKeyRef:
@@ -36,7 +47,7 @@ spec:
             - sh
             - -c
             - |
-              mc alias set pechka http://192.168.5.151:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD
+              mc alias set pechka http://$MINIO_URL "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
               mc mb --ignore-existing pechka/pechka
               # HLS content is publicly served for video playback - anonymous download is intentional
               mc anonymous set download pechka/pechka/resources/hls
