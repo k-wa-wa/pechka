@@ -27,29 +27,7 @@ images:
     newTag: v1.0.0
 
 patches:
-  # MongoDB: replace PVC volume with emptyDir
-  - patch: |
-      - op: replace
-        path: /spec/template/spec/volumes/0
-        value:
-          name: data
-          emptyDir: {}
-    target:
-      kind: StatefulSet
-      name: mongodb
-
-  # Elasticsearch: replace PVC volume with emptyDir
-  - patch: |
-      - op: replace
-        path: /spec/template/spec/volumes/0
-        value:
-          name: data
-          emptyDir: {}
-    target:
-      kind: StatefulSet
-      name: elasticsearch
-
-  # All Jobs: suspend on deploy
+  # ETL Jobs: suspend on deploy (triggered manually)
   - patch: |
       apiVersion: batch/v1
       kind: Job
@@ -59,3 +37,48 @@ patches:
         suspend: true
     target:
       kind: Job
+      name: bluray-extract
+
+  - patch: |
+      apiVersion: batch/v1
+      kind: Job
+      metadata:
+        name: placeholder
+      spec:
+        suspend: true
+    target:
+      kind: Job
+      name: transcode-placeholder
+
+  - patch: |
+      apiVersion: batch/v1
+      kind: Job
+      metadata:
+        name: placeholder
+      spec:
+        suspend: true
+    target:
+      kind: Job
+      name: load-hls-placeholder
+
+  - patch: |
+      apiVersion: batch/v1
+      kind: Job
+      metadata:
+        name: placeholder
+      spec:
+        suspend: true
+    target:
+      kind: Job
+      name: refresh-latest-playlist
+
+  - patch: |
+      apiVersion: batch/v1
+      kind: Job
+      metadata:
+        name: placeholder
+      spec:
+        suspend: true
+    target:
+      kind: Job
+      name: thumbnail-placeholder

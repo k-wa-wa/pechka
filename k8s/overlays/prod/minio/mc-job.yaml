@@ -4,7 +4,6 @@ metadata:
   name: minio-setup
   namespace: pechka
 spec:
-  suspend: true
   template:
     spec:
       restartPolicy: OnFailure
