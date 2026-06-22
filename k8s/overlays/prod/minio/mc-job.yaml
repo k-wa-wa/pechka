@@ -20,7 +20,7 @@ spec:
               done
       containers:
         - name: mc
-          image: quay.io/minio/mc:latest
+          image: quay.io/minio/mc:RELEASE.2024-06-18T18-51-29Z
           env:
             - name: MINIO_ROOT_USER
               valueFrom:
