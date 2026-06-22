@@ -4,12 +4,13 @@ metadata:
   name: pechka-ingress
   namespace: pechka
   annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
+    cert-manager.io/cluster-issuer: "ca-clusterissuer"
 spec:
+  ingressClassName: cilium
   tls:
     - hosts:
         - pechka.nuage.cluster.wpc
-      secretName: pechka-tls
+      secretName: pechka-tls-secret
   rules:
     - host: pechka.nuage.cluster.wpc
       http:

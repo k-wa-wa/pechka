@@ -38,5 +38,6 @@ spec:
             - |
               mc alias set pechka http://minio:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD
               mc mb --ignore-existing pechka/pechka
+              # HLS content is publicly served for video playback - anonymous download is intentional
               mc anonymous set download pechka/pechka/resources/hls
               echo "MinIO setup complete"
