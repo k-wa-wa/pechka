@@ -73,6 +73,8 @@ spec:
 
               echo "=== Setting anonymous read access for HLS resources ==="
               mc anonymous set download minio/$MINIO_BUCKET/resources/hls
+              echo "=== Setting anonymous read access for thumbnails ==="
+              mc anonymous set download minio/$MINIO_BUCKET/thumbnails
               echo "Migration finished successfully."
           volumeMounts:
             - name: nfs-hls
