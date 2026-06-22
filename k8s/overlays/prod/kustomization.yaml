@@ -18,7 +18,7 @@ configMapGenerator:
     namespace: pechka
     literals:
       - minio-bucket=pechka
-      - minio-url=minio:9000
+      - minio-url=192.168.5.151:9000
 
 images:
   - name: ghcr.io/k-wa-wa/pechka-api
