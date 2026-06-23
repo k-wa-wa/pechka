@@ -1,0 +1,445 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: etl-bluray
+  namespace: pechka
+spec:
+  arguments:
+    parameters:
+      - name: db-host
+        value: "primary.pg-cluster.svc.cluster.local"
+
+  volumes:
+    - name: nfs-bluray
+      persistentVolumeClaim:
+        claimName: nfs-bluray-pvc
+    - name: nfs-hls
+      persistentVolumeClaim:
+        claimName: nfs-hls-pvc
+    - name: nfs-hls-readonly
+      persistentVolumeClaim:
+        claimName: nfs-hls-readonly-pvc
+    - name: bluray-dev
+      hostPath:
+        path: /dev/sr1
+        type: BlockDevice
+
+  templates:
+    # --- Entrypoint 1: Auto Extract & Ingestion ---
+    - name: auto
+      dag:
+        tasks:
+          - name: extract-mkv
+            template: extract-mkv
+          - name: transcode
+            dependencies: [extract-mkv]
+            when: "'{{tasks.extract-mkv.outputs.parameters.bluray-label}}' != ''"
+            withParam: "{{tasks.extract-mkv.outputs.parameters.mkv-files-json}}"
+            template: transcode-mkv-parallel
+            arguments:
+              parameters:
+                - name: mkv-path
+                  value: "{{item.mkv-path}}"
+                - name: label
+                  value: "{{item.label}}"
+                - name: title
+                  value: "{{item.title}}"
+          - name: load
+            dependencies: [transcode]
+            when: "'{{tasks.extract-mkv.outputs.parameters.bluray-label}}' != ''"
+            template: load-hls
+            arguments:
+              parameters:
+                - name: label
+                  value: "{{tasks.extract-mkv.outputs.parameters.bluray-label}}"
+                - name: content-title
+                  value: ""
+          - name: thumbnail
+            dependencies: [load]
+            when: "'{{tasks.extract-mkv.outputs.parameters.bluray-label}}' != ''"
+            withParam: "{{tasks.extract-mkv.outputs.parameters.mkv-files-json}}"
+            template: generate-thumbnail
+            arguments:
+              parameters:
+                - name: mkv-path
+                  value: "{{item.mkv-path}}"
+                - name: content-id
+                  value: "{{tasks.load.outputs.parameters.content-id}}"
+                - name: short-id
+                  value: "{{tasks.load.outputs.parameters.short-id}}"
+          - name: refresh
+            dependencies: [load]
+            when: "'{{tasks.extract-mkv.outputs.parameters.bluray-label}}' != ''"
+            template: refresh-playlist
+
+    # --- Entrypoint 2: Manual Ingestion (from existing MKVs) ---
+    - name: manual
+      inputs:
+        parameters:
+          - name: disc-label
+          - name: content-title
+            value: ""
+          - name: skip-thumbnail
+            value: "false"
+      dag:
+        tasks:
+          - name: scan-mkv
+            template: scan-mkv
+            arguments:
+              parameters:
+                - name: label
+                  value: "{{inputs.parameters.disc-label}}"
+          - name: transcode
+            dependencies: [scan-mkv]
+            withParam: "{{tasks.scan-mkv.outputs.parameters.mkv-files-json}}"
+            template: transcode-mkv-parallel
+            arguments:
+              parameters:
+                - name: mkv-path
+                  value: "{{item.mkv-path}}"
+                - name: label
+                  value: "{{item.label}}"
+                - name: title
+                  value: "{{item.title}}"
+          - name: load
+            dependencies: [transcode]
+            template: load-hls
+            arguments:
+              parameters:
+                - name: label
+                  value: "{{inputs.parameters.disc-label}}"
+                - name: content-title
+                  value: "{{inputs.parameters.content-title}}"
+          - name: thumbnail
+            dependencies: [load]
+            when: "'{{inputs.parameters.skip-thumbnail}}' != 'true'"
+            withParam: "{{tasks.scan-mkv.outputs.parameters.mkv-files-json}}"
+            template: generate-thumbnail
+            arguments:
+              parameters:
+                - name: mkv-path
+                  value: "{{item.mkv-path}}"
+                - name: content-id
+                  value: "{{tasks.load.outputs.parameters.content-id}}"
+                - name: short-id
+                  value: "{{tasks.load.outputs.parameters.short-id}}"
+          - name: refresh
+            dependencies: [load]
+            template: refresh-playlist
+
+    # --- Reusable Task Templates ---
+
+    # 1. extract-mkv (Runs on host with physical Blu-ray drive)
+    - name: extract-mkv
+      nodeSelector:
+        bluray-disk-device: "true"
+      container:
+        image: ghcr.io/k-wa-wa/pechka/etl-extract:latest
+        imagePullPolicy: IfNotPresent
+        command: ["/usr/local/bin/extract"]
+        securityContext:
+          privileged: true
+        env:
+          - name: DEVICE
+            value: /dev/sr1
+          - name: NFS_MKV_DIR
+            value: /mnt/bluray/mkv
+          - name: DB_HOST
+            value: "{{workflow.parameters.db-host}}"
+          - name: DB_PORT
+            value: "5432"
+          - name: DB_USER
+            valueFrom:
+              secretKeyRef:
+                name: postgres-credentials
+                key: user
+          - name: DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: postgres-credentials
+                key: password
+          - name: DB_NAME
+            value: pechka
+          - name: SSL_MODE
+            value: disable
+        volumeMounts:
+          - name: nfs-bluray
+            mountPath: /mnt/bluray
+          - name: bluray-dev
+            mountPath: /dev/sr1
+      outputs:
+        parameters:
+          - name: bluray-label
+            valueFrom:
+              path: /tmp/bluray-label
+          - name: mkv-files-json
+            valueFrom:
+              path: /tmp/mkv-files.json
+
+    # 2. scan-mkv (Scans existing MKVs on NFS, runs on any node)
+    - name: scan-mkv
+      inputs:
+        parameters:
+          - name: label
+      container:
+        image: ghcr.io/k-wa-wa/pechka/etl-extract:latest
+        imagePullPolicy: IfNotPresent
+        command: ["/usr/local/bin/extract"]
+        env:
+          - name: DISC_LABEL
+            value: "{{inputs.parameters.label}}"
+          - name: NFS_MKV_DIR
+            value: /mnt/bluray/mkv
+          - name: DB_HOST
+            value: "{{workflow.parameters.db-host}}"
+          - name: DB_PORT
+            value: "5432"
+          - name: DB_USER
+            valueFrom:
+              secretKeyRef:
+                name: postgres-credentials
+                key: user
+          - name: DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: postgres-credentials
+                key: password
+          - name: DB_NAME
+            value: pechka
+          - name: SSL_MODE
+            value: disable
+        volumeMounts:
+          - name: nfs-bluray
+            mountPath: /mnt/bluray
+      outputs:
+        parameters:
+          - name: mkv-files-json
+            valueFrom:
+              path: /tmp/mkv-files.json
+
+    # 3. transcode-mkv-parallel (Spawns video & audio transcode steps)
+    - name: transcode-mkv-parallel
+      inputs:
+        parameters:
+          - name: mkv-path
+          - name: label
+          - name: title
+      steps:
+        - - name: run-transcode
+            template: transcode-mkv
+            arguments:
+              parameters:
+                - name: mkv-path
+                  value: "{{inputs.parameters.mkv-path}}"
+                - name: label
+                  value: "{{inputs.parameters.label}}"
+                - name: mode
+                  value: "{{item}}"
+            withItems:
+              - video
+              - audio
+
+    # 4. transcode-mkv (Underlying transcode operation)
+    - name: transcode-mkv
+      inputs:
+        parameters:
+          - name: mkv-path
+          - name: label
+          - name: mode
+      container:
+        image: ghcr.io/k-wa-wa/pechka/etl-transform:latest
+        imagePullPolicy: IfNotPresent
+        command: ["/usr/local/bin/transform"]
+        args:
+          - "to-hls"
+          - "-input"
+          - "{{inputs.parameters.mkv-path}}"
+          - "-output"
+          - "/mnt/hls/{{inputs.parameters.label}}"
+          - "-mode"
+          - "{{inputs.parameters.mode}}"
+        volumeMounts:
+          - name: nfs-bluray
+            mountPath: /mnt/bluray
+            readOnly: true
+          - name: nfs-hls
+            mountPath: /mnt/hls
+      
+    # 5. load-hls (Uploads HLS and registers to database)
+    - name: load-hls
+      inputs:
+        parameters:
+          - name: label
+          - name: content-title
+      container:
+        image: ghcr.io/k-wa-wa/pechka/etl-load:latest
+        imagePullPolicy: IfNotPresent
+        command: ["/usr/local/bin/nfs-importer"]
+        env:
+          - name: HLS_RESOURCE_DIR
+            value: /mnt/hls
+          - name: DISC_LABEL
+            value: "{{inputs.parameters.label}}"
+          - name: CONTENT_TITLE
+            value: "{{inputs.parameters.content-title}}"
+          - name: CONTENT_TYPE
+            value: video
+          - name: MINIO_BUCKET
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: minio-bucket
+          - name: MINIO_URL
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: minio-url
+          - name: MINIO_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: pechka-minio
+                key: access-key
+          - name: MINIO_SECRET_KEY
+            valueFrom:
+              secretKeyRef:
+                name: pechka-minio
+                key: secret-key
+          - name: DB_HOST
+            value: "{{workflow.parameters.db-host}}"
+          - name: DB_PORT
+            value: "5432"
+          - name: DB_USER
+            valueFrom:
+              secretKeyRef:
+                name: postgres-credentials
+                key: user
+          - name: DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: postgres-credentials
+                key: password
+          - name: DB_NAME
+            value: pechka
+          - name: SSL_MODE
+            value: disable
+        volumeMounts:
+          - name: nfs-hls
+            mountPath: /mnt/hls
+            readOnly: true
+      outputs:
+        parameters:
+          - name: content-id
+            valueFrom:
+              path: /tmp/content-id
+          - name: short-id
+            valueFrom:
+              path: /tmp/short-id
+
+    # 6. generate-thumbnail (Generates thumbnails for content)
+    - name: generate-thumbnail
+      inputs:
+        parameters:
+          - name: mkv-path
+          - name: content-id
+          - name: short-id
+      container:
+        image: ghcr.io/k-wa-wa/pechka/etl-thumbnail:latest
+        imagePullPolicy: IfNotPresent
+        command: ["python", "analyze.py"]
+        args:
+          - "--input"
+          - "{{inputs.parameters.mkv-path}}"
+          - "--short-id"
+          - "{{inputs.parameters.short-id}}"
+          - "--content-id"
+          - "{{inputs.parameters.content-id}}"
+        env:
+          - name: MINIO_BUCKET
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: minio-bucket
+          - name: MINIO_URL
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: minio-url
+          - name: MINIO_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: pechka-minio
+                key: access-key
+          - name: MINIO_SECRET_KEY
+            valueFrom:
+              secretKeyRef:
+                name: pechka-minio
+                key: secret-key
+          - name: POSTGRES_DSN
+            valueFrom:
+              secretKeyRef:
+                name: pechka-postgres
+                key: dsn
+        volumeMounts:
+          - name: nfs-bluray
+            mountPath: /mnt/bluray
+            readOnly: true
+
+    # 7. refresh-playlist (Refreshes final playback playlist)
+    - name: refresh-playlist
+      container:
+        image: ghcr.io/k-wa-wa/pechka/etl-refresh-latest-playlist:latest
+        imagePullPolicy: IfNotPresent
+        command: ["/usr/local/bin/refresh-latest-playlist"]
+        env:
+          - name: MINIO_BUCKET
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: minio-bucket
+          - name: MINIO_URL
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: minio-url
+          - name: MINIO_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: pechka-minio
+                key: access-key
+          - name: MINIO_SECRET_KEY
+            valueFrom:
+              secretKeyRef:
+                name: pechka-minio
+                key: secret-key
+          - name: DB_HOST
+            value: "{{workflow.parameters.db-host}}"
+          - name: DB_PORT
+            value: "5432"
+          - name: DB_USER
+            valueFrom:
+              secretKeyRef:
+                name: postgres-credentials
+                key: user
+          - name: DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: postgres-credentials
+                key: password
+          - name: DB_NAME
+            value: pechka
+          - name: SSL_MODE
+            value: disable
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: etl-bluray-cron
+  namespace: pechka
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  workflowSpec:
+    workflowTemplateRef:
+      name: etl-bluray
+      template: auto

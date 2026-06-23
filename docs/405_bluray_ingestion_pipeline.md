@@ -227,20 +227,43 @@ spec:
       restartPolicy: Never
 ```
 
-## 5. オーケストレーション
+## 5. オーケストレーション（Argo Workflows）
 
-初期実装は K8s Job を手動またはスクリプトで実行。  
-並列処理の必要性が高まった場合は Argo Workflow への移行を検討する。
+パイプラインの実行管理および並列トランスコード処理は **Argo Workflows** を使用して行います。
+定義ファイルは [workflow.yaml](file:///home/nixos/ghq/github.com/k-wa-wa/pechka/k8s/base/etl/workflow.yaml) に配置されており、単一の `WorkflowTemplate` (`etl-bluray`) 内で処理テンプレートを共通化しつつ、自動実行と手動実行の2つのエントリーポイントを提供します。
 
-**Phase 1 → Phase 2 の連携:**
-- Phase 1 Job 完了後にスクリプトが Phase 2 Job を生成（各 MKV タイトルごとに1 Job）。
-- または Argo Workflow の DAG でフェーズを定義。
+```
+[自動実行 (auto)]
+  extract-mkv (物理ディスク抽出) -> (ディスクあり?) -> transcode (並列トランスコード) -> load (MinIOアップロード&DB登録) -> thumbnail & refresh
+
+[手動実行 (manual)]
+  scan-mkv (既存のNFS内MKVスキャン) ---------------> transcode (並列トランスコード) -> load (MinIOアップロード&DB登録) -> thumbnail & refresh
+```
+
+### 5.1 自動実行モード（CronWorkflow）
+
+CronWorkflow (`etl-bluray-cron`) を使用して定期的に物理ディスクの検知を行います。
+
+- **エントリーポイント**: `auto`
+- **動作フロー**:
+  1. `extract-mkv` タスクが物理ドライブ搭載ノード上で起動し、ディスクを検出。
+  2. ディスクが入っていれば MakeMKV で NFS へ抽出し、登録・スキャンを実行。ディスクが入っていなければ、出力パラメータの `bluray-label` を空にして正常終了。
+  3. 後続タスクは `when: "'{{tasks.extract-mkv.outputs.parameters.bluray-label}}' != ''"` 条件により、ディスクが無い場合は自動的にスキップされます。
+
+### 5.2 手動実行モード
+
+すでに MKV ファイルへの抽出が終わっている場合、Argo UI や `argo submit` から引数を指定して手動でトランスコード以降のパイプラインを起動できます。手動実行時は物理ディスクドライブが接続されていない任意のノードで安全に動作します。
+
+- **エントリーポイント**: `manual`
+- **入力引数**:
+  - `disc-label` (必須): 対象のディスクラベル（例: `DISC_001`）。NFS上の `/mnt/bluray/mkv/{disc-label}/` ディレクトリを検索します。
+  - `content-title` (任意): コンテンツのタイトル名。指定がない場合は `disc-label` の値がタイトルになります。
+  - `skip-thumbnail` (デフォルト: `"false"`): サムネイル生成処理をスキップしたい場合に `"true"` に設定。
+- **動作フロー**:
+  1. `scan-mkv` タスクが起動し、指定された `disc-label` ディレクトリ内の既存 `.mkv` ファイルをスキャン。
+  2. ディスクから抽出された MKV ファイルのリストに基づき、`transcode` などの後続タスクを直接実行します（ディスクからの物理抽出処理は完全にスキップされます）。
 
 ## 6. 課題・将来対応
-
-### 優先度：高
-
-- **進捗監視**: トランスコード進捗（バリアントごとの完了状態）を PostgreSQL に記録し、管理 UI でリアルタイム確認できるようにする。
 
 ### 優先度：通常
 

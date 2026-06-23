@@ -34,14 +34,14 @@ bash scripts/dev-up.sh
 
 このスクリプトは以下を自動で実行します:
 - Kind クラスタの作成 (`pechka-cluster`)
-- namespace の作成と local overlay の適用 (`k8s/overlays/local`)
+- namespace の作成と local overlay の適用 (`k8s/overlays/local` - Argo Workflows 本体と必要な RBAC 設定も自動でデプロイされます)
 - API・フロントエンド・全 ETL コンポーネントのイメージビルド
 - Kind クラスタへのイメージロードと Deployment 再起動
 
 個別に実行したい場合:
 
 ```bash
-# クラスタ作成とマニフェスト適用のみ
+# クラスタ作成とマニフェスト適用のみ (Argo Workflows 含む)
 bash scripts/kind-setup.sh
 
 # イメージビルド・ロード・Deployment 再起動のみ
@@ -51,14 +51,19 @@ bash scripts/build-and-load.sh
 ### 2. ポートフォワードとアクセス確認
 
 ```bash
-# バックグラウンドでポートフォワード起動
+# バックグラウンドで Pechka Nginx のポートフォワード起動
 nohup kubectl port-forward svc/nginx -n pechka 8000:80 > /tmp/nginx-pf.log 2>&1 &
+
+# バックグラウンドで Argo Workflows UI のポートフォワード起動
+nohup kubectl port-forward -n argo svc/argo-server 2746:2746 --address 0.0.0.0 > /tmp/argo-pf.log 2>&1 &
 
 # 疎通確認
 curl -s http://localhost:8000/api/v1/contents
 ```
 
-ブラウザで **[http://localhost:8000](http://localhost:8000)** にアクセスできます。
+ブラウザで以下にアクセスできます：
+- **Pechka Web UI**: [http://localhost:8000](http://localhost:8000)
+- **Argo Workflows Web UI**: [http://localhost:2746](http://localhost:2746)
 
 ---
 
@@ -96,24 +101,27 @@ kubectl delete pod make-dummy-mkv -n pechka
 bash etl/build-and-load.sh
 ```
 
-#### 4.3. ETL パイプラインの実行
+#### 4.3. ETL パイプラインの実行（Argo Workflows）
 
-`etl/run-pipeline.sh` は、実行環境の Kubernetes コンテキスト（Kind）を自動検出し、クラスター上に配置された環境毎のマニフェスト（パッチ適用済みのプレースホルダー定義）を動的に読み込んで Job をインスタンス化します。
+Argo Workflows を用いたパイプラインの実行は、マニフェストファイル（YAML）の適用、または Argo Web UI から行います。
+
+**マニフェスト（YAML）を使用した実行方法:**
+
+ダミー MKV が配置されている状態で、[test-workflow.yaml](file:///home/nixos/ghq/github.com/k-wa-wa/pechka/etl/test-workflow.yaml) を適用して実行します。
 
 ```bash
-bash etl/run-pipeline.sh \
-  --disc-label TEST_DISC_001 \
-  --title "サンプル動画コンテンツ" \
-  --skip-extract
+kubectl create -f etl/test-workflow.yaml
 ```
 
-**オプション説明:**
-| オプション | 説明 |
-|---|---|
-| `--disc-label` | ディスクラベル（MKV ファイルの親ディレクトリ名） |
-| `--title` | コンテンツタイトル |
-| `--skip-extract` | Bluray 物理デバイスによる MKV 抽出をスキップ（テスト用 MKV を使用する場合） |
-| `--skip-thumbnail` | サムネイル生成ジョブをスキップする場合に指定 |
+**Argo Web UI を使用した実行方法:**
+
+1. Argo Web UI にアクセスし、**Workflow Templates** 画面を開きます。
+2. `etl-bluray` テンプレートを選択します。
+3. **Submit** ボタンをクリックし、パラメータ入力ダイアログを開きます。
+4. 以下の項目を入力し、実行（Submit）します：
+   - **Entrypoint**: `manual` （デフォルトは `auto` になっているため、必ず `manual` に切り替えてください）
+   - **disc-label**: `TEST_DISC_001`
+   - **content-title**: `サンプル動画コンテンツ`
 
 #### 4.4. 動作確認
 

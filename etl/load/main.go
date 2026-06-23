@@ -29,6 +29,11 @@ type Config struct {
 }
 
 func configFromEnv() Config {
+	discLabel := mustGetenv("DISC_LABEL")
+	contentTitle := os.Getenv("CONTENT_TITLE")
+	if contentTitle == "" {
+		contentTitle = discLabel
+	}
 	return Config{
 		HLSResourceDir: hlsResourceDir(),
 		MinioBucket:    mustGetenv("MINIO_BUCKET"),
@@ -37,8 +42,8 @@ func configFromEnv() Config {
 		MinioSecret:    mustGetenv("MINIO_SECRET_KEY"),
 		MinioUseSSL:    os.Getenv("MINIO_USE_SSL") == "true",
 		PostgresDSN:    postgresDSN(),
-		DiscLabel:      mustGetenv("DISC_LABEL"),
-		ContentTitle:   mustGetenv("CONTENT_TITLE"),
+		DiscLabel:      discLabel,
+		ContentTitle:   contentTitle,
 		ContentType:    getenv("CONTENT_TYPE", "video"),
 		Is360:          os.Getenv("IS_360") == "true",
 	}
@@ -132,6 +137,13 @@ func main() {
 
 	if err := markContentReady(ctx, db, contentID); err != nil {
 		log.Fatalf("failed to mark content ready: %v", err)
+	}
+
+	if err := os.WriteFile("/tmp/content-id", []byte(contentID), 0644); err != nil {
+		log.Printf("WARNING: failed to write /tmp/content-id: %v", err)
+	}
+	if err := os.WriteFile("/tmp/short-id", []byte(shortID), 0644); err != nil {
+		log.Printf("WARNING: failed to write /tmp/short-id: %v", err)
 	}
 
 	log.Printf("Load complete: short_id=%s", shortID)

@@ -6,3 +6,4 @@ resources:
   - benthos
   - nginx
   - monitoring
+  - argo-workflows
