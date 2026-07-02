@@ -4,3 +4,18 @@ kind: Kustomization
 resources:
   - https://github.com/argoproj/argo-workflows/releases/download/v3.5.10/install.yaml
   - rbac.yaml
+
+patches:
+  - target:
+      kind: Deployment
+      name: argo-server
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/args
+        value:
+          - server
+          - --secure=false
+          - --auth-mode=server
+      - op: replace
+        path: /spec/template/spec/containers/0/readinessProbe/httpGet/scheme
+        value: HTTP
