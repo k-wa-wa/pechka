@@ -440,6 +440,6 @@ spec:
   schedule: "*/5 * * * *"
   concurrencyPolicy: Forbid
   workflowSpec:
+    entrypoint: auto
     workflowTemplateRef:
       name: etl-bluray
-      template: auto
