@@ -23,18 +23,6 @@ stringData:
   POSTGRES_USER: pechka
   POSTGRES_PASSWORD: changeme
 ---
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: postgres-pvc
-  namespace: pechka
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 20Gi
----
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -79,8 +67,7 @@ spec:
             periodSeconds: 5
       volumes:
         - name: data
-          persistentVolumeClaim:
-            claimName: postgres-pvc
+          emptyDir: {}
         - name: config
           configMap:
             name: postgres-config

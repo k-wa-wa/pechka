@@ -13,6 +13,8 @@ resources:
 patches:
   - path: workflow-patch.yaml
   - path: nfs-pvc-patch.yaml
+  - path: empty-dir-patch.yaml
+
 
 generatorOptions:
   disableNameSuffixHash: true

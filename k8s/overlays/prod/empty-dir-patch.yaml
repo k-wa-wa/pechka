@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: elasticsearch
+  namespace: pechka
+spec:
+  template:
+    spec:
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mongodb
+  namespace: pechka
+spec:
+  template:
+    spec:
+      volumes:
+        - name: data
+          emptyDir: {}

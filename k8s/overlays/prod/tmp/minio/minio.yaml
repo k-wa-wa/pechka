@@ -8,18 +8,6 @@ stringData:
   MINIO_ROOT_USER: pechka
   MINIO_ROOT_PASSWORD: changeme_minio
 ---
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: minio-pvc
-  namespace: pechka
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 100Gi
----
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -64,8 +52,7 @@ spec:
             periodSeconds: 10
       volumes:
         - name: data
-          persistentVolumeClaim:
-            claimName: minio-pvc
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
