@@ -5,5 +5,4 @@ resources:
   - elasticsearch
   - benthos
   - nginx
-  - monitoring
   - argo-workflows
