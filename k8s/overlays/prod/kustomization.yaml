@@ -9,6 +9,7 @@ resources:
   - secrets.yaml
   - tmp/postgres
   - tmp/minio
+  - ingress.yaml
 
 patches:
   - path: workflow-patch.yaml

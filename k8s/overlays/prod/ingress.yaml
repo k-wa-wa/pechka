@@ -1,0 +1,35 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: pechka-ingress
+  namespace: pechka
+  annotations:
+    cert-manager.io/cluster-issuer: "ca-clusterissuer"
+spec:
+  ingressClassName: cilium
+  tls:
+  - hosts:
+    - pechka.cluster.wpc
+    - pechka-workflow.cluster.wpc
+    secretName: pechka-tls-secret
+  rules:
+  - host: pechka.cluster.wpc
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend
+            port:
+              number: 3000
+  - host: pechka-workflow.cluster.wpc
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: argo-server
+            port:
+              number: 2746
