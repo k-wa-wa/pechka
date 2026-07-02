@@ -8,6 +8,7 @@ spec:
     spec:
       volumes:
         - name: data
+          persistentVolumeClaim: null
           emptyDir: {}
 ---
 apiVersion: apps/v1
@@ -20,4 +21,5 @@ spec:
     spec:
       volumes:
         - name: data
+          persistentVolumeClaim: null
           emptyDir: {}
