@@ -7,7 +7,8 @@ REGISTRY="ghcr.io/k-wa-wa/pechka"
 ETL_COMPONENTS=(extract transform load thumbnail refresh-latest-playlist)
 
 # Use system Docker, not Docker Desktop socket
-unset DOCKER_HOST
+# unset DOCKER_HOST
+
 
 echo "=== Building API Image ==="
 docker build -t "${REGISTRY}-api:latest" ./api

@@ -13,8 +13,8 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install MakeMKV
-RUN wget -q "https://www.makemkv.com/download/makemkv-oss-1.18.3.tar.gz" -O /tmp/makemkv-oss.tar.gz \
-    && wget -q "https://www.makemkv.com/download/makemkv-bin-1.18.3.tar.gz" -O /tmp/makemkv-bin.tar.gz \
+RUN wget -q "https://www.makemkv.com/download/old/makemkv-oss-1.18.3.tar.gz" -O /tmp/makemkv-oss.tar.gz \
+    && wget -q "https://www.makemkv.com/download/old/makemkv-bin-1.18.3.tar.gz" -O /tmp/makemkv-bin.tar.gz \
     && apt-get update && apt-get install -y \
         build-essential \
         pkg-config \

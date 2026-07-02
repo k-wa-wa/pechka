@@ -1,13 +1,12 @@
 resources:
-  - ../../base/infra
-  - ../../base/api
-  - ../../base/frontend
-  - ../../base/etl
+  - ../../base
   - postgres
   - minio
   - secrets.yaml
-  - etl-pvc.yaml
   - etl-importer-pod.yaml
+
+patches:
+  - path: etl-pvc.yaml
 
 generatorOptions:
   disableNameSuffixHash: true

@@ -142,3 +142,26 @@ kubectl exec -n pechka elasticsearch-0 -- \
 ```
 
 正常時はブラウザで [http://localhost:8000](http://localhost:8000) にアクセスするとコンテンツ一覧が表示されます。
+
+---
+
+## 本番環境（overlays/prod）のデプロイと運用
+
+本番環境向けのマニフェストは `k8s/overlays/prod` に整理されています。現状は検証用として、以下の構成となっています。
+
+### 1. NFS 接続
+NFS サーバー（`10.20.1.30`）の各ディレクトリをマウントします。
+- 一旦自動 Bluray ディスク変換を行わない期間中は、安全のため NFS PV および PVC の接続モードはすべて `ReadOnlyMany`（読み取り専用）に制限されています。
+
+### 2. ETL バッチ処理の実行
+- 物理ドライブを監視して自動で Bluray 変換を行うスケジュールバッチ（CronWorkflow `etl-bluray-cron`）は、本番パッチ（`workflow-patch.yaml`）によって `suspend: true`（一時停止）に設定されています。
+- すでにディスクから抽出済みの MKV ファイルを NFS 上からスキャンして処理する手動実行バッチ（WorkflowTemplate `etl-bluray` の `manual` エントリーポイント）は、Argo Web UI や CLI から手動実行が可能です。
+
+### 3. データベースおよびオブジェクトストレージ
+- 現状の NFS データで手軽に動作検証が行えるよう、検証中は PostgreSQL と MinIO も一時的なコンテナとして同一クラスター内に起動するように設定されています（`tmp/` 配下に定義）。
+- 将来的に外部の PostgreSQL や AWS S3 などの外部オブジェクトストレージに切り替える際は、 `k8s/overlays/prod/kustomization.yaml` から `tmp/postgres` および `tmp/minio` のリソース参照を削除するだけで切り替えが可能です。
+
+### 4. 秘密情報の管理（SOPS）
+- 現在は一時的な検証用として、 `k8s/overlays/prod/secrets.yaml` 内に一時コンテナ向けのテスト用 ID/PW がハードコードされています。
+- 本番の外部DB接続へ移行する際は、 `k8s/overlays/prod/secrets/prod-secrets.yaml` に実際の接続情報を定義し、 `sops` コマンド等で暗号化した上で、 `secrets.yaml` のプレースホルダー参照を本番用の実定義に差し替えて運用してください。
+
