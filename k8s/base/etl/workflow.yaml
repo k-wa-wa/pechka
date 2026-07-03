@@ -7,7 +7,7 @@ spec:
   arguments:
     parameters:
       - name: db-host
-        value: "primary.pg-cluster.svc.cluster.local"
+        value: "postgres"
 
   volumes:
     - name: nfs-bluray
