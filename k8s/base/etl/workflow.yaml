@@ -46,7 +46,7 @@ spec:
                   value: "{{item.title}}"
           - name: load
             dependencies: [transcode]
-            when: "'{{tasks.extract-mkv.outputs.parameters.bluray-label}}' != ''"
+            when: "'{{tasks.extract-mkv.outputs.parameters.bluray-label}}' != '' && {{tasks.extract-mkv.outputs.parameters.mkv-files-json}} != '[]'"
             template: load-hls
             arguments:
               parameters:
@@ -103,6 +103,7 @@ spec:
                   value: "{{item.title}}"
           - name: load
             dependencies: [transcode]
+            when: "{{tasks.scan-mkv.outputs.parameters.mkv-files-json}} != '[]'"
             template: load-hls
             arguments:
               parameters:
