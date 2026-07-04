@@ -1,6 +1,0 @@
-$patch: delete
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: elasticsearch-pvc
-  namespace: pechka

@@ -14,9 +14,7 @@ resources:
 patches:
   - path: workflow-patch.yaml
   - path: nfs-pvc-patch.yaml
-  - path: empty-dir-patch.yaml
-  - path: delete-elasticsearch-pvc-patch.yaml
-  - path: delete-mongodb-pvc-patch.yaml
+  - path: pvc-local-path-patch.yaml
 
 
 generatorOptions:
