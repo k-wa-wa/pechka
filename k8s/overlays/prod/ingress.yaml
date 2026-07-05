@@ -20,9 +20,9 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: frontend
+                name: nginx
                 port:
-                  number: 3000
+                  number: 80
     - host: pechka-workflow.cluster.wpc
       http:
         paths:
