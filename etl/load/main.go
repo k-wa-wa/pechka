@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"strings"
 
-	"github.com/bwmarrin/snowflake"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -93,11 +91,11 @@ func main() {
 	cfg := configFromEnv()
 	ctx := context.Background()
 
-	node, err := snowflake.NewNode(1)
-	if err != nil {
-		log.Fatalf("failed to create snowflake node: %v", err)
+	// get shortID from environment variable
+	shortID := os.Getenv("SHORT_ID")
+	if shortID == "" {
+		log.Fatal("SHORT_ID env var is required")
 	}
-	shortID := node.Generate().String()
 
 	minioClient, err := minio.New(cfg.MinioURL, &minio.Options{
 		Creds:  credentials.NewStaticV4(cfg.MinioAccess, cfg.MinioSecret, ""),
@@ -124,12 +122,11 @@ func main() {
 	}
 	log.Printf("Content created: id=%s short_id=%s", contentID, shortID)
 
-	hlsDir := filepath.Join(cfg.HLSResourceDir, cfg.DiscLabel)
-	variants, err := uploadHLS(ctx, minioClient, cfg.MinioBucket, shortID, hlsDir)
+	variants, err := getMinioVariants(ctx, minioClient, cfg.MinioBucket, shortID)
 	if err != nil {
-		log.Fatalf("failed to upload HLS: %v", err)
+		log.Fatalf("failed to get MinIO HLS variants: %v", err)
 	}
-	log.Printf("Uploaded %d HLS variants", len(variants))
+	log.Printf("Found %d HLS variants in MinIO", len(variants))
 
 	if err := registerVariants(ctx, db, contentID, shortID, variants); err != nil {
 		log.Fatalf("failed to register variants: %v", err)
@@ -176,11 +173,12 @@ type variantInfo struct {
 	codecs      *string
 }
 
-func uploadHLS(ctx context.Context, client *minio.Client, bucket, shortID, hlsDir string) ([]variantInfo, error) {
-	entries, err := os.ReadDir(hlsDir)
-	if err != nil {
-		return nil, fmt.Errorf("read hls dir %s: %w", hlsDir, err)
-	}
+func getMinioVariants(ctx context.Context, client *minio.Client, bucket, shortID string) ([]variantInfo, error) {
+	prefix := fmt.Sprintf("resources/hls/%s/", shortID)
+	objectCh := client.ListObjects(ctx, bucket, minio.ListObjectsOptions{
+		Prefix:    prefix,
+		Recursive: true,
+	})
 
 	variantMap := map[string]variantInfo{
 		"master.m3u8":   {variantType: "master"},
@@ -191,31 +189,21 @@ func uploadHLS(ctx context.Context, client *minio.Client, bucket, shortID, hlsDi
 		"audio.m3u8":    {variantType: "audio", bandwidth: intPtr(192000), codecs: strPtr("mp4a.40.2")},
 	}
 
-	var uploaded []variantInfo
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
+	var found []variantInfo
+	for object := range objectCh {
+		if object.Err != nil {
+			return nil, fmt.Errorf("list objects: %w", object.Err)
 		}
-		localPath := filepath.Join(hlsDir, entry.Name())
-		contentType := "application/octet-stream"
-		if strings.HasSuffix(entry.Name(), ".m3u8") {
-			contentType = "application/vnd.apple.mpegurl"
-		} else if strings.HasSuffix(entry.Name(), ".ts") {
-			contentType = "video/MP2T"
-		}
-		objectKey := fmt.Sprintf("resources/hls/%s/%s", shortID, entry.Name())
-		_, err := client.FPutObject(ctx, bucket, objectKey, localPath, minio.PutObjectOptions{
-			ContentType: contentType,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("upload %s: %w", entry.Name(), err)
-		}
-		if vi, ok := variantMap[entry.Name()]; ok {
-			uploaded = append(uploaded, vi)
+		parts := strings.Split(object.Key, "/")
+		filename := parts[len(parts)-1]
+
+		if vi, ok := variantMap[filename]; ok {
+			found = append(found, vi)
 		}
 	}
-	return uploaded, nil
+	return found, nil
 }
+
 
 func registerVariants(ctx context.Context, db *pgxpool.Pool, contentID, shortID string, variants []variantInfo) error {
 	for _, v := range variants {

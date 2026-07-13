@@ -3,10 +3,6 @@ resources:
   - postgres
   - minio
   - secrets.yaml
-  - etl-importer-pod.yaml
-
-patches:
-  - path: etl-pvc.yaml
 
 generatorOptions:
   disableNameSuffixHash: true

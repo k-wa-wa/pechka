@@ -1,8 +1,0 @@
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: nfs-hls-pvc
-  namespace: pechka
-spec:
-  accessModes:
-    - ReadOnlyMany

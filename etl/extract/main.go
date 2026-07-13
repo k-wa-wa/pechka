@@ -10,13 +10,21 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/bwmarrin/snowflake"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
 type Config struct {
 	Device      string
-	NFSMkvDir   string
+	LocalMkvDir string
 	PostgresDSN string
+	MinioBucket string
+	MinioURL    string
+	MinioAccess string
+	MinioSecret string
+	MinioUseSSL bool
 }
 
 type MkvFile struct {
@@ -57,8 +65,13 @@ func postgresDSN() string {
 func configFromEnv() Config {
 	return Config{
 		Device:      os.Getenv("DEVICE"),
-		NFSMkvDir:   mustGetenv("NFS_MKV_DIR"),
+		LocalMkvDir: getenv("LOCAL_MKV_DIR", "/mnt/mkv"),
 		PostgresDSN: postgresDSN(),
+		MinioBucket: mustGetenv("MINIO_BUCKET"),
+		MinioURL:    mustGetenv("MINIO_URL"),
+		MinioAccess: mustGetenv("MINIO_ACCESS_KEY"),
+		MinioSecret: mustGetenv("MINIO_SECRET_KEY"),
+		MinioUseSSL: os.Getenv("MINIO_USE_SSL") == "true",
 	}
 }
 
@@ -75,19 +88,73 @@ func writeOutputs(label string, mkvFiles []MkvFile) {
 		log.Printf("WARNING: failed to write /tmp/mkv-files.json: %v", err)
 	}
 }
-
-func scanMkvFiles(dir, label string) ([]MkvFile, error) {
-	files, err := os.ReadDir(dir)
+func uploadMKVToMinIO(ctx context.Context, cfg Config, localDir, discLabel string) ([]MkvFile, error) {
+	minioClient, err := minio.New(cfg.MinioURL, &minio.Options{
+		Creds:  credentials.NewStaticV4(cfg.MinioAccess, cfg.MinioSecret, ""),
+		Secure: cfg.MinioUseSSL,
+	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create MinIO client: %w", err)
 	}
-	var res []MkvFile
+
+	files, err := os.ReadDir(localDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read local directory: %w", err)
+	}
+
+	var uploadedFiles []MkvFile
 	for _, f := range files {
 		if !f.IsDir() && strings.HasSuffix(f.Name(), ".mkv") {
+			localPath := filepath.Join(localDir, f.Name())
+			objectKey := fmt.Sprintf("mkv/%s/%s", discLabel, f.Name())
+
+			log.Printf("Uploading %s to MinIO bucket %s as %s...", f.Name(), cfg.MinioBucket, objectKey)
+			_, err = minioClient.FPutObject(ctx, cfg.MinioBucket, objectKey, localPath, minio.PutObjectOptions{
+				ContentType: "video/x-matroska",
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to upload %s to MinIO: %w", f.Name(), err)
+			}
+
 			name := strings.TrimSuffix(f.Name(), ".mkv")
+			uploadedFiles = append(uploadedFiles, MkvFile{
+				MkvPath: objectKey,
+				Label:   discLabel,
+				Title:   name,
+			})
+		}
+	}
+	return uploadedFiles, nil
+}
+
+func scanMinioMkvFiles(ctx context.Context, cfg Config, discLabel string) ([]MkvFile, error) {
+	minioClient, err := minio.New(cfg.MinioURL, &minio.Options{
+		Creds:  credentials.NewStaticV4(cfg.MinioAccess, cfg.MinioSecret, ""),
+		Secure: cfg.MinioUseSSL,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create MinIO client: %w", err)
+	}
+
+	prefix := fmt.Sprintf("mkv/%s/", discLabel)
+	objectCh := minioClient.ListObjects(ctx, cfg.MinioBucket, minio.ListObjectsOptions{
+		Prefix:    prefix,
+		Recursive: true,
+	})
+
+	var res []MkvFile
+	for object := range objectCh {
+		if object.Err != nil {
+			return nil, fmt.Errorf("failed to list objects from MinIO: %w", object.Err)
+		}
+		if strings.HasSuffix(object.Key, ".mkv") {
+			parts := strings.Split(object.Key, "/")
+			filename := parts[len(parts)-1]
+			name := strings.TrimSuffix(filename, ".mkv")
+
 			res = append(res, MkvFile{
-				MkvPath: filepath.Join(dir, f.Name()),
-				Label:   label,
+				MkvPath: object.Key,
+				Label:   discLabel,
 				Title:   name,
 			})
 		}
@@ -98,6 +165,17 @@ func scanMkvFiles(dir, label string) ([]MkvFile, error) {
 func main() {
 	cfg := configFromEnv()
 	ctx := context.Background()
+
+	// Generate Snowflake ID beforehand
+	node, err := snowflake.NewNode(1)
+	if err != nil {
+		log.Fatalf("failed to create snowflake node: %v", err)
+	}
+	shortID := node.Generate().String()
+	if err := os.WriteFile("/tmp/short-id", []byte(shortID), 0644); err != nil {
+		log.Printf("WARNING: failed to write /tmp/short-id: %v", err)
+	}
+	log.Printf("Generated shortID: %s", shortID)
 
 	var discLabel string
 	manualLabel := os.Getenv("DISC_LABEL")
@@ -119,9 +197,9 @@ func main() {
 		}
 	}
 
-	outputDir := filepath.Join(cfg.NFSMkvDir, discLabel)
-
+	var mkvFiles []MkvFile
 	if manualLabel == "" {
+		outputDir := filepath.Join(cfg.LocalMkvDir, discLabel)
 		if err := os.MkdirAll(outputDir, 0755); err != nil {
 			log.Fatalf("failed to create output directory: %v", err)
 		}
@@ -133,8 +211,23 @@ func main() {
 		if err := cmd.Run(); err != nil {
 			log.Fatalf("makemkvcon failed: %v", err)
 		}
+
+		log.Printf("Uploading extracted MKV files to MinIO...")
+		mkvFiles, err = uploadMKVToMinIO(ctx, cfg, outputDir, discLabel)
+		if err != nil {
+			log.Fatalf("failed to upload MKV files to MinIO: %v", err)
+		}
+
+		log.Printf("Cleaning up local temporary directory: %s", outputDir)
+		if err := os.RemoveAll(outputDir); err != nil {
+			log.Printf("WARNING: failed to cleanup local output directory: %v", err)
+		}
 	} else {
-		log.Printf("Skipping extraction. Scanning existing files in: %s", outputDir)
+		log.Printf("Scanning existing files in MinIO for label: %s", discLabel)
+		mkvFiles, err = scanMinioMkvFiles(ctx, cfg, discLabel)
+		if err != nil {
+			log.Fatalf("failed to scan MinIO MKV files: %v", err)
+		}
 	}
 
 	db, err := pgxpool.New(ctx, cfg.PostgresDSN)
@@ -151,15 +244,11 @@ func main() {
 		log.Fatalf("failed to register disc: %v", err)
 	}
 	log.Printf("Disc %s registered in database.", discLabel)
-
-	mkvFiles, err := scanMkvFiles(outputDir, discLabel)
-	if err != nil {
-		log.Fatalf("failed to scan MKV files: %v", err)
-	}
 	log.Printf("Found %d MKV files", len(mkvFiles))
 
 	writeOutputs(discLabel, mkvFiles)
 }
+
 
 func getDiscLabel(device string) (string, error) {
 	out, err := exec.Command("blkid", device).CombinedOutput()

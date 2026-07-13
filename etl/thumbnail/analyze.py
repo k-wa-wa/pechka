@@ -126,7 +126,7 @@ def register_assets(conn, content_id: str, s3_keys: list[str]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Thumbnail Analyzer")
-    parser.add_argument("--input", required=True, help="Path to source MKV file")
+    parser.add_argument("--input", required=True, help="Object key to source MKV file on MinIO")
     parser.add_argument("--short-id", required=True, help="Content short_id")
     parser.add_argument("--content-id", required=True, help="Content UUID")
     args = parser.parse_args()
@@ -138,9 +138,25 @@ def main() -> None:
     use_ssl = os.environ.get("MINIO_USE_SSL", "false").lower() == "true"
     postgres_dsn = os.environ["POSTGRES_DSN"]
 
+    # Generate presigned URL for ffmpeg input
+    endpoint = minio_url.rstrip("/")
+    s3_client = boto3.client(
+        "s3",
+        endpoint_url=("https://" if use_ssl else "http://") + endpoint,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+    )
+    
+    print(f"Generating presigned URL for MinIO object: {args.input}...")
+    presigned_url = s3_client.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": bucket, "Key": args.input},
+        ExpiresIn=3600,
+    )
+
     with tempfile.TemporaryDirectory() as tmpdir:
-        print(f"Extracting frames from {args.input}...")
-        frames = extract_frames(args.input, tmpdir, SAMPLE_INTERVAL_SEC)
+        print("Extracting frames via streaming...")
+        frames = extract_frames(presigned_url, tmpdir, SAMPLE_INTERVAL_SEC)
         if not frames:
             print("No frames extracted. Exiting.")
             return

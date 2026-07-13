@@ -10,15 +10,6 @@ spec:
         value: "postgres"
 
   volumes:
-    - name: nfs-bluray
-      persistentVolumeClaim:
-        claimName: nfs-bluray-pvc
-    - name: nfs-hls
-      persistentVolumeClaim:
-        claimName: nfs-hls-pvc
-    - name: nfs-hls-readonly
-      persistentVolumeClaim:
-        claimName: nfs-hls-readonly-pvc
     - name: bluray-dev
       hostPath:
         path: /dev/sr1
@@ -43,6 +34,8 @@ spec:
                   value: "{{tasks.extract-mkv.outputs.parameters.mkv-files-json}}"
                 - name: content-title
                   value: ""
+                - name: short-id
+                  value: "{{tasks.extract-mkv.outputs.parameters.short-id}}"
 
     # --- Entrypoint 2: Manual Ingestion (from existing MKVs) ---
     - name: manual
@@ -70,6 +63,8 @@ spec:
                   value: "{{tasks.scan-mkv.outputs.parameters.mkv-files-json}}"
                 - name: content-title
                   value: "{{inputs.parameters.content-title}}"
+                - name: short-id
+                  value: "{{tasks.scan-mkv.outputs.parameters.short-id}}"
 
     # --- Shared Ingestion Flow (Transcode -> Load -> Thumbnail/Refresh) ---
     - name: ingest-flow
@@ -79,6 +74,7 @@ spec:
           - name: mkv-files-json
           - name: content-title
             value: ""
+          - name: short-id
       dag:
         tasks:
           - name: transcode
@@ -93,6 +89,8 @@ spec:
                   value: "{{item.label}}"
                 - name: title
                   value: "{{item.title}}"
+                - name: short-id
+                  value: "{{inputs.parameters.short-id}}"
           - name: load
             dependencies: [transcode]
             when: "{{inputs.parameters.mkv-files-json}} != '[]'"
@@ -103,6 +101,8 @@ spec:
                   value: "{{inputs.parameters.disc-label}}"
                 - name: content-title
                   value: "{{inputs.parameters.content-title}}"
+                - name: short-id
+                  value: "{{inputs.parameters.short-id}}"
           - name: thumbnail
             dependencies: [load]
             withParam: "{{inputs.parameters.mkv-files-json}}"
@@ -114,7 +114,7 @@ spec:
                 - name: content-id
                   value: "{{tasks.load.outputs.parameters.content-id}}"
                 - name: short-id
-                  value: "{{tasks.load.outputs.parameters.short-id}}"
+                  value: "{{inputs.parameters.short-id}}"
           - name: refresh
             dependencies: [load]
             template: refresh-playlist
@@ -134,8 +134,28 @@ spec:
         env:
           - name: DEVICE
             value: /dev/sr1
-          - name: NFS_MKV_DIR
-            value: /mnt/bluray/mkv
+          - name: LOCAL_MKV_DIR
+            value: /mnt/mkv
+          - name: MINIO_BUCKET
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: minio-bucket
+          - name: MINIO_URL
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: minio-url
+          - name: MINIO_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: pechka-minio
+                key: access-key
+          - name: MINIO_SECRET_KEY
+            valueFrom:
+              secretKeyRef:
+                name: pechka-minio
+                key: secret-key
           - name: DB_HOST
             value: "{{workflow.parameters.db-host}}"
           - name: DB_PORT
@@ -155,10 +175,13 @@ spec:
           - name: SSL_MODE
             value: disable
         volumeMounts:
-          - name: nfs-bluray
-            mountPath: /mnt/bluray
+          - name: local-mkv
+            mountPath: /mnt/mkv
           - name: bluray-dev
             mountPath: /dev/sr1
+      volumes:
+        - name: local-mkv
+          emptyDir: {}
       outputs:
         parameters:
           - name: bluray-label
@@ -167,6 +190,9 @@ spec:
           - name: mkv-files-json
             valueFrom:
               path: /tmp/mkv-files.json
+          - name: short-id
+            valueFrom:
+              path: /tmp/short-id
 
     # 2. scan-mkv (Scans existing MKVs on NFS, runs on any node)
     - name: scan-mkv
@@ -180,8 +206,28 @@ spec:
         env:
           - name: DISC_LABEL
             value: "{{inputs.parameters.label}}"
-          - name: NFS_MKV_DIR
-            value: /mnt/bluray/mkv
+          - name: LOCAL_MKV_DIR
+            value: /mnt/mkv
+          - name: MINIO_BUCKET
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: minio-bucket
+          - name: MINIO_URL
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: minio-url
+          - name: MINIO_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: pechka-minio
+                key: access-key
+          - name: MINIO_SECRET_KEY
+            valueFrom:
+              secretKeyRef:
+                name: pechka-minio
+                key: secret-key
           - name: DB_HOST
             value: "{{workflow.parameters.db-host}}"
           - name: DB_PORT
@@ -200,14 +246,14 @@ spec:
             value: pechka
           - name: SSL_MODE
             value: disable
-        volumeMounts:
-          - name: nfs-bluray
-            mountPath: /mnt/bluray
       outputs:
         parameters:
           - name: mkv-files-json
             valueFrom:
               path: /tmp/mkv-files.json
+          - name: short-id
+            valueFrom:
+              path: /tmp/short-id
 
     # 3. transcode-mkv-parallel (Spawns video & audio transcode steps)
     - name: transcode-mkv-parallel
@@ -216,6 +262,7 @@ spec:
           - name: mkv-path
           - name: label
           - name: title
+          - name: short-id
       steps:
         - - name: run-transcode
             template: transcode-mkv
@@ -227,6 +274,8 @@ spec:
                   value: "{{inputs.parameters.label}}"
                 - name: mode
                   value: "{{item}}"
+                - name: short-id
+                  value: "{{inputs.parameters.short-id}}"
             withItems:
               - video
               - audio
@@ -238,6 +287,7 @@ spec:
           - name: mkv-path
           - name: label
           - name: mode
+          - name: short-id
       container:
         image: ghcr.io/k-wa-wa/pechka/etl-transform:latest
         imagePullPolicy: IfNotPresent
@@ -247,15 +297,38 @@ spec:
           - "-input"
           - "{{inputs.parameters.mkv-path}}"
           - "-output"
-          - "/mnt/hls/{{inputs.parameters.label}}"
+          - "/tmp/transcode"
           - "-mode"
           - "{{inputs.parameters.mode}}"
+          - "-short-id"
+          - "{{inputs.parameters.short-id}}"
+        env:
+          - name: MINIO_BUCKET
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: minio-bucket
+          - name: MINIO_URL
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: minio-url
+          - name: MINIO_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: pechka-minio
+                key: access-key
+          - name: MINIO_SECRET_KEY
+            valueFrom:
+              secretKeyRef:
+                name: pechka-minio
+                key: secret-key
         volumeMounts:
-          - name: nfs-bluray
-            mountPath: /mnt/bluray
-            readOnly: true
-          - name: nfs-hls
-            mountPath: /mnt/hls
+          - name: transcode-temp
+            mountPath: /tmp/transcode
+      volumes:
+        - name: transcode-temp
+          emptyDir: {}
       
     # 5. load-hls (Uploads HLS and registers to database)
     - name: load-hls
@@ -263,13 +336,14 @@ spec:
         parameters:
           - name: label
           - name: content-title
+          - name: short-id
       container:
         image: ghcr.io/k-wa-wa/pechka/etl-load:latest
         imagePullPolicy: IfNotPresent
         command: ["/usr/local/bin/nfs-importer"]
         env:
-          - name: HLS_RESOURCE_DIR
-            value: /mnt/hls
+          - name: SHORT_ID
+            value: "{{inputs.parameters.short-id}}"
           - name: DISC_LABEL
             value: "{{inputs.parameters.label}}"
           - name: CONTENT_TITLE
@@ -314,10 +388,6 @@ spec:
             value: pechka
           - name: SSL_MODE
             value: disable
-        volumeMounts:
-          - name: nfs-hls
-            mountPath: /mnt/hls
-            readOnly: true
       outputs:
         parameters:
           - name: content-id
@@ -371,10 +441,6 @@ spec:
               secretKeyRef:
                 name: pechka-postgres
                 key: dsn
-        volumeMounts:
-          - name: nfs-bluray
-            mountPath: /mnt/bluray
-            readOnly: true
 
     # 7. refresh-playlist (Refreshes final playback playlist)
     - name: refresh-playlist

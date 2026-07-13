@@ -7,4 +7,3 @@ resources:
   - api
   - frontend
   - etl
-  - pvc.yaml

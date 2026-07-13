@@ -1,13 +1,96 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 )
+
+type MinioConfig struct {
+	Bucket    string
+	URL       string
+	AccessKey string
+	SecretKey string
+	UseSSL    bool
+}
+
+func minioConfigFromEnv() MinioConfig {
+	return MinioConfig{
+		Bucket:    os.Getenv("MINIO_BUCKET"),
+		URL:       os.Getenv("MINIO_URL"),
+		AccessKey: os.Getenv("MINIO_ACCESS_KEY"),
+		SecretKey: os.Getenv("MINIO_SECRET_KEY"),
+		UseSSL:    os.Getenv("MINIO_USE_SSL") == "true",
+	}
+}
+
+func downloadMKV(ctx context.Context, mcfg MinioConfig, objectKey, localPath string) error {
+	minioClient, err := minio.New(mcfg.URL, &minio.Options{
+		Creds:  credentials.NewStaticV4(mcfg.AccessKey, mcfg.SecretKey, ""),
+		Secure: mcfg.UseSSL,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create MinIO client: %w", err)
+	}
+
+	log.Printf("Downloading MKV from MinIO object key: %s...", objectKey)
+	err = minioClient.FGetObject(ctx, mcfg.Bucket, objectKey, localPath, minio.GetObjectOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to download object %s: %w", objectKey, err)
+	}
+	log.Printf("MKV downloaded to local path: %s", localPath)
+	return nil
+}
+
+func uploadHLSDir(ctx context.Context, mcfg MinioConfig, localDir, shortID string) error {
+	minioClient, err := minio.New(mcfg.URL, &minio.Options{
+		Creds:  credentials.NewStaticV4(mcfg.AccessKey, mcfg.SecretKey, ""),
+		Secure: mcfg.UseSSL,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create MinIO client: %w", err)
+	}
+
+	files, err := os.ReadDir(localDir)
+	if err != nil {
+		return fmt.Errorf("failed to read local output dir: %w", err)
+	}
+
+	for _, f := range files {
+		if f.IsDir() {
+			continue
+		}
+		localFilePath := filepath.Join(localDir, f.Name())
+		objectKey := fmt.Sprintf("resources/hls/%s/%s", shortID, f.Name())
+
+		var contentType string
+		if strings.HasSuffix(f.Name(), ".m3u8") {
+			contentType = "application/x-mpegURL"
+		} else if strings.HasSuffix(f.Name(), ".ts") {
+			contentType = "video/MP2T"
+		} else {
+			contentType = "application/octet-stream"
+		}
+
+		log.Printf("Uploading HLS file %s as %s...", f.Name(), objectKey)
+		_, err = minioClient.FPutObject(ctx, mcfg.Bucket, objectKey, localFilePath, minio.PutObjectOptions{
+			ContentType: contentType,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to upload HLS file %s: %w", f.Name(), err)
+		}
+	}
+	return nil
+}
+
 
 const masterPlaylistTemplate = `#EXTM3U
 #EXT-X-VERSION:3
@@ -27,21 +110,37 @@ original.m3u8
 
 func main() {
 	if len(os.Args) < 2 || os.Args[1] != "to-hls" {
-		fmt.Fprintf(os.Stderr, "Usage: %s to-hls -input <mkv> -output <dir> -mode video|audio\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Usage: %s to-hls -input <mkv-object-key> -output <local-dir> -mode video|audio -short-id <id>\n", os.Args[0])
 		os.Exit(1)
 	}
 
 	fs := flag.NewFlagSet("to-hls", flag.ExitOnError)
-	input := fs.String("input", "", "input MKV file path")
-	output := fs.String("output", "", "output directory (NFS HLS dir)")
+	input := fs.String("input", "", "input MKV object key on MinIO")
+	output := fs.String("output", "", "local output directory for HLS")
 	mode := fs.String("mode", "", "transcode mode: video or audio")
+	shortID := fs.String("short-id", "", "content short ID")
 	if err := fs.Parse(os.Args[2:]); err != nil {
 		log.Fatal(err)
 	}
 
-	if *input == "" || *output == "" || *mode == "" {
+	if *input == "" || *output == "" || *mode == "" || *shortID == "" {
 		fs.Usage()
 		os.Exit(1)
+	}
+
+	ctx := context.Background()
+	mcfg := minioConfigFromEnv()
+
+	// Download MKV from MinIO to local temp file
+	tempDir, err := os.MkdirTemp("", "transcode-*")
+	if err != nil {
+		log.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	localMKVPath := filepath.Join(tempDir, "input.mkv")
+	if err := downloadMKV(ctx, mcfg, *input, localMKVPath); err != nil {
+		log.Fatalf("failed to download input MKV: %v", err)
 	}
 
 	if err := os.MkdirAll(*output, 0755); err != nil {
@@ -50,16 +149,30 @@ func main() {
 
 	switch *mode {
 	case "video":
-		if err := transcodeVideo(*input, *output); err != nil {
+		if err := transcodeVideo(localMKVPath, *output); err != nil {
 			log.Fatalf("video transcode failed: %v", err)
 		}
 	case "audio":
-		if err := transcodeAudio(*input, *output); err != nil {
+		if err := transcodeAudio(localMKVPath, *output); err != nil {
 			log.Fatalf("audio transcode failed: %v", err)
 		}
 	default:
 		log.Fatalf("unknown mode: %q (expected video or audio)", *mode)
 	}
+
+	// Upload HLS directory to MinIO
+	log.Printf("Uploading generated HLS variants to MinIO bucket %s prefix resources/%s...", mcfg.Bucket, *shortID)
+	if err := uploadHLSDir(ctx, mcfg, *output, *shortID); err != nil {
+		log.Fatalf("failed to upload HLS variants to MinIO: %v", err)
+	}
+
+	// Clean up HLS local output
+	log.Printf("Cleaning up local output HLS directory: %s", *output)
+	if err := os.RemoveAll(*output); err != nil {
+		log.Printf("WARNING: failed to clean up local output directory: %v", err)
+	}
+
+	log.Printf("Transcoding and upload complete for short-id: %s", *shortID)
 }
 
 type variantSpec struct {

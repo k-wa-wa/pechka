@@ -5,7 +5,6 @@ namespace: pechka
 
 resources:
   - ../../base
-  - nfs-pv.yaml
   - secrets.yaml
   - tmp/postgres
   - tmp/minio
@@ -13,7 +12,6 @@ resources:
 
 patches:
   - path: workflow-patch.yaml
-  - path: nfs-pvc-patch.yaml
   - path: pvc-local-path-patch.yaml
 
 
@@ -26,4 +24,3 @@ configMapGenerator:
     literals:
       - minio-bucket=pechka
       - minio-url=minio:9000
-

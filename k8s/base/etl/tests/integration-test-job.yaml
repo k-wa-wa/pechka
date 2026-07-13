@@ -24,14 +24,17 @@ spec:
     spec:
       restartPolicy: Never
       initContainers:
-        # Step 1: Generate minimal HLS fixture files (no Bluray needed)
+        # Step 1: Generate minimal HLS fixture files (no Bluray needed) and upload to MinIO
         - name: generate-fixtures
           image: python:3.12-alpine
           command: ["/bin/sh", "-c"]
           args:
             - |
               set -e
+              pip install --no-cache-dir boto3
+              
               DISC_LABEL="TEST_DISC_$(date +%s)"
+              SHORT_ID="test-short-id-$(date +%s)"
               DISC_DIR=/fixtures/hls/${DISC_LABEL}
               mkdir -p "$DISC_DIR"
 
@@ -51,9 +54,47 @@ spec:
               " > "$DISC_DIR/720p_0000.ts"
               cp "$DISC_DIR/720p_0000.ts" "$DISC_DIR/480p_0000.ts"
 
-              # Write disc label for later steps
+              # Write labels for later steps
               echo "$DISC_LABEL" > /fixtures/disc_label.txt
-              echo "Fixtures ready: $DISC_DIR ($(ls $DISC_DIR | wc -l) files)"
+              echo "$SHORT_ID" > /fixtures/short_id.txt
+
+              # Upload fixtures to MinIO
+              python3 -c "
+              import boto3, os
+              s3 = boto3.client(
+                  's3',
+                  endpoint_url='http://' + os.environ['MINIO_URL'],
+                  aws_access_key_id=os.environ['MINIO_ACCESS_KEY'],
+                  aws_secret_access_key=os.environ['MINIO_SECRET_KEY']
+              )
+              bucket = os.environ['MINIO_BUCKET']
+              prefix = f'resources/hls/{SHORT_ID}/'
+              for f in ['master.m3u8', '720p.m3u8', '480p.m3u8', '720p_0000.ts', '480p_0000.ts']:
+                  key = prefix + f
+                  s3.upload_file(f'$DISC_DIR/{f}', bucket, key)
+                  print(f'Uploaded: {key}')
+              "
+          env:
+            - name: MINIO_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: minio-bucket
+            - name: MINIO_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: minio-url
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pechka-minio
+                  key: access-key
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pechka-minio
+                  key: secret-key
           volumeMounts:
             - name: fixtures
               mountPath: /fixtures
@@ -83,11 +124,10 @@ spec:
           args:
             - |
               export DISC_LABEL=$(cat /fixtures/disc_label.txt)
-              echo "Loading disc: $DISC_LABEL"
-              /usr/local/bin/load
+              export SHORT_ID=$(cat /fixtures/short_id.txt)
+              echo "Loading disc: $DISC_LABEL, short_id: $SHORT_ID"
+              /usr/local/bin/nfs-importer
           env:
-            - name: NFS_HLS_DIR
-              value: /fixtures/hls
             - name: CONTENT_TITLE
               value: ETL Integration Test
             - name: CONTENT_TYPE
