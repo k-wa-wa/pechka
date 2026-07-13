@@ -31,46 +31,18 @@ spec:
         tasks:
           - name: extract-mkv
             template: extract-mkv
-          - name: transcode
+          - name: ingest
             dependencies: [extract-mkv]
             when: "'{{tasks.extract-mkv.outputs.parameters.bluray-label}}' != ''"
-            withParam: "{{tasks.extract-mkv.outputs.parameters.mkv-files-json}}"
-            template: transcode-mkv-parallel
+            template: ingest-flow
             arguments:
               parameters:
-                - name: mkv-path
-                  value: "{{item.mkv-path}}"
-                - name: label
-                  value: "{{item.label}}"
-                - name: title
-                  value: "{{item.title}}"
-          - name: load
-            dependencies: [transcode]
-            when: "'{{tasks.extract-mkv.outputs.parameters.bluray-label}}' != '' && {{tasks.extract-mkv.outputs.parameters.mkv-files-json}} != '[]'"
-            template: load-hls
-            arguments:
-              parameters:
-                - name: label
+                - name: disc-label
                   value: "{{tasks.extract-mkv.outputs.parameters.bluray-label}}"
+                - name: mkv-files-json
+                  value: "{{tasks.extract-mkv.outputs.parameters.mkv-files-json}}"
                 - name: content-title
                   value: ""
-          - name: thumbnail
-            dependencies: [load]
-            when: "'{{tasks.extract-mkv.outputs.parameters.bluray-label}}' != ''"
-            withParam: "{{tasks.extract-mkv.outputs.parameters.mkv-files-json}}"
-            template: generate-thumbnail
-            arguments:
-              parameters:
-                - name: mkv-path
-                  value: "{{item.mkv-path}}"
-                - name: content-id
-                  value: "{{tasks.load.outputs.parameters.content-id}}"
-                - name: short-id
-                  value: "{{tasks.load.outputs.parameters.short-id}}"
-          - name: refresh
-            dependencies: [load]
-            when: "'{{tasks.extract-mkv.outputs.parameters.bluray-label}}' != ''"
-            template: refresh-playlist
 
     # --- Entrypoint 2: Manual Ingestion (from existing MKVs) ---
     - name: manual
@@ -79,8 +51,6 @@ spec:
           - name: disc-label
           - name: content-title
             value: ""
-          - name: skip-thumbnail
-            value: "false"
       dag:
         tasks:
           - name: scan-mkv
@@ -89,9 +59,31 @@ spec:
               parameters:
                 - name: label
                   value: "{{inputs.parameters.disc-label}}"
-          - name: transcode
+          - name: ingest
             dependencies: [scan-mkv]
-            withParam: "{{tasks.scan-mkv.outputs.parameters.mkv-files-json}}"
+            template: ingest-flow
+            arguments:
+              parameters:
+                - name: disc-label
+                  value: "{{inputs.parameters.disc-label}}"
+                - name: mkv-files-json
+                  value: "{{tasks.scan-mkv.outputs.parameters.mkv-files-json}}"
+                - name: content-title
+                  value: "{{inputs.parameters.content-title}}"
+
+    # --- Shared Ingestion Flow (Transcode -> Load -> Thumbnail/Refresh) ---
+    - name: ingest-flow
+      inputs:
+        parameters:
+          - name: disc-label
+          - name: mkv-files-json
+          - name: content-title
+            value: ""
+      dag:
+        tasks:
+          - name: transcode
+            when: "{{inputs.parameters.mkv-files-json}} != '[]'"
+            withParam: "{{inputs.parameters.mkv-files-json}}"
             template: transcode-mkv-parallel
             arguments:
               parameters:
@@ -103,7 +95,7 @@ spec:
                   value: "{{item.title}}"
           - name: load
             dependencies: [transcode]
-            when: "{{tasks.scan-mkv.outputs.parameters.mkv-files-json}} != '[]'"
+            when: "{{inputs.parameters.mkv-files-json}} != '[]'"
             template: load-hls
             arguments:
               parameters:
@@ -113,8 +105,7 @@ spec:
                   value: "{{inputs.parameters.content-title}}"
           - name: thumbnail
             dependencies: [load]
-            when: "'{{inputs.parameters.skip-thumbnail}}' != 'true'"
-            withParam: "{{tasks.scan-mkv.outputs.parameters.mkv-files-json}}"
+            withParam: "{{inputs.parameters.mkv-files-json}}"
             template: generate-thumbnail
             arguments:
               parameters:
