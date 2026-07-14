@@ -11,6 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/bwmarrin/snowflake"
@@ -246,8 +248,13 @@ func main() {
 			log.Fatalf("failed to create output directory: %v", err)
 		}
 
-		log.Printf("Extracting disc: %s", discLabel)
-		cmd := exec.Command("makemkvcon", "mkv", "disc:0", "all", outputDir)
+		discIndex, err := resolveDiscIndex(cfg.Device)
+		if err != nil {
+			log.Fatalf("failed to resolve MakeMKV disc index for device %s: %v", cfg.Device, err)
+		}
+
+		log.Printf("Extracting disc: %s (MakeMKV disc:%d)", discLabel, discIndex)
+		cmd := exec.Command("makemkvcon", "mkv", fmt.Sprintf("disc:%d", discIndex), "all", outputDir)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
@@ -284,6 +291,27 @@ func main() {
 	}
 }
 
+
+var drvLineRe = regexp.MustCompile(`^DRV:(\d+),\d+,\d+,\d+,"[^"]*","[^"]*","([^"]*)"$`)
+
+// resolveDiscIndex maps a device path (e.g. /dev/sr1) to the MakeMKV drive
+// index reported by `makemkvcon info`. MakeMKV enumerates its own drive
+// slots independently of device naming (e.g. a virtual QEMU DVD-ROM can take
+// slot 0 while the real drive ends up in slot 1), so the index used for the
+// "disc:N" argument cannot be assumed to match the device's position.
+func resolveDiscIndex(device string) (int, error) {
+	out, _ := exec.Command("makemkvcon", "-r", "info", "disc:9999").CombinedOutput()
+	for _, line := range strings.Split(string(out), "\n") {
+		m := drvLineRe.FindStringSubmatch(strings.TrimSpace(line))
+		if m == nil {
+			continue
+		}
+		if m[2] == device {
+			return strconv.Atoi(m[1])
+		}
+	}
+	return -1, fmt.Errorf("no MakeMKV drive found for device %q", device)
+}
 
 func getDiscLabel(device string) (string, error) {
 	out, err := exec.Command("blkid", device).CombinedOutput()
