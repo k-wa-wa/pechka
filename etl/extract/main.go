@@ -293,6 +293,13 @@ func main() {
 		if err := os.RemoveAll(outputDir); err != nil {
 			log.Printf("WARNING: failed to cleanup local output directory: %v", err)
 		}
+
+		// Eject so the next timer tick's blkid/getDiscLabel finds no disc
+		// instead of re-ripping the same one indefinitely.
+		log.Printf("Ejecting disc from %s", cfg.Device)
+		if err := exec.Command("eject", cfg.Device).Run(); err != nil {
+			log.Printf("WARNING: failed to eject %s: %v", cfg.Device, err)
+		}
 	} else {
 		log.Printf("Scanning existing files in MinIO for label: %s", discLabel)
 		mkvFiles, err = scanMinioMkvFiles(ctx, cfg, discLabel)
