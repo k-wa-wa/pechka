@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -132,10 +133,29 @@ func writeOutputs(label string, mkvFiles []MkvFile) {
 		log.Printf("WARNING: failed to write /tmp/mkv-files.json: %v", err)
 	}
 }
+// Cluster-internal services (e.g. *.cluster.wpc) use self-signed certs, so
+// skip verification the same way triggerIngestAPI does for PECHKA_API_URL.
+var insecureTransport http.RoundTripper = &http.Transport{
+	TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+}
+
+// minioEndpoint strips a scheme from rawURL if present (minio.New expects a
+// bare host[:port], not a full URL) and derives whether TLS should be used
+// from that scheme. If rawURL has no scheme, it is used as-is and useSSLDefault
+// (from MINIO_USE_SSL) decides.
+func minioEndpoint(rawURL string, useSSLDefault bool) (string, bool) {
+	if u, err := url.Parse(rawURL); err == nil && u.Scheme != "" && u.Host != "" {
+		return u.Host, u.Scheme == "https"
+	}
+	return rawURL, useSSLDefault
+}
+
 func uploadMKVToMinIO(ctx context.Context, cfg Config, localDir, discLabel string) ([]MkvFile, error) {
-	minioClient, err := minio.New(cfg.MinioURL, &minio.Options{
-		Creds:  credentials.NewStaticV4(cfg.MinioAccess, cfg.MinioSecret, ""),
-		Secure: cfg.MinioUseSSL,
+	endpoint, secure := minioEndpoint(cfg.MinioURL, cfg.MinioUseSSL)
+	minioClient, err := minio.New(endpoint, &minio.Options{
+		Creds:     credentials.NewStaticV4(cfg.MinioAccess, cfg.MinioSecret, ""),
+		Secure:    secure,
+		Transport: insecureTransport,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create MinIO client: %w", err)
@@ -172,9 +192,11 @@ func uploadMKVToMinIO(ctx context.Context, cfg Config, localDir, discLabel strin
 }
 
 func scanMinioMkvFiles(ctx context.Context, cfg Config, discLabel string) ([]MkvFile, error) {
-	minioClient, err := minio.New(cfg.MinioURL, &minio.Options{
-		Creds:  credentials.NewStaticV4(cfg.MinioAccess, cfg.MinioSecret, ""),
-		Secure: cfg.MinioUseSSL,
+	endpoint, secure := minioEndpoint(cfg.MinioURL, cfg.MinioUseSSL)
+	minioClient, err := minio.New(endpoint, &minio.Options{
+		Creds:     credentials.NewStaticV4(cfg.MinioAccess, cfg.MinioSecret, ""),
+		Secure:    secure,
+		Transport: insecureTransport,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create MinIO client: %w", err)
