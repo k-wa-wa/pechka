@@ -14,9 +14,13 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/k-wa-wa/pechka/api/internal/config"
 	"github.com/k-wa-wa/pechka/api/internal/handler"
+	apiMiddleware "github.com/k-wa-wa/pechka/api/internal/middleware"
 	elasticRepo "github.com/k-wa-wa/pechka/api/internal/repository/elastic"
 	mongoRepo "github.com/k-wa-wa/pechka/api/internal/repository/mongo"
 	pgRepo "github.com/k-wa-wa/pechka/api/internal/repository/postgres"
@@ -52,6 +56,24 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Initialize Kubernetes Dynamic Client
+	var k8sConfig *rest.Config
+	k8sConfig, err = rest.InClusterConfig()
+	if err != nil {
+		slog.Info("in-cluster config not found, falling back to local kubeconfig")
+		loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+		k8sConfig, err = clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, &clientcmd.ConfigOverrides{}).ClientConfig()
+		if err != nil {
+			slog.Error("failed to load kubernetes config", "error", err)
+			os.Exit(1)
+		}
+	}
+	dynClient, err := dynamic.NewForConfig(k8sConfig)
+	if err != nil {
+		slog.Error("failed to create kubernetes dynamic client", "error", err)
+		os.Exit(1)
+	}
+
 	sfNode, err := snowflake.NewNode(1)
 	if err != nil {
 		slog.Error("snowflake node init failed", "error", err)
@@ -66,6 +88,7 @@ func main() {
 	contentsH := handler.NewContentsHandler(mgContent)
 	searchH := handler.NewSearchHandler(esContent)
 	adminH := handler.NewAdminHandler(pgContent, pgDisc, sfNode)
+	ingestH := handler.NewIngestHandler(dynClient)
 
 	e := echo.New()
 	e.HideBanner = true
@@ -111,6 +134,7 @@ func main() {
 	v1.GET("/contents/:short_id", contentsH.Get)
 	v1.GET("/contents/:short_id/variants", contentsH.GetVariants)
 	v1.GET("/search", searchH.Search)
+	v1.POST("/contents/ingest", ingestH.TriggerIngest, apiMiddleware.IPFilter(cfg.AllowedIPRange))
 
 	admin := v1.Group("/admin")
 	admin.GET("/contents", adminH.ListContents)

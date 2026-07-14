@@ -1,0 +1,35 @@
+name: Release Go Binary
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and Release Extract Binary
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: etl/extract/go.mod
+          cache-dependency-path: etl/extract/go.sum
+
+      - name: Build extract binary
+        run: |
+          cd etl/extract
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o extract .
+
+      - name: Create Release and Upload Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: etl/extract/extract
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

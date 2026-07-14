@@ -11,6 +11,7 @@ type Config struct {
 	MongoDB          string
 	ElasticsearchURL string
 	Port             string
+	AllowedIPRange   string
 }
 
 func Load() *Config {
@@ -20,6 +21,7 @@ func Load() *Config {
 		MongoDB:          mustEnv("MONGO_DB"),
 		ElasticsearchURL: mustEnv("ELASTICSEARCH_URL"),
 		Port:             mustEnv("PORT"),
+		AllowedIPRange:   os.Getenv("ALLOWED_IP_RANGE"),
 	}
 }
 

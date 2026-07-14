@@ -24,3 +24,4 @@ configMapGenerator:
     literals:
       - minio-bucket=pechka
       - minio-url=minio:9000
+      - allowed-ip-range=10.0.0.0/8
