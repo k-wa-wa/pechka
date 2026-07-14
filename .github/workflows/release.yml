@@ -2,8 +2,8 @@ name: Release Go Binary
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - master
 
 permissions:
   contents: write
@@ -30,6 +30,8 @@ jobs:
       - name: Create Release and Upload Asset
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: latest
+          make_latest: true
           files: etl/extract/extract
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
