@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/bwmarrin/snowflake"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
@@ -19,7 +18,6 @@ import (
 type Config struct {
 	Device      string
 	LocalMkvDir string
-	PostgresDSN string
 	MinioBucket string
 	MinioURL    string
 	MinioAccess string
@@ -48,25 +46,10 @@ func getenv(key, def string) string {
 	return def
 }
 
-func postgresDSN() string {
-	if dsn := os.Getenv("POSTGRES_DSN"); dsn != "" {
-		return dsn
-	}
-	host := mustGetenv("DB_HOST")
-	port := getenv("DB_PORT", "5432")
-	user := mustGetenv("DB_USER")
-	password := mustGetenv("DB_PASSWORD")
-	dbname := mustGetenv("DB_NAME")
-	sslmode := getenv("SSL_MODE", "disable")
-	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
-		host, port, user, password, dbname, sslmode)
-}
-
 func configFromEnv() Config {
 	return Config{
 		Device:      os.Getenv("DEVICE"),
 		LocalMkvDir: getenv("LOCAL_MKV_DIR", "/mnt/mkv"),
-		PostgresDSN: postgresDSN(),
 		MinioBucket: mustGetenv("MINIO_BUCKET"),
 		MinioURL:    mustGetenv("MINIO_URL"),
 		MinioAccess: mustGetenv("MINIO_ACCESS_KEY"),
@@ -230,20 +213,6 @@ func main() {
 		}
 	}
 
-	db, err := pgxpool.New(ctx, cfg.PostgresDSN)
-	if err != nil {
-		log.Fatalf("failed to connect to PostgreSQL: %v", err)
-	}
-	defer db.Close()
-
-	_, err = db.Exec(ctx,
-		"INSERT INTO discs (label) VALUES ($1) ON CONFLICT (label) DO NOTHING",
-		discLabel,
-	)
-	if err != nil {
-		log.Fatalf("failed to register disc: %v", err)
-	}
-	log.Printf("Disc %s registered in database.", discLabel)
 	log.Printf("Found %d MKV files", len(mkvFiles))
 
 	writeOutputs(discLabel, mkvFiles)
