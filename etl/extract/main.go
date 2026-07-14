@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,13 +19,14 @@ import (
 )
 
 type Config struct {
-	Device      string
-	LocalMkvDir string
-	MinioBucket string
-	MinioURL    string
-	MinioAccess string
-	MinioSecret string
-	MinioUseSSL bool
+	Device       string
+	LocalMkvDir  string
+	MinioBucket  string
+	MinioURL     string
+	MinioAccess  string
+	MinioSecret  string
+	MinioUseSSL  bool
+	PechkaAPIURL string
 }
 
 type MkvFile struct {
@@ -48,14 +52,69 @@ func getenv(key, def string) string {
 
 func configFromEnv() Config {
 	return Config{
-		Device:      os.Getenv("DEVICE"),
-		LocalMkvDir: getenv("LOCAL_MKV_DIR", "/mnt/mkv"),
-		MinioBucket: mustGetenv("MINIO_BUCKET"),
-		MinioURL:    mustGetenv("MINIO_URL"),
-		MinioAccess: mustGetenv("MINIO_ACCESS_KEY"),
-		MinioSecret: mustGetenv("MINIO_SECRET_KEY"),
-		MinioUseSSL: os.Getenv("MINIO_USE_SSL") == "true",
+		Device:       os.Getenv("DEVICE"),
+		LocalMkvDir:  getenv("LOCAL_MKV_DIR", "/mnt/mkv"),
+		MinioBucket:  mustGetenv("MINIO_BUCKET"),
+		MinioURL:     mustGetenv("MINIO_URL"),
+		MinioAccess:  mustGetenv("MINIO_ACCESS_KEY"),
+		MinioSecret:  mustGetenv("MINIO_SECRET_KEY"),
+		MinioUseSSL:  os.Getenv("MINIO_USE_SSL") == "true",
+		PechkaAPIURL: os.Getenv("PECHKA_API_URL"),
 	}
+}
+
+type IngestRequest struct {
+	DiscLabel    string `json:"disc_label"`
+	ContentTitle string `json:"content_title"`
+}
+
+func triggerIngestAPI(ctx context.Context, apiURL, discLabel string) error {
+	if apiURL == "" {
+		log.Println("PECHKA_API_URL is not set, skipping Ingest API trigger")
+		return nil
+	}
+
+	url := apiURL
+	if strings.HasPrefix(url, "http://") {
+		url = "https://" + strings.TrimPrefix(url, "http://")
+	} else if !strings.HasPrefix(url, "https://") {
+		url = "https://" + url
+	}
+	url = fmt.Sprintf("%s/api/v1/contents/ingest", strings.TrimSuffix(url, "/"))
+
+	reqBody := IngestRequest{
+		DiscLabel:    discLabel,
+		ContentTitle: fmt.Sprintf("Auto Ingested from Bluray Extractor VM (Label: %s)", discLabel),
+	}
+
+	data, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal ingest request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(data))
+	if err != nil {
+		return fmt.Errorf("failed to create http request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	client := &http.Client{Transport: tr}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("ingest API returned non-2xx status: %d", resp.StatusCode)
+	}
+
+	log.Printf("Successfully triggered Ingest API for disc: %s (url: %s)", discLabel, url)
+	return nil
 }
 
 func writeOutputs(label string, mkvFiles []MkvFile) {
@@ -216,6 +275,13 @@ func main() {
 	log.Printf("Found %d MKV files", len(mkvFiles))
 
 	writeOutputs(discLabel, mkvFiles)
+
+	if discLabel != "" {
+		log.Printf("Triggering Ingest API for disc label: %s", discLabel)
+		if err := triggerIngestAPI(ctx, cfg.PechkaAPIURL, discLabel); err != nil {
+			log.Printf("WARNING: failed to trigger Ingest API: %v", err)
+		}
+	}
 }
 
 
