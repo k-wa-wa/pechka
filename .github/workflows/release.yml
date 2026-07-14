@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - master
+    tags:
+      - 'v*.*.*'
 
 permissions:
   contents: write
@@ -27,7 +29,18 @@ jobs:
           cd etl/extract
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o extract .
 
-      - name: Create Release and Upload Asset
+      - name: Create Release and Upload Asset (tag)
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          make_latest: true
+          files: etl/extract/extract
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Release and Upload Asset (latest)
+        if: github.ref_type == 'branch'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
