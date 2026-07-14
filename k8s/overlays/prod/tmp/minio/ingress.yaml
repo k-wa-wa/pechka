@@ -1,0 +1,35 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: minio-ingress
+  namespace: pechka
+  annotations:
+    cert-manager.io/cluster-issuer: "ca-clusterissuer"
+spec:
+  ingressClassName: cilium
+  tls:
+    - hosts:
+        - minio.cluster.wpc
+        - minio-console.cluster.wpc
+      secretName: minio-tls-secret
+  rules:
+    - host: minio.cluster.wpc
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: minio
+                port:
+                  number: 9000
+    - host: minio-console.cluster.wpc
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: minio
+                port:
+                  number: 9001

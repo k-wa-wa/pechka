@@ -3,3 +3,4 @@ kind: Kustomization
 resources:
   - minio.yaml
   - mc-job.yaml
+  - ingress.yaml
