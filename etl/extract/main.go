@@ -266,6 +266,9 @@ func main() {
 	var mkvFiles []MkvFile
 	if manualLabel == "" {
 		outputDir := filepath.Join(cfg.LocalMkvDir, discLabel)
+		if err := os.RemoveAll(outputDir); err != nil {
+			log.Printf("WARNING: failed to remove existing output directory: %v", err)
+		}
 		if err := os.MkdirAll(outputDir, 0755); err != nil {
 			log.Fatalf("failed to create output directory: %v", err)
 		}
@@ -277,6 +280,7 @@ func main() {
 
 		log.Printf("Extracting disc: %s (MakeMKV disc:%d)", discLabel, discIndex)
 		cmd := exec.Command("makemkvcon", "mkv", fmt.Sprintf("disc:%d", discIndex), "all", outputDir)
+		cmd.Stdin = strings.NewReader(strings.Repeat("y\n", 100))
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
