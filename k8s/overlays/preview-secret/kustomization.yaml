@@ -1,0 +1,8 @@
+# pechka-preview (k8s/overlays/preview) と同じnamespaceに、Secretオブジェクトだけを配置する。
+# argocd-vault-plugin (plugin) を使うのはこのSecretだけで、それ以外(Deployment/Job/Service等)は
+# 全て k8s/overlays/preview 側でネイティブkustomizeとして処理される。
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - secrets/secrets.yaml

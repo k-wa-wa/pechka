@@ -8,3 +8,8 @@ creation_rules:
       - age:
           - *admin_key
           - *argocd_key
+  - path_regex: k8s/overlays/preview-secret/secrets/preview-seed-secrets\.yaml$
+    key_groups:
+      - age:
+          - *admin_key
+          - *argocd_key

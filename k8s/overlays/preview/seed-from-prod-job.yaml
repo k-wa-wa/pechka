@@ -1,0 +1,71 @@
+# prod (postgres-prod shim 経由) のデータを、k8s/overlays/preview が起動したローカルpostgresへ
+# 一度だけ流し込む。--clean --if-exists により、postgres-migrate が空テーブルを作っていても
+# 安全に上書きできる(2つのApplicationの同期順は問わない)。
+#
+# postgres (ローカル, k8s/overlays/preview側のSecret) と postgres-seed-secret (prod読み取り用,
+# このoverlayのSecret) は同じnamespace内にいれば別Applicationが作った資源でも参照できる。
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: postgres-seed-from-prod
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:16
+          command:
+            - sh
+            - -c
+            - until pg_isready -h postgres -U pechka; do echo "waiting for local postgres..."; sleep 2; done
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+      containers:
+        - name: seed
+          image: postgres:16
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              PGPASSWORD="$SEED_DB_PASSWORD" pg_dump \
+                -h postgres-prod -p "$SEED_DB_PORT" -U "$SEED_DB_USER" -d "$SEED_DB_NAME" \
+                --clean --if-exists --no-owner --no-privileges \
+                | PGPASSWORD="$LOCAL_DB_PASSWORD" psql -h postgres -U "$LOCAL_DB_USER" -d "$LOCAL_DB_NAME"
+          env:
+            - name: SEED_DB_PORT
+              value: "5432"
+            - name: SEED_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-seed-secret
+                  key: DB_NAME
+            - name: SEED_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-seed-secret
+                  key: DB_USER
+            - name: SEED_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-seed-secret
+                  key: DB_PASSWORD
+            - name: LOCAL_DB_NAME
+              value: pechka
+            - name: LOCAL_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: LOCAL_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD

@@ -1,0 +1,26 @@
+# postgres-seed-from-prod Job だけが使う、prodの実postgresへの参照(初回データコピー用)。
+# アプリ本体(api/frontend, k8s/overlays/preview)は自前のローカルpostgresにのみ接続し、この実体には触れない。
+# IPは k8s/overlays/prod/external-postgres.yaml と同一である必要がある(要手動同期)。
+# namespaceは指定しない(destination.namespaceでPRごとのnamespaceに配置される)。
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-prod
+spec:
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: postgres-prod-slice
+  labels:
+    kubernetes.io/service-name: postgres-prod
+addressType: IPv4
+ports:
+  - port: 5432
+    protocol: TCP
+endpoints:
+  - addresses:
+      - 10.20.1.40

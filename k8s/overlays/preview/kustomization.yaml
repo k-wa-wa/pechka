@@ -1,0 +1,41 @@
+# PRのpreview環境。
+# - api/frontend/nginx: このPRのイメージ
+# - postgres/mongodb/elasticsearch/benthos: local overlay同様、preview専用の自前コンテナ
+#   (postgresのみ起動時にprodの実データを一度コピーしてくる)
+# - minio: prodの実体をshimで直接参照 (データ量が大きいため複製しない)
+#
+# postgres-seed-from-prod Job が読む postgres-seed-secret は、このoverlayではなく
+# 同じnamespaceにデプロイされる k8s/overlays/preview-secret (別Application) が用意する。
+# secretの実体化だけargocd-vault-plugin (plugin) を使うため、Application自体を分けている
+# (このoverlayはネイティブkustomizeのみで、CMP/plugin類は一切使わない)。
+#
+# namespace名・イメージタグ・ingress hostはArgoCD側のネイティブなkustomize.namespace/images/patches
+# 上書きでPRごとに書き換える (docs/ideas/nash/nash-preview.yaml と同じやり方)。
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - ../../base/api
+  - ../../base/frontend
+  - ../../base/infra/nginx
+  - ../../base/infra/mongodb
+  - ../../base/infra/elasticsearch
+  - ../../base/infra/benthos
+  - postgres
+  - local-secrets.yaml
+  - minio-shim.yaml
+  - postgres-prod-shim.yaml
+  - seed-from-prod-job.yaml
+  - ingress.yaml
+
+patches:
+  - path: pvc-local-path-patch.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+configMapGenerator:
+  - name: pechka-config
+    literals:
+      - allowed-ip-range=0.0.0.0/0

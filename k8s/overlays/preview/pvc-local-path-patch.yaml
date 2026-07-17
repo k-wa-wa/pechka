@@ -1,0 +1,17 @@
+# k8s/overlays/prod/pvc-local-path-patch.yaml と同じ規約 (mongodb/elasticsearchのPVCにlocal-pathを明示)。
+# postgresは自前でPVCを定義しているのでそちらに直接storageClassNameを書いている。
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: elasticsearch-pvc
+  namespace: pechka
+spec:
+  storageClassName: local-path
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mongodb-pvc
+  namespace: pechka
+spec:
+  storageClassName: local-path

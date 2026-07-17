@@ -17,7 +17,7 @@ fi
 echo ""
 
 # 各オーバーレイ（環境）に対するマニフェストチェック
-OVERLAYS=("k8s/overlays/local" "k8s/overlays/prod")
+OVERLAYS=("k8s/overlays/local" "k8s/overlays/prod" "k8s/overlays/preview" "k8s/overlays/preview-secret")
 
 for OVERLAY in "${OVERLAYS[@]}"; do
   echo "=== Running Manifest Checks for ${OVERLAY} ==="
