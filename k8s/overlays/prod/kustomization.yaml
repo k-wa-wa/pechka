@@ -5,9 +5,11 @@ namespace: pechka
 
 resources:
   - ../../base
-  - secrets.yaml
-  - tmp/postgres
-  - tmp/minio
+  - secrets/secrets.yaml
+  - external-postgres.yaml
+  - external-minio.yaml
+  - jobs/migrate-job.yaml
+  - jobs/mc-job.yaml
   - ingress.yaml
 
 patches:
