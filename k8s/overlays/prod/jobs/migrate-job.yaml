@@ -84,8 +84,13 @@ spec:
           command:
             - sh
             - -c
-            - until pg_isready -h postgres -U pechka; do echo "waiting for postgres..."; sleep 2; done
+            - until pg_isready -h postgres; do echo "waiting for postgres..."; sleep 2; done
           env:
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: user
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:
@@ -97,8 +102,18 @@ spec:
           command:
             - sh
             - -c
-            - psql -h postgres -U pechka -d pechka -f /migrations/001_create_tables.up.sql
+            - psql -h postgres -f /migrations/001_create_tables.up.sql
           env:
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: user
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: user
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:

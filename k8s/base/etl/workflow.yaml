@@ -171,7 +171,10 @@ spec:
                 name: postgres-credentials
                 key: password
           - name: DB_NAME
-            value: pechka
+            valueFrom:
+              secretKeyRef:
+                name: postgres-credentials
+                key: user
           - name: SSL_MODE
             value: disable
         volumeMounts:
@@ -243,7 +246,10 @@ spec:
                 name: postgres-credentials
                 key: password
           - name: DB_NAME
-            value: pechka
+            valueFrom:
+              secretKeyRef:
+                name: postgres-credentials
+                key: user
           - name: SSL_MODE
             value: disable
       outputs:
@@ -385,7 +391,10 @@ spec:
                 name: postgres-credentials
                 key: password
           - name: DB_NAME
-            value: pechka
+            valueFrom:
+              secretKeyRef:
+                name: postgres-credentials
+                key: user
           - name: SSL_MODE
             value: disable
       outputs:
@@ -484,7 +493,10 @@ spec:
                 name: postgres-credentials
                 key: password
           - name: DB_NAME
-            value: pechka
+            valueFrom:
+              secretKeyRef:
+                name: postgres-credentials
+                key: user
           - name: SSL_MODE
             value: disable
 
