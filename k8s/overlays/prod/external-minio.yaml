@@ -30,3 +30,4 @@ ports:
 endpoints:
   - addresses:
       - 10.20.1.70
+    conditions: {}
