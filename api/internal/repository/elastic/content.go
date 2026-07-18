@@ -10,7 +10,7 @@ import (
 	"github.com/k-wa-wa/pechka/api/internal/domain"
 )
 
-const indexName = "stream_contents"
+const indexName = "pechka_contents"
 
 type ContentRepository struct {
 	client *elasticsearch.Client
