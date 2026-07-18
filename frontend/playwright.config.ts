@@ -10,6 +10,7 @@ export default defineConfig({
     baseURL: 'http://localhost:9002',
     screenshot: 'only-on-failure',
   },
+  snapshotPathTemplate: '{testDir}/{testFileDir}/vrt-snapshots/{arg}{ext}',
   projects: [
     {
       name: 'chromium',
@@ -33,6 +34,7 @@ export default defineConfig({
       timeout: 120_000,
       reuseExistingServer: !process.env.CI,
       env: {
+        API_URL: 'http://localhost:9001',
         NEXT_PUBLIC_API_URL: 'http://localhost:9001',
         PORT: '9002',
         HOSTNAME: '0.0.0.0',

@@ -54,6 +54,12 @@ export default function SearchModal({ isOpen, onClose }: Props) {
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
+    if (query.trim()) {
+      setLoading(true)
+    } else {
+      setLoading(false)
+      setResults([])
+    }
     debounceRef.current = setTimeout(() => {
       doSearch(query)
     }, 300)
@@ -138,9 +144,7 @@ export default function SearchModal({ isOpen, onClose }: Props) {
               fontSize: 16,
             }}
           />
-          {loading && (
-            <span style={{ color: '#8b949e', fontSize: 12 }}>...</span>
-          )}
+
           <kbd
             style={{
               color: '#8b949e',
@@ -154,8 +158,39 @@ export default function SearchModal({ isOpen, onClose }: Props) {
           </kbd>
         </div>
 
-        {/* Results */}
-        {results.length > 0 && (
+        {/* Results / Loading / No Results */}
+        {loading && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '32px 24px',
+              gap: 12,
+              color: '#8b949e',
+              fontSize: 14,
+            }}
+          >
+            <style>{`
+              @keyframes search-spin {
+                to { transform: rotate(360deg); }
+              }
+            `}</style>
+            <div
+              style={{
+                width: 20,
+                height: 20,
+                border: '2px solid #30363d',
+                borderTopColor: '#58a6ff',
+                borderRadius: '50%',
+                animation: 'search-spin 0.8s linear infinite',
+              }}
+            />
+            <span>検索中...</span>
+          </div>
+        )}
+
+        {!loading && results.length > 0 && (
           <ul style={{ listStyle: 'none', margin: 0, padding: '8px 0', maxHeight: 400, overflowY: 'auto' }}>
             {results.map((r) => (
               <li key={r.short_id}>

@@ -8,7 +8,7 @@ interface Props {
 }
 
 const QUALITY_LABELS: Record<string, string> = {
-  master: '自動',
+  master: 'Auto',
   '1080p': '1080p',
   '720p': '720p',
   '480p': '480p',
@@ -22,10 +22,27 @@ export default function VideoPlayer({ variants }: Props) {
   const [selectedVariant, setSelectedVariant] = useState<string>('master')
   const [error, setError] = useState<string | null>(null)
 
-  // Find available quality variants (exclude master for manual selection)
-  const qualityVariants = variants.filter((v) =>
-    ['1080p', '720p', '480p', 'audio', 'original'].includes(v.variant_type)
-  )
+  const lastPlaybackState = useRef({ currentTime: 0, paused: true })
+
+  const handleVariantChange = (variantType: string) => {
+    if (videoRef.current) {
+      lastPlaybackState.current = {
+        currentTime: videoRef.current.currentTime,
+        paused: videoRef.current.paused,
+      }
+    }
+    setSelectedVariant(variantType)
+  }
+
+  // Find available quality variants (exclude master for manual selection) and sort by quality (best to worst)
+  const QUALITY_ORDER = ['1080p', '720p', '480p', 'audio', 'original']
+  const qualityVariants = variants
+    .filter((v) => QUALITY_ORDER.includes(v.variant_type))
+    .sort((a, b) => {
+      const aIndex = QUALITY_ORDER.indexOf(a.variant_type)
+      const bIndex = QUALITY_ORDER.indexOf(b.variant_type)
+      return aIndex - bIndex
+    })
   const masterVariant = variants.find((v) => v.variant_type === 'master')
 
   // Get currently selected variant object
@@ -40,7 +57,12 @@ export default function VideoPlayer({ variants }: Props) {
     const video = videoRef.current
     const src = `/${currentVariant.hls_key}`
 
+    // Retrieve and reset the captured playback state
+    const { currentTime: prevTime, paused: prevPaused } = lastPlaybackState.current
+    lastPlaybackState.current = { currentTime: 0, paused: true }
+
     let destroyed = false
+    let onLoadedMetadata: (() => void) | null = null
 
     async function init() {
       const Hls = (await import('hls.js')).default
@@ -55,6 +77,7 @@ export default function VideoPlayer({ variants }: Props) {
       if (Hls.isSupported()) {
         const hls = new Hls({
           enableWorker: true,
+          startPosition: prevTime,
         })
         hlsRef.current = hls
         hls.loadSource(src)
@@ -65,14 +88,24 @@ export default function VideoPlayer({ variants }: Props) {
           }
         })
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          video.play().catch(() => {
-            // autoplay blocked — ignore
-          })
+          if (!prevPaused) {
+            video.play().catch(() => {
+              // autoplay blocked — ignore
+            })
+          }
         })
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         // Safari native HLS
         video.src = src
-        video.play().catch(() => {})
+        onLoadedMetadata = () => {
+          if (prevTime > 0) {
+            video.currentTime = prevTime
+          }
+          if (!prevPaused) {
+            video.play().catch(() => { })
+          }
+        }
+        video.addEventListener('loadedmetadata', onLoadedMetadata)
       } else {
         setError('HLS is not supported in this browser.')
       }
@@ -87,6 +120,9 @@ export default function VideoPlayer({ variants }: Props) {
       if (hlsRef.current) {
         hlsRef.current.destroy()
         hlsRef.current = null
+      }
+      if (onLoadedMetadata) {
+        video.removeEventListener('loadedmetadata', onLoadedMetadata)
       }
     }
   }, [currentVariant])
@@ -161,7 +197,7 @@ export default function VideoPlayer({ variants }: Props) {
           <div style={{ display: 'flex', gap: 4 }}>
             {masterVariant && (
               <button
-                onClick={() => setSelectedVariant('master')}
+                onClick={() => handleVariantChange('master')}
                 style={{
                   padding: '4px 10px',
                   borderRadius: 4,
@@ -174,13 +210,13 @@ export default function VideoPlayer({ variants }: Props) {
                   fontSize: 12,
                 }}
               >
-                自動
+                Auto
               </button>
             )}
             {qualityVariants.map((v) => (
               <button
                 key={v.variant_type}
-                onClick={() => setSelectedVariant(v.variant_type)}
+                onClick={() => handleVariantChange(v.variant_type)}
                 style={{
                   padding: '4px 10px',
                   borderRadius: 4,
