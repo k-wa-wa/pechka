@@ -127,7 +127,6 @@ spec:
         bluray-disk-device: "true"
       container:
         image: ghcr.io/k-wa-wa/pechka/etl-extract:latest
-        imagePullPolicy: IfNotPresent
         command: ["/usr/local/bin/extract"]
         securityContext:
           privileged: true
@@ -204,7 +203,6 @@ spec:
           - name: label
       container:
         image: ghcr.io/k-wa-wa/pechka/etl-extract:latest
-        imagePullPolicy: IfNotPresent
         command: ["/usr/local/bin/extract"]
         env:
           - name: DISC_LABEL
@@ -296,7 +294,6 @@ spec:
           - name: short-id
       container:
         image: ghcr.io/k-wa-wa/pechka/etl-transform:latest
-        imagePullPolicy: IfNotPresent
         command: ["/usr/local/bin/transform"]
         args:
           - "to-hls"
@@ -345,7 +342,6 @@ spec:
           - name: short-id
       container:
         image: ghcr.io/k-wa-wa/pechka/etl-load:latest
-        imagePullPolicy: IfNotPresent
         command: ["/usr/local/bin/nfs-importer"]
         env:
           - name: SHORT_ID
@@ -415,7 +411,6 @@ spec:
           - name: short-id
       container:
         image: ghcr.io/k-wa-wa/pechka/etl-thumbnail:latest
-        imagePullPolicy: IfNotPresent
         command: ["python", "analyze.py"]
         args:
           - "--input"
@@ -455,7 +450,6 @@ spec:
     - name: refresh-playlist
       container:
         image: ghcr.io/k-wa-wa/pechka/etl-refresh-latest-playlist:latest
-        imagePullPolicy: IfNotPresent
         command: ["/usr/local/bin/refresh-latest-playlist"]
         env:
           - name: MINIO_BUCKET

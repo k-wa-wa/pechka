@@ -4,6 +4,9 @@ resources:
   - minio
   - secrets.yaml
 
+patches:
+  - path: image-pull-policy-patch.yaml
+
 generatorOptions:
   disableNameSuffixHash: true
 

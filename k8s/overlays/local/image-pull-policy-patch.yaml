@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: pechka
+spec:
+  template:
+    spec:
+      containers:
+        - name: api
+          imagePullPolicy: IfNotPresent
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: pechka
+spec:
+  template:
+    spec:
+      containers:
+        - name: frontend
+          imagePullPolicy: IfNotPresent
+---
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: etl-bluray
+  namespace: pechka
+spec:
+  templates:
+    - name: extract-mkv
+      container:
+        imagePullPolicy: IfNotPresent
+    - name: scan-mkv
+      container:
+        imagePullPolicy: IfNotPresent
+    - name: transcode-mkv
+      container:
+        imagePullPolicy: IfNotPresent
+    - name: load-hls
+      container:
+        imagePullPolicy: IfNotPresent
+    - name: generate-thumbnail
+      container:
+        imagePullPolicy: IfNotPresent
+    - name: refresh-playlist
+      container:
+        imagePullPolicy: IfNotPresent
