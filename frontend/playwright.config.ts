@@ -10,6 +10,7 @@ export default defineConfig({
     baseURL: 'http://localhost:9002',
     screenshot: 'only-on-failure',
   },
+  snapshotPathTemplate: '{testDir}/{testFileDir}/vrt-snapshots/{arg}{ext}',
   projects: [
     {
       name: 'chromium',
