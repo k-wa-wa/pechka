@@ -174,7 +174,7 @@ spec:
             valueFrom:
               secretKeyRef:
                 name: postgres-credentials
-                key: user
+                key: database
           - name: SSL_MODE
             value: disable
         volumeMounts:
@@ -249,7 +249,7 @@ spec:
             valueFrom:
               secretKeyRef:
                 name: postgres-credentials
-                key: user
+                key: database
           - name: SSL_MODE
             value: disable
       outputs:
@@ -394,7 +394,7 @@ spec:
             valueFrom:
               secretKeyRef:
                 name: postgres-credentials
-                key: user
+                key: database
           - name: SSL_MODE
             value: disable
       outputs:
@@ -496,7 +496,7 @@ spec:
             valueFrom:
               secretKeyRef:
                 name: postgres-credentials
-                key: user
+                key: database
           - name: SSL_MODE
             value: disable
 
