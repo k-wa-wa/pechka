@@ -11,8 +11,32 @@ on:
   pull_request:
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      api: ${{ steps.filter.outputs.api }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      etl: ${{ steps.filter.outputs.etl }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            api:
+              - 'api/**'
+              - '.github/workflows/ci.yml'
+            frontend:
+              - 'frontend/**'
+              - '.github/workflows/ci.yml'
+            etl:
+              - 'etl/**'
+              - '.github/workflows/ci.yml'
+
   test:
     name: Go Test
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -36,6 +60,8 @@ jobs:
 
   etl-load:
     name: ETL Load (Go)
+    needs: changes
+    if: needs.changes.outputs.etl == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -56,6 +82,8 @@ jobs:
 
   etl-extract:
     name: ETL Extract (Go)
+    needs: changes
+    if: needs.changes.outputs.etl == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -76,6 +104,8 @@ jobs:
 
   etl-transform:
     name: ETL Transform (Go)
+    needs: changes
+    if: needs.changes.outputs.etl == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -96,6 +126,8 @@ jobs:
 
   etl-refresh-latest-playlist:
     name: ETL Refresh Latest Playlist (Go)
+    needs: changes
+    if: needs.changes.outputs.etl == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -116,6 +148,8 @@ jobs:
 
   etl-thumbnail:
     name: ETL Thumbnail (Python)
+    needs: changes
+    if: needs.changes.outputs.etl == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -137,6 +171,8 @@ jobs:
 
   frontend:
     name: Frontend (Next.js)
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -161,6 +197,8 @@ jobs:
 
   frontend-vrt:
     name: Frontend VRT (Playwright)
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -199,29 +237,47 @@ jobs:
           path: frontend/e2e/vrt-snapshots/
           retention-days: 14
 
-  build-preview:
-    name: Build Preview Images
-    needs: [frontend, frontend-vrt]
-    if: always() && needs.frontend.result == 'success' && (needs.frontend-vrt.result == 'success' || needs.frontend-vrt.result == 'failure') && github.event.pull_request.head.repo.full_name == github.repository
+  build-preview-api:
+    name: Build Preview Image (API)
+    needs: [changes, test]
+    if: always() && needs.changes.outputs.api == 'true' && needs.test.result == 'success' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: api
-            context: ./api
-            image: ghcr.io/${{ github.repository }}-api
-          - name: frontend
-            context: ./frontend
-            image: ghcr.io/${{ github.repository }}-frontend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./api
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}-api:sha-${{ github.event.pull_request.head.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  build-preview-frontend:
+    name: Build Preview Image (Frontend)
+    needs: [changes, frontend, frontend-vrt]
+    if: always() && needs.changes.outputs.frontend == 'true' && needs.frontend.result == 'success' && (needs.frontend-vrt.result == 'success' || needs.frontend-vrt.result == 'failure') && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Download VRT report
         uses: actions/download-artifact@v4
-        if: matrix.name == 'frontend'
+        continue-on-error: true
         with:
           name: playwright-report
           path: frontend/public/vrt-report
@@ -239,15 +295,16 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: ${{ matrix.context }}
+          context: ./frontend
           push: true
           tags: |
-            ${{ matrix.image }}:sha-${{ github.event.pull_request.head.sha }}
+            ghcr.io/${{ github.repository }}-frontend:sha-${{ github.event.pull_request.head.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Comment VRT Report Link on PR
-        if: matrix.name == 'frontend' && github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -269,11 +326,11 @@ jobs:
             gh pr comment "$PR_NUMBER" --body "$COMMENT_BODY"
           fi
 
-
   etl-integration:
     name: ETL TL Integration Test
+    needs: [changes, etl-load, etl-transform]
+    if: always() && needs.changes.outputs.etl == 'true' && needs.etl-load.result == 'success' && needs.etl-transform.result == 'success'
     runs-on: ubuntu-latest
-    needs: [etl-load, etl-transform]
     steps:
       - uses: actions/checkout@v4
 
