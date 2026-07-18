@@ -1,34 +1,11 @@
 # minioだけはprodの実体を共有する(画像/動画データが大きく、PRごとに複製しないため)。
 # nginx.conf / api は "minio" という短縮名前提のため、同名Serviceで実体に届ける。
-# IPは k8s/overlays/prod/external-minio.yaml と同一である必要がある(要手動同期)。
+# 実体は nuage-cluster リポジトリの external-service namespace が一元管理しているので、
+# ここでは同名serviceでDNS転送するだけでよい(IPの手動同期は不要)。
 apiVersion: v1
 kind: Service
 metadata:
   name: minio
 spec:
-  ports:
-    - name: api
-      port: 9000
-      targetPort: 9000
-    - name: console
-      port: 9001
-      targetPort: 9001
----
-apiVersion: discovery.k8s.io/v1
-kind: EndpointSlice
-metadata:
-  name: minio-slice
-  labels:
-    kubernetes.io/service-name: minio
-addressType: IPv4
-ports:
-  - name: api
-    port: 9000
-    protocol: TCP
-  - name: console
-    port: 9001
-    protocol: TCP
-endpoints:
-  - addresses:
-      - 10.20.1.70
-    conditions: {}
+  type: ExternalName
+  externalName: minio.external-service.svc.cluster.local

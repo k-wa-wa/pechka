@@ -42,7 +42,7 @@ if [[ "$CURRENT_CONTEXT" == *kind* ]]; then
     IMAGE_PULL_POLICY="IfNotPresent"
 else
     echo "Using production context: $CURRENT_CONTEXT"
-    DB_HOST="${DB_HOST:-primary.pg-cluster.svc.cluster.local}"
+    DB_HOST="${DB_HOST:-postgres}"
     IMAGE_PULL_POLICY="Always"
 fi
 

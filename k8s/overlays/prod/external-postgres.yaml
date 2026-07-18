@@ -1,25 +1,10 @@
+# nuage-cluster リポジトリの external-service namespace が実IPを一元管理する。
+# ここでは同名serviceでDNS転送するだけなので、IPをこのリポジトリ側で持つ必要はない。
 apiVersion: v1
 kind: Service
 metadata:
   name: postgres
   namespace: pechka
 spec:
-  ports:
-    - port: 5432
-      targetPort: 5432
----
-apiVersion: discovery.k8s.io/v1
-kind: EndpointSlice
-metadata:
-  name: postgres-slice
-  namespace: pechka
-  labels:
-    kubernetes.io/service-name: postgres
-addressType: IPv4
-ports:
-  - port: 5432
-    protocol: TCP
-endpoints:
-  - addresses:
-      - 10.20.1.40
-    conditions: {}
+  type: ExternalName
+  externalName: postgres.external-service.svc.cluster.local
