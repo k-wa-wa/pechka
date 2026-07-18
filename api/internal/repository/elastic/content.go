@@ -34,9 +34,23 @@ func (r *ContentRepository) Search(ctx context.Context, query string, limit, off
 		"from": offset,
 		"size": limit,
 		"query": map[string]any{
-			"multi_match": map[string]any{
-				"query":  query,
-				"fields": []string{"title^3", "description", "tags^2"},
+			"bool": map[string]any{
+				"should": []any{
+					map[string]any{
+						"multi_match": map[string]any{
+							"query":     query,
+							"fields":    []string{"title^3", "description", "tags^2"},
+							"fuzziness": "AUTO",
+						},
+					},
+					map[string]any{
+						"multi_match": map[string]any{
+							"query":  query,
+							"fields": []string{"title^3", "description", "tags^2"},
+							"type":   "phrase_prefix",
+						},
+					},
+				},
 			},
 		},
 		"_source": []string{"short_id", "title", "description", "content_type", "tags", "status"},
