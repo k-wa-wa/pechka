@@ -22,8 +22,20 @@ export default function VideoPlayer({ variants }: Props) {
   const [selectedVariant, setSelectedVariant] = useState<string>('master')
   const [error, setError] = useState<string | null>(null)
 
+  const lastPlaybackState = useRef({ currentTime: 0, paused: true })
+
+  const handleVariantChange = (variantType: string) => {
+    if (videoRef.current) {
+      lastPlaybackState.current = {
+        currentTime: videoRef.current.currentTime,
+        paused: videoRef.current.paused,
+      }
+    }
+    setSelectedVariant(variantType)
+  }
+
   // Find available quality variants (exclude master for manual selection) and sort by quality (best to worst)
-  const QUALITY_ORDER = ['original', '1080p', '720p', '480p', 'audio']
+  const QUALITY_ORDER = ['1080p', '720p', '480p', 'audio', 'original']
   const qualityVariants = variants
     .filter((v) => QUALITY_ORDER.includes(v.variant_type))
     .sort((a, b) => {
@@ -45,9 +57,9 @@ export default function VideoPlayer({ variants }: Props) {
     const video = videoRef.current
     const src = `/${currentVariant.hls_key}`
 
-    // Capture playback state before switching source to ensure seamless playback
-    const prevTime = video.currentTime
-    const prevPaused = video.paused
+    // Retrieve and reset the captured playback state
+    const { currentTime: prevTime, paused: prevPaused } = lastPlaybackState.current
+    lastPlaybackState.current = { currentTime: 0, paused: true }
 
     let destroyed = false
     let onLoadedMetadata: (() => void) | null = null
@@ -65,6 +77,7 @@ export default function VideoPlayer({ variants }: Props) {
       if (Hls.isSupported()) {
         const hls = new Hls({
           enableWorker: true,
+          startPosition: prevTime,
         })
         hlsRef.current = hls
         hls.loadSource(src)
@@ -75,9 +88,6 @@ export default function VideoPlayer({ variants }: Props) {
           }
         })
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          if (prevTime > 0) {
-            video.currentTime = prevTime
-          }
           if (!prevPaused) {
             video.play().catch(() => {
               // autoplay blocked — ignore
@@ -187,7 +197,7 @@ export default function VideoPlayer({ variants }: Props) {
           <div style={{ display: 'flex', gap: 4 }}>
             {masterVariant && (
               <button
-                onClick={() => setSelectedVariant('master')}
+                onClick={() => handleVariantChange('master')}
                 style={{
                   padding: '4px 10px',
                   borderRadius: 4,
@@ -206,7 +216,7 @@ export default function VideoPlayer({ variants }: Props) {
             {qualityVariants.map((v) => (
               <button
                 key={v.variant_type}
-                onClick={() => setSelectedVariant(v.variant_type)}
+                onClick={() => handleVariantChange(v.variant_type)}
                 style={{
                   padding: '4px 10px',
                   borderRadius: 4,
