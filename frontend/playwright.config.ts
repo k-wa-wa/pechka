@@ -34,6 +34,7 @@ export default defineConfig({
       timeout: 120_000,
       reuseExistingServer: !process.env.CI,
       env: {
+        API_URL: 'http://localhost:9001',
         NEXT_PUBLIC_API_URL: 'http://localhost:9001',
         PORT: '9002',
         HOSTNAME: '0.0.0.0',

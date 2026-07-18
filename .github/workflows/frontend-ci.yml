@@ -129,7 +129,7 @@ jobs:
           COMMENT_BODY=$(cat <<EOF
           ### 🎭 VRT Report (Playwright)
           VRT の実行結果はプレビュー環境で確認できます：
-          🔗 [VRT Report](https://pechka-preview-pr${PR_NUMBER}.cluster.wpc/vrt-report/)
+          🔗 [VRT Report](https://pechka-pr-${PR_NUMBER}.cluster.wpc/vrt-report/index.html)
           
           ※ UIの更新が意図通りである場合は、GitHub Actions の \`Update VRT Snapshots\` ワークフローを実行してスナップショットを更新してください。
           EOF
