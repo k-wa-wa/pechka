@@ -54,6 +54,7 @@ services:
       DISC_LABEL: TEST_DISC_001
       CONTENT_TITLE: Integration Test Video
       CONTENT_TYPE: video
+      SHORT_ID: test-short-id
       MINIO_BUCKET: pechka
       MINIO_URL: minio:9000
       MINIO_ACCESS_KEY: testaccess
