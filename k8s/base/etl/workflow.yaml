@@ -130,6 +130,13 @@ spec:
         command: ["/usr/local/bin/extract"]
         securityContext:
           privileged: true
+        resources:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: "2"
+            memory: 2Gi
         env:
           - name: DEVICE
             value: /dev/sr1
@@ -204,6 +211,13 @@ spec:
       container:
         image: ghcr.io/k-wa-wa/pechka/etl-extract:latest
         command: ["/usr/local/bin/extract"]
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
         env:
           - name: DISC_LABEL
             value: "{{inputs.parameters.label}}"
@@ -305,6 +319,13 @@ spec:
           - "{{inputs.parameters.mode}}"
           - "-short-id"
           - "{{inputs.parameters.short-id}}"
+        resources:
+          requests:
+            cpu: 1500m
+            memory: 2Gi
+          limits:
+            cpu: "3"
+            memory: 4Gi
         env:
           - name: MINIO_BUCKET
             valueFrom:
@@ -343,6 +364,13 @@ spec:
       container:
         image: ghcr.io/k-wa-wa/pechka/etl-load:latest
         command: ["/usr/local/bin/nfs-importer"]
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: "1"
+            memory: 1Gi
         env:
           - name: SHORT_ID
             value: "{{inputs.parameters.short-id}}"
@@ -419,6 +447,13 @@ spec:
           - "{{inputs.parameters.short-id}}"
           - "--content-id"
           - "{{inputs.parameters.content-id}}"
+        resources:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: "2"
+            memory: 1Gi
         env:
           - name: MINIO_BUCKET
             valueFrom:
@@ -451,6 +486,13 @@ spec:
       container:
         image: ghcr.io/k-wa-wa/pechka/etl-refresh-latest-playlist:latest
         command: ["/usr/local/bin/refresh-latest-playlist"]
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
         env:
           - name: MINIO_BUCKET
             valueFrom:
