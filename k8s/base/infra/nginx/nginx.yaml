@@ -54,7 +54,7 @@ data:
 
         # HLS TS セグメント: /resources/... → MinIO pechka バケットへ転送
         location ~* ^/resources/.*\.ts$ {
-          set $minio_upstream http://minio:9000;
+          set $minio_upstream http://minio.pechka.svc.cluster.local:9000;
           rewrite ^/resources/(.*)$ /pechka/resources/$1 break;
           proxy_pass         $minio_upstream;
           proxy_set_header   Host minio:9000;
@@ -68,7 +68,7 @@ data:
 
         # HLS マニフェスト
         location ~* ^/resources/.*\.m3u8$ {
-          set $minio_upstream http://minio:9000;
+          set $minio_upstream http://minio.pechka.svc.cluster.local:9000;
           rewrite ^/resources/(.*)$ /pechka/resources/$1 break;
           proxy_pass         $minio_upstream;
           proxy_set_header   Host minio:9000;
@@ -81,7 +81,7 @@ data:
 
         # サムネイル
         location /thumbnails/ {
-          set $minio_upstream http://minio:9000;
+          set $minio_upstream http://minio.pechka.svc.cluster.local:9000;
           rewrite ^/thumbnails/(.*)$ /pechka/thumbnails/$1 break;
           proxy_pass         $minio_upstream;
           proxy_set_header   Host minio:9000;
@@ -95,7 +95,7 @@ data:
 
         # MinIO resources (HLS 等の直接配信パス、その他拡張子)
         location /resources/ {
-          set $minio_upstream http://minio:9000;
+          set $minio_upstream http://minio.pechka.svc.cluster.local:9000;
           rewrite ^/resources/(.*)$ /pechka/resources/$1 break;
           proxy_pass         $minio_upstream;
           proxy_set_header   Host minio:9000;
