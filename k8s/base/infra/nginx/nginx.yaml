@@ -15,6 +15,9 @@ data:
       include       /etc/nginx/mime.types;
       default_type  application/octet-stream;
 
+      # k8s DNS: ClusterIP 変更時に追従できるよう、proxy_pass を変数化して都度re解決させる
+      resolver kube-dns.kube-system.svc.cluster.local valid=10s;
+
       # TS セグメント: 不変コンテンツ → 1年キャッシュ
       proxy_cache_path /var/cache/nginx/ts
         levels=1:2 keys_zone=ts_cache:10m max_size=10g inactive=365d use_temp_path=off;
@@ -52,7 +55,8 @@ data:
         # HLS TS セグメント: /resources/... → MinIO pechka バケットへ転送
         location ~* ^/resources/.*\.ts$ {
           rewrite ^/resources/(.*)$ /pechka/resources/$1 break;
-          proxy_pass         http://minio:9000;
+          set $minio_upstream http://minio:9000;
+          proxy_pass         $minio_upstream;
           proxy_set_header   Host minio:9000;
           proxy_cache        ts_cache;
           proxy_cache_valid  200 365d;
@@ -65,7 +69,8 @@ data:
         # HLS マニフェスト
         location ~* ^/resources/.*\.m3u8$ {
           rewrite ^/resources/(.*)$ /pechka/resources/$1 break;
-          proxy_pass         http://minio:9000;
+          set $minio_upstream http://minio:9000;
+          proxy_pass         $minio_upstream;
           proxy_set_header   Host minio:9000;
           proxy_cache        m3u8_cache;
           proxy_cache_valid  200 30s;
@@ -77,7 +82,8 @@ data:
         # サムネイル
         location /thumbnails/ {
           rewrite ^/thumbnails/(.*)$ /pechka/thumbnails/$1 break;
-          proxy_pass         http://minio:9000;
+          set $minio_upstream http://minio:9000;
+          proxy_pass         $minio_upstream;
           proxy_set_header   Host minio:9000;
           proxy_cache        thumb_cache;
           proxy_cache_valid  200 7d;
@@ -90,7 +96,8 @@ data:
         # MinIO resources (HLS 等の直接配信パス、その他拡張子)
         location /resources/ {
           rewrite ^/resources/(.*)$ /pechka/resources/$1 break;
-          proxy_pass         http://minio:9000;
+          set $minio_upstream http://minio:9000;
+          proxy_pass         $minio_upstream;
           proxy_set_header   Host minio:9000;
           proxy_set_header   X-Real-IP $remote_addr;
         }
