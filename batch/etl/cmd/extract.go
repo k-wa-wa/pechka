@@ -242,7 +242,8 @@ func resolveDiscIndex(device string) (int, error) {
 	out, _ := cmd.Output()
 
 	lines := strings.Split(string(out), "\n")
-	re := regexp.MustCompile(`^DRV:(\d+),\d+,\d+,\d+,"[^"]*","([^"]*)","[^"]*"`)
+	re := regexp.MustCompile(`^DRV:(\d+),\d+,\d+,\d+,"[^"]*","[^"]*","([^"]*)"`)
+
 	for _, line := range lines {
 		m := re.FindStringSubmatch(line)
 		if len(m) == 3 {
