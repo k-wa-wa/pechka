@@ -224,6 +224,19 @@ func scanMinioMkvFiles(ctx context.Context, cfg ExtractConfig, discLabel string)
 	return res, nil
 }
 
+func ejectDisc(device string) {
+	if device == "" {
+		return
+	}
+	log.Printf("Ejecting disc on device: %s", device)
+	cmd := exec.Command("eject", device)
+	if err := cmd.Run(); err != nil {
+		log.Printf("WARNING: failed to eject disc on %s: %v", device, err)
+	} else {
+		log.Printf("Successfully ejected disc on %s", device)
+	}
+}
+
 func getDiscLabel(device string) (string, error) {
 	cmd := exec.Command("blkid", "-o", "value", "-s", "LABEL", device)
 	out, err := cmd.Output()
@@ -333,6 +346,8 @@ func RunExtract(ctx context.Context, osArgs []string) error {
 		if err := triggerIngestAPI(ctx, cfg.PechkaAPIURL, discLabel); err != nil {
 			log.Printf("WARNING: failed to trigger Ingest API: %v", err)
 		}
+
+		ejectDisc(cfg.Device)
 	} else {
 		log.Printf("Manual mode. Scanning MinIO MKV files...")
 		mkvFiles, err = scanMinioMkvFiles(ctx, cfg, discLabel)

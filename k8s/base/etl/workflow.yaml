@@ -147,7 +147,9 @@ spec:
         bluray-disk-device: "true"
       container:
         image: ghcr.io/k-wa-wa/pechka/etl-extract:latest
-        command: ["/usr/local/bin/extract"]
+        command: ["/usr/local/bin/pechka-etl"]
+        args:
+          - "extract"
         securityContext:
           privileged: true
         resources:
@@ -230,7 +232,9 @@ spec:
           - name: label
       container:
         image: ghcr.io/k-wa-wa/pechka/etl-extract:latest
-        command: ["/usr/local/bin/extract"]
+        command: ["/usr/local/bin/pechka-etl"]
+        args:
+          - "extract"
         resources:
           requests:
             cpu: 100m
