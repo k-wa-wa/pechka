@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -87,6 +88,8 @@ func uploadHLSDir(ctx context.Context, mcfg MinioConfig, localDir, shortID strin
 		if err != nil {
 			return fmt.Errorf("failed to upload HLS file %s: %w", f.Name(), err)
 		}
+		// 物理ディスクへの瞬間的な書き込み集中（IOPS飽和）を防ぐためのスロットリング
+		time.Sleep(50 * time.Millisecond)
 	}
 	return nil
 }
@@ -147,17 +150,36 @@ func main() {
 		log.Fatalf("failed to create output dir: %v", err)
 	}
 
+	// 映像トラックの有無とコーデックを検出
+	hasVideo, codec, err := detectVideoMetadata(localMKVPath)
+	if err != nil {
+		log.Fatalf("failed to detect video metadata: %v", err)
+	}
+	log.Printf("Video metadata: hasVideo=%t, codec=%s", hasVideo, codec)
+
 	switch *mode {
-	case "video":
-		if err := transcodeVideo(localMKVPath, *output); err != nil {
-			log.Fatalf("video transcode failed: %v", err)
-		}
 	case "audio":
 		if err := transcodeAudio(localMKVPath, *output); err != nil {
 			log.Fatalf("audio transcode failed: %v", err)
 		}
+	case "original":
+		if !hasVideo {
+			log.Printf("No video stream found. Skipping original transcode.")
+			return
+		}
+		if err := transcodeOriginal(localMKVPath, *output, codec); err != nil {
+			log.Fatalf("original transcode failed: %v", err)
+		}
+	case "1080p", "720p", "480p":
+		if !hasVideo {
+			log.Printf("No video stream found. Skipping %s transcode.", *mode)
+			return
+		}
+		if err := transcodeVideoVariant(localMKVPath, *output, *mode); err != nil {
+			log.Fatalf("%s transcode failed: %v", *mode, err)
+		}
 	default:
-		log.Fatalf("unknown mode: %q (expected video or audio)", *mode)
+		log.Fatalf("unknown mode: %q (expected original, 1080p, 720p, 480p or audio)", *mode)
 	}
 
 	// Upload HLS directory to MinIO
@@ -173,78 +195,107 @@ func main() {
 	}
 
 	log.Printf("Transcoding and upload complete for short-id: %s", *shortID)
+
+	// 次のジョブ実行前に物理ディスクの書き込みを落ち着かせるためのクールダウン
+	log.Printf("Cooling down disk I/O for 5 seconds...")
+	time.Sleep(5 * time.Second)
 }
 
-type variantSpec struct {
-	name string
-	args []string
-}
-
-func transcodeVideo(input, outputDir string) error {
-	variants := []variantSpec{
-		{
-			name: "original",
-			args: []string{
-				"-i", input,
-				"-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-				"-f", "hls", "-hls_time", "6", "-hls_list_size", "0",
-				"-hls_segment_filename", filepath.Join(outputDir, "original_%04d.ts"),
-				filepath.Join(outputDir, "original.m3u8"),
-			},
-		},
-		{
-			name: "1080p",
-			args: []string{
-				"-i", input,
-				"-vf", "scale=1920:1080", "-c:v", "libx264", "-preset", "fast",
-				"-b:v", "6000k", "-maxrate", "6500k", "-bufsize", "12000k",
-				"-c:a", "aac", "-b:a", "192k",
-				"-f", "hls", "-hls_time", "6", "-hls_list_size", "0",
-				"-hls_segment_filename", filepath.Join(outputDir, "1080p_%04d.ts"),
-				filepath.Join(outputDir, "1080p.m3u8"),
-			},
-		},
-		{
-			name: "720p",
-			args: []string{
-				"-i", input,
-				"-vf", "scale=1280:720", "-c:v", "libx264", "-preset", "fast",
-				"-b:v", "3000k", "-maxrate", "3500k", "-bufsize", "6000k",
-				"-c:a", "aac", "-b:a", "128k",
-				"-f", "hls", "-hls_time", "6", "-hls_list_size", "0",
-				"-hls_segment_filename", filepath.Join(outputDir, "720p_%04d.ts"),
-				filepath.Join(outputDir, "720p.m3u8"),
-			},
-		},
-		{
-			name: "480p",
-			args: []string{
-				"-i", input,
-				"-vf", "scale=854:480", "-c:v", "libx264", "-preset", "fast",
-				"-b:v", "1500k", "-maxrate", "2000k", "-bufsize", "3000k",
-				"-c:a", "aac", "-b:a", "128k",
-				"-f", "hls", "-hls_time", "6", "-hls_list_size", "0",
-				"-hls_segment_filename", filepath.Join(outputDir, "480p_%04d.ts"),
-				filepath.Join(outputDir, "480p.m3u8"),
-			},
-		},
+func detectVideoMetadata(input string) (bool, string, error) {
+	cmd := exec.Command("ffprobe",
+		"-v", "error",
+		"-select_streams", "v:0",
+		"-show_entries", "stream=codec_name",
+		"-of", "csv=p=0",
+		input,
+	)
+	out, err := cmd.Output()
+	if err != nil {
+		// ffprobe がエラー終了した場合は映像なしとする
+		return false, "", nil
 	}
+	codec := strings.TrimSpace(string(out))
+	if codec == "" {
+		return false, "", nil
+	}
+	return true, codec, nil
+}
 
-	for _, v := range variants {
-		log.Printf("Transcoding variant: %s", v.name)
-		cmd := exec.Command("ffmpeg", v.args...)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("ffmpeg %s: %w", v.name, err)
+func transcodeOriginal(input, outputDir, codec string) error {
+	log.Printf("Transcoding original variant (source codec: %s)", codec)
+	var args []string
+	if codec == "h264" || codec == "hevc" {
+		log.Printf("Source video codec %s is supported. Using stream copy.", codec)
+		args = []string{
+			"-i", input,
+			"-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+			"-f", "hls", "-hls_time", "6", "-hls_list_size", "0",
+			"-hls_segment_filename", filepath.Join(outputDir, "original_%04d.ts"),
+			filepath.Join(outputDir, "original.m3u8"),
+		}
+	} else {
+		log.Printf("Source video codec %s is not directly supported in browser. Re-encoding to H.264.", codec)
+		args = []string{
+			"-i", input,
+			"-c:v", "libx264", "-crf", "18", "-preset", "fast",
+			"-c:a", "aac", "-b:a", "192k",
+			"-f", "hls", "-hls_time", "6", "-hls_list_size", "0",
+			"-hls_segment_filename", filepath.Join(outputDir, "original_%04d.ts"),
+			filepath.Join(outputDir, "original.m3u8"),
 		}
 	}
 
-	masterPath := filepath.Join(outputDir, "master.m3u8")
-	if err := os.WriteFile(masterPath, []byte(masterPlaylistTemplate), 0644); err != nil {
-		return fmt.Errorf("write master playlist: %w", err)
+	cmd := exec.Command("ffmpeg", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("ffmpeg original: %w", err)
 	}
-	log.Printf("Master playlist written to %s", masterPath)
+	return nil
+}
+
+func transcodeVideoVariant(input, outputDir, resolution string) error {
+	log.Printf("Transcoding video variant: %s", resolution)
+	var vf, bv, maxrate, bufsize, ba string
+	switch resolution {
+	case "1080p":
+		vf = "scale=1920:1080"
+		bv = "6000k"
+		maxrate = "6500k"
+		bufsize = "12000k"
+		ba = "192k"
+	case "720p":
+		vf = "scale=1280:720"
+		bv = "3000k"
+		maxrate = "3500k"
+		bufsize = "6000k"
+		ba = "128k"
+	case "480p":
+		vf = "scale=854:480"
+		bv = "1500k"
+		maxrate = "2000k"
+		bufsize = "3000k"
+		ba = "128k"
+	default:
+		return fmt.Errorf("unsupported resolution: %s", resolution)
+	}
+
+	args := []string{
+		"-i", input,
+		"-vf", vf, "-c:v", "libx264", "-preset", "fast",
+		"-b:v", bv, "-maxrate", maxrate, "-bufsize", bufsize,
+		"-c:a", "aac", "-b:a", ba,
+		"-f", "hls", "-hls_time", "6", "-hls_list_size", "0",
+		"-hls_segment_filename", filepath.Join(outputDir, fmt.Sprintf("%s_%%04d.ts", resolution)),
+		filepath.Join(outputDir, fmt.Sprintf("%s.m3u8", resolution)),
+	}
+
+	cmd := exec.Command("ffmpeg", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("ffmpeg %s: %w", resolution, err)
+	}
 	return nil
 }
 

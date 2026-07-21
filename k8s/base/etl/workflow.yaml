@@ -281,6 +281,7 @@ spec:
           - name: label
           - name: title
           - name: short-id
+      parallelism: 1
       steps:
         - - name: run-transcode
             template: transcode-mkv
@@ -295,7 +296,10 @@ spec:
                 - name: short-id
                   value: "{{inputs.parameters.short-id}}"
             withItems:
-              - video
+              - original
+              # - 1080p
+              # - 720p
+              - 480p
               - audio
 
     # 4. transcode-mkv (Underlying transcode operation)

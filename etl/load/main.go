@@ -128,6 +128,16 @@ func main() {
 	}
 	log.Printf("Found %d HLS variants in MinIO", len(variants))
 
+	// master.m3u8 を生成してアップロード
+	createdMaster, err := generateAndUploadMasterPlaylist(ctx, minioClient, cfg.MinioBucket, shortID, variants)
+	if err != nil {
+		log.Fatalf("failed to generate and upload master playlist: %v", err)
+	}
+	if createdMaster {
+		// リストに master も追加する
+		variants = append(variants, variantInfo{variantType: "master"})
+	}
+
 	if err := registerVariants(ctx, db, contentID, shortID, variants); err != nil {
 		log.Fatalf("failed to register variants: %v", err)
 	}
@@ -144,6 +154,86 @@ func main() {
 	}
 
 	log.Printf("Load complete: short_id=%s", shortID)
+}
+
+func generateAndUploadMasterPlaylist(ctx context.Context, client *minio.Client, bucket, shortID string, variants []variantInfo) (bool, error) {
+	// 映像バリアントがあるか確認
+	var hasVideo bool
+	for _, v := range variants {
+		if v.variantType != "audio" && v.variantType != "master" {
+			hasVideo = true
+			break
+		}
+	}
+	if !hasVideo {
+		log.Printf("No video variants found. master.m3u8 is not generated.")
+		return false, nil
+	}
+
+	// master.m3u8 の内容を動的に構築
+	var sb strings.Builder
+	sb.WriteString("#EXTM3U\n")
+	sb.WriteString("#EXT-X-VERSION:3\n\n")
+
+	// 定義されている順序に沿って追加
+	order := []string{"original", "1080p", "720p", "480p"}
+	for _, target := range order {
+		var found *variantInfo
+		for _, v := range variants {
+			if v.variantType == target {
+				found = &v
+				break
+			}
+		}
+		if found == nil {
+			continue
+		}
+
+		if found.variantType == "original" {
+			sb.WriteString("#EXT-X-STREAM-INF:BANDWIDTH=0,CODECS=\"avc1.640028,mp4a.40.2\"\n")
+			sb.WriteString("original.m3u8\n\n")
+		} else {
+			bandwidth := 0
+			if found.bandwidth != nil {
+				bandwidth = *found.bandwidth
+			}
+			resolution := ""
+			if found.resolution != nil {
+				resolution = *found.resolution
+			}
+			codecs := "avc1.640028,mp4a.40.2"
+			if found.codecs != nil {
+				codecs = *found.codecs
+			}
+			sb.WriteString(fmt.Sprintf("#EXT-X-STREAM-INF:BANDWIDTH=%d,RESOLUTION=%s,CODECS=\"%s\"\n", bandwidth, resolution, codecs))
+			sb.WriteString(fmt.Sprintf("%s.m3u8\n\n", found.variantType))
+		}
+	}
+
+	hasAudio := false
+	for _, v := range variants {
+		if v.variantType == "audio" {
+			hasAudio = true
+			break
+		}
+	}
+	if hasAudio {
+		sb.WriteString("#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio\",NAME=\"Audio Only\",DEFAULT=NO,URI=\"audio.m3u8\"\n")
+	}
+
+	content := sb.String()
+	log.Printf("Generated master.m3u8 content:\n%s", content)
+
+	objectKey := fmt.Sprintf("resources/hls/%s/master.m3u8", shortID)
+	reader := strings.NewReader(content)
+	_, err := client.PutObject(ctx, bucket, objectKey, reader, int64(len(content)), minio.PutObjectOptions{
+		ContentType: "application/x-mpegURL",
+	})
+	if err != nil {
+		return false, fmt.Errorf("upload master.m3u8: %w", err)
+	}
+	log.Printf("Successfully uploaded master.m3u8 to MinIO key: %s", objectKey)
+	return true, nil
 }
 
 func ensureDisc(ctx context.Context, db *pgxpool.Pool, label string) (string, error) {
