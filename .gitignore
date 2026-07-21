@@ -2,10 +2,9 @@
 .env
 nohup.out
 .last_run_timestamp
-etl/load/load
-etl/extract/extract
-etl/transform/transform
-etl/refresh-latest-playlist/refresh-latest-playlist
+batch/etl/pechka-etl
+batch/etl/etl
+batch/refresh-latest-playlist/refresh-latest-playlist
 frontend/node_modules/
 frontend/.next/
 frontend/tsconfig.tsbuildinfo

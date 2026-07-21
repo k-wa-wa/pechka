@@ -1,4 +1,4 @@
-package main
+package cmd
 
 import (
 	"context"
@@ -11,29 +11,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+
+	"github.com/k-wa-wa/pechka/batch/etl/shared"
 )
 
-type MinioConfig struct {
-	Bucket    string
-	URL       string
-	AccessKey string
-	SecretKey string
-	UseSSL    bool
-}
-
-func minioConfigFromEnv() MinioConfig {
-	return MinioConfig{
-		Bucket:    os.Getenv("MINIO_BUCKET"),
-		URL:       os.Getenv("MINIO_URL"),
-		AccessKey: os.Getenv("MINIO_ACCESS_KEY"),
-		SecretKey: os.Getenv("MINIO_SECRET_KEY"),
-		UseSSL:    os.Getenv("MINIO_USE_SSL") == "true",
-	}
-}
-
-func downloadMKV(ctx context.Context, mcfg MinioConfig, objectKey, localPath string) error {
+func downloadMKV(ctx context.Context, mcfg shared.MinioConfig, objectKey, localPath string) error {
 	minioClient, err := minio.New(mcfg.URL, &minio.Options{
 		Creds:  credentials.NewStaticV4(mcfg.AccessKey, mcfg.SecretKey, ""),
 		Secure: mcfg.UseSSL,
@@ -51,7 +36,7 @@ func downloadMKV(ctx context.Context, mcfg MinioConfig, objectKey, localPath str
 	return nil
 }
 
-func uploadHLSDir(ctx context.Context, mcfg MinioConfig, localDir, shortID string) error {
+func uploadHLSDir(ctx context.Context, mcfg shared.MinioConfig, localDir, shortID string) error {
 	minioClient, err := minio.New(mcfg.URL, &minio.Options{
 		Creds:  credentials.NewStaticV4(mcfg.AccessKey, mcfg.SecretKey, ""),
 		Secure: mcfg.UseSSL,
@@ -88,117 +73,9 @@ func uploadHLSDir(ctx context.Context, mcfg MinioConfig, localDir, shortID strin
 		if err != nil {
 			return fmt.Errorf("failed to upload HLS file %s: %w", f.Name(), err)
 		}
-		// 物理ディスクへの瞬間的な書き込み集中（IOPS飽和）を防ぐためのスロットリング
 		time.Sleep(50 * time.Millisecond)
 	}
 	return nil
-}
-
-
-const masterPlaylistTemplate = `#EXTM3U
-#EXT-X-VERSION:3
-
-#EXT-X-STREAM-INF:BANDWIDTH=0,CODECS="avc1.640028,mp4a.40.2"
-original.m3u8
-
-#EXT-X-STREAM-INF:BANDWIDTH=6192000,RESOLUTION=1920x1080,CODECS="avc1.640028,mp4a.40.2"
-1080p.m3u8
-
-#EXT-X-STREAM-INF:BANDWIDTH=3128000,RESOLUTION=1280x720,CODECS="avc1.4d001f,mp4a.40.2"
-720p.m3u8
-
-#EXT-X-STREAM-INF:BANDWIDTH=1628000,RESOLUTION=854x480,CODECS="avc1.42e01f,mp4a.40.2"
-480p.m3u8
-`
-
-func main() {
-	if len(os.Args) < 2 || os.Args[1] != "to-hls" {
-		fmt.Fprintf(os.Stderr, "Usage: %s to-hls -input <mkv-object-key> -output <local-dir> -mode video|audio -short-id <id>\n", os.Args[0])
-		os.Exit(1)
-	}
-
-	fs := flag.NewFlagSet("to-hls", flag.ExitOnError)
-	input := fs.String("input", "", "input MKV object key on MinIO")
-	output := fs.String("output", "", "local output directory for HLS")
-	mode := fs.String("mode", "", "transcode mode: video or audio")
-	shortID := fs.String("short-id", "", "content short ID")
-	if err := fs.Parse(os.Args[2:]); err != nil {
-		log.Fatal(err)
-	}
-
-	if *input == "" || *output == "" || *mode == "" || *shortID == "" {
-		fs.Usage()
-		os.Exit(1)
-	}
-
-	ctx := context.Background()
-	mcfg := minioConfigFromEnv()
-
-	// Download MKV from MinIO to local temp file
-	tempDir, err := os.MkdirTemp("", "transcode-*")
-	if err != nil {
-		log.Fatalf("failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	localMKVPath := filepath.Join(tempDir, "input.mkv")
-	if err := downloadMKV(ctx, mcfg, *input, localMKVPath); err != nil {
-		log.Fatalf("failed to download input MKV: %v", err)
-	}
-
-	if err := os.MkdirAll(*output, 0755); err != nil {
-		log.Fatalf("failed to create output dir: %v", err)
-	}
-
-	// 映像トラックの有無とコーデックを検出
-	hasVideo, codec, err := detectVideoMetadata(localMKVPath)
-	if err != nil {
-		log.Fatalf("failed to detect video metadata: %v", err)
-	}
-	log.Printf("Video metadata: hasVideo=%t, codec=%s", hasVideo, codec)
-
-	switch *mode {
-	case "audio":
-		if err := transcodeAudio(localMKVPath, *output); err != nil {
-			log.Fatalf("audio transcode failed: %v", err)
-		}
-	case "original":
-		if !hasVideo {
-			log.Printf("No video stream found. Skipping original transcode.")
-			return
-		}
-		if err := transcodeOriginal(localMKVPath, *output, codec); err != nil {
-			log.Fatalf("original transcode failed: %v", err)
-		}
-	case "1080p", "720p", "480p":
-		if !hasVideo {
-			log.Printf("No video stream found. Skipping %s transcode.", *mode)
-			return
-		}
-		if err := transcodeVideoVariant(localMKVPath, *output, *mode); err != nil {
-			log.Fatalf("%s transcode failed: %v", *mode, err)
-		}
-	default:
-		log.Fatalf("unknown mode: %q (expected original, 1080p, 720p, 480p or audio)", *mode)
-	}
-
-	// Upload HLS directory to MinIO
-	log.Printf("Uploading generated HLS variants to MinIO bucket %s prefix resources/%s...", mcfg.Bucket, *shortID)
-	if err := uploadHLSDir(ctx, mcfg, *output, *shortID); err != nil {
-		log.Fatalf("failed to upload HLS variants to MinIO: %v", err)
-	}
-
-	// Clean up HLS local output
-	log.Printf("Cleaning up local output HLS directory: %s", *output)
-	if err := os.RemoveAll(*output); err != nil {
-		log.Printf("WARNING: failed to clean up local output directory: %v", err)
-	}
-
-	log.Printf("Transcoding and upload complete for short-id: %s", *shortID)
-
-	// 次のジョブ実行前に物理ディスクの書き込みを落ち着かせるためのクールダウン
-	log.Printf("Cooling down disk I/O for 5 seconds...")
-	time.Sleep(5 * time.Second)
 }
 
 func detectVideoMetadata(input string) (bool, string, error) {
@@ -211,7 +88,6 @@ func detectVideoMetadata(input string) (bool, string, error) {
 	)
 	out, err := cmd.Output()
 	if err != nil {
-		// ffprobe がエラー終了した場合は映像なしとする
 		return false, "", nil
 	}
 	codec := strings.TrimSpace(string(out))
@@ -314,5 +190,133 @@ func transcodeAudio(input, outputDir string) error {
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("ffmpeg audio: %w", err)
 	}
+	return nil
+}
+
+func RunTransform(ctx context.Context, osArgs []string) error {
+	fs := flag.NewFlagSet("transform", flag.ContinueOnError)
+	input := fs.String("input", "", "input MKV object key on MinIO")
+	output := fs.String("output", "", "local output directory for HLS")
+	mode := fs.String("mode", "", "transcode mode (original, 1080p, 720p, 480p, audio)")
+	shortID := fs.String("short-id", "", "content short ID")
+	contentID := fs.String("content-id", "", "content ID in database")
+	if err := fs.Parse(osArgs); err != nil {
+		return err
+	}
+
+	if *input == "" || *output == "" || *mode == "" || *shortID == "" {
+		fs.Usage()
+		return fmt.Errorf("missing required arguments for transform")
+	}
+
+	mcfg := shared.MinioConfigFromEnv()
+
+	tempDir, err := os.MkdirTemp("", "transcode-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp dir: %w", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	localMKVPath := filepath.Join(tempDir, "input.mkv")
+	if err := downloadMKV(ctx, mcfg, *input, localMKVPath); err != nil {
+		return fmt.Errorf("failed to download input MKV: %w", err)
+	}
+
+	if err := os.MkdirAll(*output, 0755); err != nil {
+		return fmt.Errorf("failed to create output dir: %w", err)
+	}
+
+	hasVideo, codec, err := detectVideoMetadata(localMKVPath)
+	if err != nil {
+		return fmt.Errorf("failed to detect video metadata: %w", err)
+	}
+	log.Printf("Video metadata: hasVideo=%t, codec=%s", hasVideo, codec)
+
+	switch *mode {
+	case "audio":
+		if err := transcodeAudio(localMKVPath, *output); err != nil {
+			return fmt.Errorf("audio transcode failed: %w", err)
+		}
+	case "original":
+		if !hasVideo {
+			log.Printf("No video stream found. Skipping original transcode.")
+			return nil
+		}
+		if err := transcodeOriginal(localMKVPath, *output, codec); err != nil {
+			return fmt.Errorf("original transcode failed: %w", err)
+		}
+	case "1080p", "720p", "480p":
+		if !hasVideo {
+			log.Printf("No video stream found. Skipping %s transcode.", *mode)
+			return nil
+		}
+		if err := transcodeVideoVariant(localMKVPath, *output, *mode); err != nil {
+			return fmt.Errorf("%s transcode failed: %w", *mode, err)
+		}
+	default:
+		return fmt.Errorf("unknown mode: %q (expected original, 1080p, 720p, 480p or audio)", *mode)
+	}
+
+	log.Printf("Uploading generated HLS variants to MinIO bucket %s prefix resources/%s...", mcfg.Bucket, *shortID)
+	if err := uploadHLSDir(ctx, mcfg, *output, *shortID); err != nil {
+		return fmt.Errorf("failed to upload HLS variants to MinIO: %w", err)
+	}
+
+	log.Printf("Transcoding and upload complete for short-id: %s", *shortID)
+
+	log.Printf("Cleaning up local output HLS directory: %s", *output)
+	if err := os.RemoveAll(*output); err != nil {
+		log.Printf("WARNING: failed to clean up local output directory: %v", err)
+	}
+
+	postgresDSN := shared.GetPostgresDSN()
+	if postgresDSN == "" {
+		log.Printf("PostgreSQL connection string is not set (DB_HOST empty). Skipping database registration.")
+	} else if *contentID == "" {
+		log.Printf("Content ID is not provided. Skipping database registration.")
+	} else {
+		log.Printf("Connecting to PostgreSQL to register variant...")
+		db, err := pgxpool.New(ctx, postgresDSN)
+		if err != nil {
+			return fmt.Errorf("failed to connect to PostgreSQL: %w", err)
+		}
+		defer db.Close()
+
+		vSpec := shared.BuildVariantInfo(*mode)
+		
+		log.Printf("Registering variant %s to content %s...", *mode, *contentID)
+		if err := shared.RegisterVariant(ctx, db, *contentID, *shortID, *mode, vSpec); err != nil {
+			return fmt.Errorf("failed to register variant %s: %w", *mode, err)
+		}
+
+		minioClient, err := minio.New(mcfg.URL, &minio.Options{
+			Creds:  credentials.NewStaticV4(mcfg.AccessKey, mcfg.SecretKey, ""),
+			Secure: mcfg.UseSSL,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create MinIO client for master playlist: %w", err)
+		}
+
+		variants, err := shared.GetMinioVariants(ctx, minioClient, mcfg.Bucket, *shortID)
+		if err != nil {
+			return fmt.Errorf("failed to get MinIO HLS variants: %w", err)
+		}
+
+		createdMaster, err := shared.GenerateAndUploadMasterPlaylist(ctx, minioClient, mcfg.Bucket, *shortID, variants)
+		if err != nil {
+			return fmt.Errorf("failed to generate and upload master playlist: %w", err)
+		}
+
+		if createdMaster {
+			log.Printf("Registering/updating master variant in database...")
+			masterSpec := shared.VariantInfo{VariantType: "master"}
+			if err := shared.RegisterVariant(ctx, db, *contentID, *shortID, "master", masterSpec); err != nil {
+				return fmt.Errorf("failed to register master variant: %w", err)
+			}
+		}
+	}
+
+	log.Printf("Cooling down disk I/O for 5 seconds...")
+	time.Sleep(5 * time.Second)
 	return nil
 }

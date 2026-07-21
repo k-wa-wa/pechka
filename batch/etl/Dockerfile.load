@@ -1,0 +1,11 @@
+FROM golang:1.25-alpine AS builder
+WORKDIR /app
+COPY batch/etl/go.mod batch/etl/go.sum ./
+RUN go mod download
+COPY batch/etl/ ./
+RUN CGO_ENABLED=0 GOOS=linux go build -o /pechka-etl .
+
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates
+COPY --from=builder /pechka-etl /usr/local/bin/pechka-etl
+ENTRYPOINT ["/usr/local/bin/pechka-etl", "load"]

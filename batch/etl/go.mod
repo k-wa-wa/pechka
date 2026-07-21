@@ -1,4 +1,4 @@
-module github.com/k-wa-wa/pechka/etl/load
+module github.com/k-wa-wa/pechka/batch/etl
 
 go 1.25.0
 

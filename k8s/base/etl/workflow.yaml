@@ -77,7 +77,21 @@ spec:
           - name: short-id
       dag:
         tasks:
+          - name: init-db
+            when: "{{inputs.parameters.mkv-files-json}} != '[]'"
+            template: load-hls
+            arguments:
+              parameters:
+                - name: label
+                  value: "{{inputs.parameters.disc-label}}"
+                - name: content-title
+                  value: "{{inputs.parameters.content-title}}"
+                - name: short-id
+                  value: "{{inputs.parameters.short-id}}"
+                - name: phase
+                  value: "init"
           - name: transcode
+            dependencies: [init-db]
             when: "{{inputs.parameters.mkv-files-json}} != '[]'"
             withParam: "{{inputs.parameters.mkv-files-json}}"
             template: transcode-mkv-parallel
@@ -91,6 +105,8 @@ spec:
                   value: "{{item.title}}"
                 - name: short-id
                   value: "{{inputs.parameters.short-id}}"
+                - name: content-id
+                  value: "{{tasks.init-db.outputs.parameters.content-id}}"
           - name: load
             dependencies: [transcode]
             when: "{{inputs.parameters.mkv-files-json}} != '[]'"
@@ -103,6 +119,10 @@ spec:
                   value: "{{inputs.parameters.content-title}}"
                 - name: short-id
                   value: "{{inputs.parameters.short-id}}"
+                - name: phase
+                  value: "finalize"
+                - name: content-id
+                  value: "{{tasks.init-db.outputs.parameters.content-id}}"
           - name: thumbnail
             dependencies: [load]
             withParam: "{{inputs.parameters.mkv-files-json}}"
@@ -112,7 +132,7 @@ spec:
                 - name: mkv-path
                   value: "{{item.mkv-path}}"
                 - name: content-id
-                  value: "{{tasks.load.outputs.parameters.content-id}}"
+                  value: "{{tasks.init-db.outputs.parameters.content-id}}"
                 - name: short-id
                   value: "{{inputs.parameters.short-id}}"
           - name: refresh
@@ -281,6 +301,7 @@ spec:
           - name: label
           - name: title
           - name: short-id
+          - name: content-id
       parallelism: 1
       steps:
         - - name: run-transcode
@@ -295,6 +316,8 @@ spec:
                   value: "{{item}}"
                 - name: short-id
                   value: "{{inputs.parameters.short-id}}"
+                - name: content-id
+                  value: "{{inputs.parameters.content-id}}"
             withItems:
               - original
               # - 1080p
@@ -310,11 +333,12 @@ spec:
           - name: label
           - name: mode
           - name: short-id
+          - name: content-id
       container:
         image: ghcr.io/k-wa-wa/pechka/etl-transform:latest
-        command: ["/usr/local/bin/transform"]
+        command: ["/usr/local/bin/pechka-etl"]
         args:
-          - "to-hls"
+          - "transform"
           - "-input"
           - "{{inputs.parameters.mkv-path}}"
           - "-output"
@@ -323,6 +347,8 @@ spec:
           - "{{inputs.parameters.mode}}"
           - "-short-id"
           - "{{inputs.parameters.short-id}}"
+          - "-content-id"
+          - "{{inputs.parameters.content-id}}"
         resources:
           requests:
             cpu: 1500m
@@ -351,6 +377,27 @@ spec:
               secretKeyRef:
                 name: pechka-minio
                 key: secret-key
+          - name: DB_HOST
+            value: "{{workflow.parameters.db-host}}"
+          - name: DB_PORT
+            value: "5432"
+          - name: DB_USER
+            valueFrom:
+              secretKeyRef:
+                name: postgres-credentials
+                key: user
+          - name: DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: postgres-credentials
+                key: password
+          - name: DB_NAME
+            valueFrom:
+              secretKeyRef:
+                name: postgres-credentials
+                key: database
+          - name: SSL_MODE
+            value: disable
         volumeMounts:
           - name: transcode-temp
             mountPath: /tmp/transcode
@@ -365,9 +412,17 @@ spec:
           - name: label
           - name: content-title
           - name: short-id
+          - name: phase
+            value: "all"
+          - name: content-id
+            value: ""
       container:
         image: ghcr.io/k-wa-wa/pechka/etl-load:latest
-        command: ["/usr/local/bin/nfs-importer"]
+        command: ["/usr/local/bin/pechka-etl"]
+        args:
+          - "load"
+          - "-phase"
+          - "{{inputs.parameters.phase}}"
         resources:
           requests:
             cpu: 200m
@@ -384,6 +439,8 @@ spec:
             value: "{{inputs.parameters.content-title}}"
           - name: CONTENT_TYPE
             value: video
+          - name: CONTENT_ID
+            value: "{{inputs.parameters.content-id}}"
           - name: MINIO_BUCKET
             valueFrom:
               configMapKeyRef:
@@ -430,6 +487,7 @@ spec:
           - name: content-id
             valueFrom:
               path: /tmp/content-id
+              default: "" # init以外のphaseでは生成されない可能性があるためdefaultを置く
           - name: short-id
             valueFrom:
               path: /tmp/short-id
@@ -442,7 +500,7 @@ spec:
           - name: content-id
           - name: short-id
       container:
-        image: ghcr.io/k-wa-wa/pechka/etl-thumbnail:latest
+        image: ghcr.io/k-wa-wa/pechka/etl-generate-thumbnail:latest
         command: ["python", "analyze.py"]
         args:
           - "--input"

@@ -4,7 +4,7 @@ set -euo pipefail
 
 CLUSTER_NAME="${CLUSTER_NAME:-pechka-cluster}"
 REGISTRY="ghcr.io/k-wa-wa/pechka"
-ETL_COMPONENTS=(extract transform load thumbnail refresh-latest-playlist)
+ETL_COMPONENTS=(extract transform load generate-thumbnail refresh-latest-playlist)
 
 # Use system Docker, not Docker Desktop socket
 # unset DOCKER_HOST
@@ -21,7 +21,11 @@ echo ""
 echo "=== Building ETL Images ==="
 for COMP in "${ETL_COMPONENTS[@]}"; do
     echo "Building ${REGISTRY}/etl-${COMP}:latest..."
-    docker build -t "${REGISTRY}/etl-${COMP}:latest" "./etl/${COMP}"
+    if [ "$COMP" = "extract" ] || [ "$COMP" = "transform" ] || [ "$COMP" = "load" ]; then
+        docker build -t "${REGISTRY}/etl-${COMP}:latest" -f "./batch/etl/Dockerfile.${COMP}" .
+    else
+        docker build -t "${REGISTRY}/etl-${COMP}:latest" "./batch/${COMP}"
+    fi
 done
 
 echo ""

@@ -1,9 +1,9 @@
 FROM golang:1.25 AS builder
 WORKDIR /app
-COPY go.mod go.sum ./
+COPY batch/etl/go.mod batch/etl/go.sum ./
 RUN go mod download
-COPY main.go .
-RUN CGO_ENABLED=0 go build -o extract .
+COPY batch/etl/ ./
+RUN CGO_ENABLED=0 go build -o pechka-etl .
 
 FROM ubuntu:22.04
 
@@ -32,6 +32,6 @@ RUN wget -q "https://www.makemkv.com/download/old/makemkv-oss-1.18.3.tar.gz" -O 
     && rm -rf /tmp/makemkv-* \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /app/extract /usr/local/bin/extract
+COPY --from=builder /app/pechka-etl /usr/local/bin/pechka-etl
 
-ENTRYPOINT ["/usr/local/bin/extract"]
+ENTRYPOINT ["/usr/local/bin/pechka-etl", "extract"]
