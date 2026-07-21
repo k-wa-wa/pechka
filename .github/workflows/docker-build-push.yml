@@ -23,19 +23,22 @@ jobs:
             context: ./frontend
             image: ghcr.io/${{ github.repository }}-frontend
           - name: etl-extract
-            context: ./etl/extract
+            context: .
+            file: ./batch/etl/Dockerfile.extract
             image: ghcr.io/${{ github.repository }}/etl-extract
           - name: etl-transform
-            context: ./etl/transform
+            context: .
+            file: ./batch/etl/Dockerfile.transform
             image: ghcr.io/${{ github.repository }}/etl-transform
           - name: etl-load
-            context: ./etl/load
+            context: .
+            file: ./batch/etl/Dockerfile.load
             image: ghcr.io/${{ github.repository }}/etl-load
-          - name: etl-thumbnail
-            context: ./etl/thumbnail
-            image: ghcr.io/${{ github.repository }}/etl-thumbnail
+          - name: etl-generate-thumbnail
+            context: ./batch/generate-thumbnail
+            image: ghcr.io/${{ github.repository }}/etl-generate-thumbnail
           - name: etl-refresh-latest-playlist
-            context: ./etl/refresh-latest-playlist
+            context: ./batch/refresh-latest-playlist
             image: ghcr.io/${{ github.repository }}/etl-refresh-latest-playlist
 
     steps:
@@ -56,6 +59,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
           push: true
           tags: |
             ${{ matrix.image }}:latest
