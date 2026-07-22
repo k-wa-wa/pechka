@@ -16,7 +16,7 @@ data:
             driver: postgres
             dsn: "${POSTGRES_DSN}"
             query: |
-              SELECT 
+              SELECT
                   c.short_id,
                   c.content_type,
                   c.title,
@@ -25,6 +25,7 @@ data:
                   c.is_360,
                   array_to_json(c.tags) AS tags,
                   c.status,
+                  c.thumbnail_key,
                   c.published_at,
                   c.updated_at,
                   d.label AS disc_label,
@@ -53,6 +54,7 @@ data:
                   "is_360": this.is_360,
                   "tags": this.tags.parse_json().catch(this.tags),
                   "status": this.status,
+                  "thumbnail_key": this.thumbnail_key,
                   "published_at": this.published_at,
                   "updated_at": this.updated_at,
                   "disc_label": this.disc_label,
@@ -72,6 +74,7 @@ data:
                   "is_360": item.is_360,
                   "tags": item.tags.parse_json().catch(item.tags),
                   "status": item.status,
+                  "thumbnail_key": item.thumbnail_key,
                   "published_at": item.published_at,
                   "updated_at": item.updated_at,
                   "disc_label": item.disc_label,
