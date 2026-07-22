@@ -22,7 +22,7 @@ export default function VideoPlayer({ variants }: Props) {
   const [selectedVariant, setSelectedVariant] = useState<string>('master')
   const [error, setError] = useState<string | null>(null)
 
-  const lastPlaybackState = useRef({ currentTime: 0, paused: true })
+  const lastPlaybackState = useRef({ currentTime: 0, paused: false })
 
   const handleVariantChange = (variantType: string) => {
     if (videoRef.current) {
