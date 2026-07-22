@@ -1,65 +1,3 @@
-x-env:
-  minio-bucket: &env-minio-bucket
-    name: MINIO_BUCKET
-    valueFrom:
-      configMapKeyRef:
-        name: pechka-config
-        key: minio-bucket
-  minio-url: &env-minio-url
-    name: MINIO_URL
-    valueFrom:
-      configMapKeyRef:
-        name: pechka-config
-        key: minio-url
-  minio-user: &env-minio-user
-    name: MINIO_ACCESS_KEY
-    valueFrom:
-      secretKeyRef:
-        name: minio-secret
-        key: MINIO_ROOT_USER
-  minio-pass: &env-minio-pass
-    name: MINIO_SECRET_KEY
-    valueFrom:
-      secretKeyRef:
-        name: minio-secret
-        key: MINIO_ROOT_PASSWORD
-  db-host: &env-db-host
-    name: DB_HOST
-    valueFrom:
-      configMapKeyRef:
-        name: pechka-config
-        key: postgres-host
-  db-port: &env-db-port
-    name: DB_PORT
-    valueFrom:
-      configMapKeyRef:
-        name: pechka-config
-        key: postgres-port
-  db-user: &env-db-user
-    name: DB_USER
-    valueFrom:
-      secretKeyRef:
-        name: postgres-secret
-        key: POSTGRES_USER
-  db-password: &env-db-pass
-    name: DB_PASSWORD
-    valueFrom:
-      secretKeyRef:
-        name: postgres-secret
-        key: POSTGRES_PASSWORD
-  db-name: &env-db-name
-    name: DB_NAME
-    valueFrom:
-      secretKeyRef:
-        name: postgres-secret
-        key: POSTGRES_DB
-  ssl-mode: &env-ssl-mode
-    name: SSL_MODE
-    valueFrom:
-      configMapKeyRef:
-        name: pechka-config
-        key: ssl-mode
-
 apiVersion: argoproj.io/v1alpha1
 kind: WorkflowTemplate
 metadata:
@@ -221,16 +159,67 @@ spec:
             value: /dev/sr1
           - name: LOCAL_MKV_DIR
             value: /mnt/mkv
-          - *env-minio-bucket
-          - *env-minio-url
-          - *env-minio-user
-          - *env-minio-pass
-          - *env-db-host
-          - *env-db-port
-          - *env-db-user
-          - *env-db-pass
-          - *env-db-name
-          - *env-ssl-mode
+          # Base Environment Anchors
+          - &env-minio-bucket
+            name: MINIO_BUCKET
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: minio-bucket
+          - &env-minio-url
+            name: MINIO_URL
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: minio-url
+          - &env-minio-user
+            name: MINIO_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: minio-secret
+                key: MINIO_ROOT_USER
+          - &env-minio-pass
+            name: MINIO_SECRET_KEY
+            valueFrom:
+              secretKeyRef:
+                name: minio-secret
+                key: MINIO_ROOT_PASSWORD
+          - &env-db-host
+            name: DB_HOST
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: postgres-host
+          - &env-db-port
+            name: DB_PORT
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: postgres-port
+          - &env-db-user
+            name: DB_USER
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: POSTGRES_USER
+          - &env-db-pass
+            name: DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: POSTGRES_PASSWORD
+          - &env-db-name
+            name: DB_NAME
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: POSTGRES_DB
+          - &env-ssl-mode
+            name: SSL_MODE
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: ssl-mode
         volumeMounts:
           - name: local-mkv
             mountPath: /mnt/mkv
