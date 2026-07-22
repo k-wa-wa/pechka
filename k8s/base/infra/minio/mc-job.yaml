@@ -4,6 +4,7 @@ metadata:
   name: minio-setup
   namespace: pechka
 spec:
+  ttlSecondsAfterFinished: 300
   template:
     spec:
       restartPolicy: OnFailure
