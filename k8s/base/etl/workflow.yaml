@@ -4,35 +4,8 @@ metadata:
   name: etl-bluray
   namespace: pechka
 spec:
-  volumes:
-    - name: bluray-dev
-      hostPath:
-        path: /dev/sr1
-        type: BlockDevice
-
   templates:
-    # --- Entrypoint 1: Auto Extract & Ingestion ---
-    - name: auto
-      dag:
-        tasks:
-          - name: extract-mkv
-            template: extract-mkv
-          - name: ingest
-            dependencies: [extract-mkv]
-            when: "'{{tasks.extract-mkv.outputs.parameters.bluray-label}}' != ''"
-            template: ingest-flow
-            arguments:
-              parameters:
-                - name: disc-label
-                  value: "{{tasks.extract-mkv.outputs.parameters.bluray-label}}"
-                - name: mkv-files-json
-                  value: "{{tasks.extract-mkv.outputs.parameters.mkv-files-json}}"
-                - name: content-title
-                  value: ""
-                - name: short-id
-                  value: "{{tasks.extract-mkv.outputs.parameters.short-id}}"
-
-    # --- Entrypoint 2: Manual Ingestion (from existing MKVs) ---
+    # --- Entrypoint: Manual Ingestion (from existing MKVs on NFS) ---
     - name: manual
       inputs:
         parameters:
@@ -136,27 +109,26 @@ spec:
 
     # --- Reusable Task Templates ---
 
-    # 1. extract-mkv (Runs on host with physical Blu-ray drive)
-    - name: extract-mkv
-      nodeSelector:
-        bluray-disk-device: "true"
+    # 1. scan-mkv (Scans existing MKVs on NFS, runs on any node)
+    - name: scan-mkv
+      inputs:
+        parameters:
+          - name: label
       container:
         image: ghcr.io/k-wa-wa/pechka/etl-extract:latest
         command: ["/usr/local/bin/pechka-etl"]
         args:
           - "extract"
-        securityContext:
-          privileged: true
         resources:
           requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
             cpu: 500m
             memory: 512Mi
-          limits:
-            cpu: "2"
-            memory: 2Gi
         env:
-          - name: DEVICE
-            value: /dev/sr1
+          - name: DISC_LABEL
+            value: "{{inputs.parameters.label}}"
           - name: LOCAL_MKV_DIR
             value: /mnt/mkv
           # Base Environment Anchors
@@ -220,58 +192,6 @@ spec:
               configMapKeyRef:
                 name: pechka-config
                 key: ssl-mode
-        volumeMounts:
-          - name: local-mkv
-            mountPath: /mnt/mkv
-          - name: bluray-dev
-            mountPath: /dev/sr1
-      volumes:
-        - name: local-mkv
-          emptyDir: {}
-      outputs:
-        parameters:
-          - name: bluray-label
-            valueFrom:
-              path: /tmp/bluray-label
-          - name: mkv-files-json
-            valueFrom:
-              path: /tmp/mkv-files.json
-          - name: short-id
-            valueFrom:
-              path: /tmp/short-id
-
-    # 2. scan-mkv (Scans existing MKVs on NFS, runs on any node)
-    - name: scan-mkv
-      inputs:
-        parameters:
-          - name: label
-      container:
-        image: ghcr.io/k-wa-wa/pechka/etl-extract:latest
-        command: ["/usr/local/bin/pechka-etl"]
-        args:
-          - "extract"
-        resources:
-          requests:
-            cpu: 100m
-            memory: 128Mi
-          limits:
-            cpu: 500m
-            memory: 512Mi
-        env:
-          - name: DISC_LABEL
-            value: "{{inputs.parameters.label}}"
-          - name: LOCAL_MKV_DIR
-            value: /mnt/mkv
-          - *env-minio-bucket
-          - *env-minio-url
-          - *env-minio-user
-          - *env-minio-pass
-          - *env-db-host
-          - *env-db-port
-          - *env-db-user
-          - *env-db-pass
-          - *env-db-name
-          - *env-ssl-mode
       outputs:
         parameters:
           - name: mkv-files-json

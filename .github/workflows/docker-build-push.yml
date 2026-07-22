@@ -22,6 +22,10 @@ jobs:
           - name: frontend
             context: ./frontend
             image: ghcr.io/${{ github.repository }}-frontend
+          - name: etl-extract
+            context: .
+            file: ./batch/etl/Dockerfile.extract
+            image: ghcr.io/${{ github.repository }}/etl-extract
           - name: etl-transform
             context: .
             file: ./batch/etl/Dockerfile.transform
