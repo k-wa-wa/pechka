@@ -17,48 +17,59 @@ MAX_THUMBNAILS = 5
 THUMBNAIL_PREFIX = "thumbnails/"
 
 
-def extract_frames(input_path: str, output_dir: str, interval: int) -> list[str]:
-    """Extract frames every `interval` seconds using ffmpeg."""
-    output_pattern = str(Path(output_dir) / "frame_%04d.jpg")
+def get_duration_seconds(input_path: str) -> float:
+    """Probe media duration via ffprobe (reads container metadata only, no decode)."""
+    result = subprocess.run(
+        [
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            input_path,
+        ],
+        capture_output=True, text=True,
+    )
+    try:
+        return float(result.stdout.strip())
+    except ValueError:
+        return 0.0
+
+
+def extract_frame_at(input_path: str, timestamp: float, output_path: Path) -> bool:
+    """Seek to `timestamp` (fast input seek) and grab a single frame."""
     try:
         subprocess.run(
             [
-                "ffmpeg", "-i", input_path,
-                "-vf", f"fps=1/{interval},scale=320:-1",
+                "ffmpeg", "-ss", str(timestamp), "-i", input_path,
+                "-frames:v", "1",
+                "-vf", "scale=320:-1",
                 "-pix_fmt", "yuvj420p",
                 "-q:v", "2",
-                output_pattern,
+                str(output_path),
             ],
             check=True,
             capture_output=True,
         )
     except subprocess.CalledProcessError as e:
-        print("ffmpeg stdout:", e.stdout.decode(), file=sys.stderr)
-        print("ffmpeg stderr:", e.stderr.decode(), file=sys.stderr)
-        raise
-    
-    frames = sorted(Path(output_dir).glob("frame_*.jpg"))
-    if not frames:
-        print("No frames extracted with fps filter. Falling back to extracting the first frame...", file=sys.stderr)
-        try:
-            subprocess.run(
-                [
-                    "ffmpeg", "-i", input_path,
-                    "-vframes", "1",
-                    "-vf", "scale=320:-1",
-                    "-pix_fmt", "yuvj420p",
-                    "-q:v", "2",
-                    str(Path(output_dir) / "frame_0001.jpg"),
-                ],
-                check=True,
-                capture_output=True,
-            )
-            frames = sorted(Path(output_dir).glob("frame_*.jpg"))
-        except subprocess.CalledProcessError as e:
-            print("ffmpeg fallback stdout:", e.stdout.decode(), file=sys.stderr)
-            print("ffmpeg fallback stderr:", e.stderr.decode(), file=sys.stderr)
-            raise
-    return frames
+        print(f"ffmpeg failed to extract frame at {timestamp}s:", file=sys.stderr)
+        print("stdout:", e.stdout.decode(), file=sys.stderr)
+        print("stderr:", e.stderr.decode(), file=sys.stderr)
+        return False
+    return output_path.exists()
+
+
+def extract_frames(input_path: str, output_dir: str, interval: int) -> list[Path]:
+    """Seek to evenly spaced timestamps and extract one frame at each, instead of
+    sequentially decoding the entire source just to sample a handful of frames."""
+    duration = get_duration_seconds(input_path)
+    timestamps = list(range(0, int(duration), interval)) if duration > 0 else [0]
+
+    frames = []
+    for i, ts in enumerate(timestamps, 1):
+        out_path = Path(output_dir) / f"frame_{i:04d}.jpg"
+        if extract_frame_at(input_path, ts, out_path):
+            frames.append(out_path)
+
+    return sorted(frames)
 
 
 def brightness_score(path: str) -> float:
@@ -170,7 +181,7 @@ def main() -> None:
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        print("Extracting frames via streaming...")
+        print("Seeking to sample points and extracting frames...")
         frames = extract_frames(presigned_url, tmpdir, SAMPLE_INTERVAL_SEC)
         if not frames:
             print("No frames extracted. Exiting.")
