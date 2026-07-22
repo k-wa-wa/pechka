@@ -35,6 +35,7 @@ pipeline:
               root.is_360        = $row.is_360
               root.tags          = $row.tags
               root.status        = $row.status
+              root.thumbnail_key = $row.thumbnail_key
               root.published_at  = $row.published_at
               root.updated_at    = $row.updated_at
               root._deleted      = $op == "delete"

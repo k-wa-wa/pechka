@@ -13,3 +13,4 @@ configMapGenerator:
     files:
       - 001_create_tables.up.sql=migrations/001_create_tables.up.sql
       - 002_add_unique_disc_title.up.sql=migrations/002_add_unique_disc_title.up.sql
+      - 003_add_thumbnail_key.up.sql=migrations/003_add_thumbnail_key.up.sql

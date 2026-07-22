@@ -14,6 +14,7 @@ import psycopg2
 
 SAMPLE_INTERVAL_SEC = 120
 MAX_THUMBNAILS = 5
+THUMBNAIL_PREFIX = "thumbnails/"
 
 
 def extract_frames(input_path: str, output_dir: str, interval: int) -> list[str]:
@@ -108,13 +109,13 @@ def upload_thumbnails(
     )
     keys = []
     for i, path in enumerate(thumbnails, 1):
-        key = f"thumbnails/{short_id}/thumb_{i:02d}.jpg"
+        key = f"{THUMBNAIL_PREFIX}{short_id}/thumb_{i:02d}.jpg"
         client.upload_file(path, bucket, key, ExtraArgs={"ContentType": "image/jpeg"})
         keys.append(key)
     return keys
 
 
-def register_assets(conn, content_id: str, s3_keys: list[str]) -> None:
+def register_assets(conn, content_id: str, s3_keys: list[str], thumbnail_key: str) -> None:
     with conn.cursor() as cur:
         for key in s3_keys:
             cur.execute(
@@ -125,6 +126,16 @@ def register_assets(conn, content_id: str, s3_keys: list[str]) -> None:
                 """,
                 (content_id, key),
             )
+        # contents.thumbnail_key に代表サムネイルを設定する。
+        # CDC (Benthos) が contents テーブルの変更を購読しているため、
+        # ここに書けば自動的に MongoDB の表示用ドキュメントへ反映される。
+        # フロントエンドは `/thumbnails/${thumbnail_key}` として参照する
+        # (nginx 側の rewrite が bucket 直下の "thumbnails/" プレフィックスを
+        # 付与するため、ここには含めない)。
+        cur.execute(
+            "UPDATE contents SET thumbnail_key = %s WHERE id = %s",
+            (thumbnail_key, content_id),
+        )
     conn.commit()
 
 
@@ -178,9 +189,13 @@ def main() -> None:
         )
         print(f"Uploaded: {s3_keys}")
 
+    # frontend が `/thumbnails/${thumbnail_key}` として参照する値
+    # (nginx が bucket 直下の "thumbnails/" プレフィックスを付与するため除去する)
+    thumbnail_key = s3_keys[0].removeprefix(THUMBNAIL_PREFIX)
+
     conn = psycopg2.connect(postgres_dsn)
     try:
-        register_assets(conn, args.content_id, s3_keys)
+        register_assets(conn, args.content_id, s3_keys, thumbnail_key)
         print("Assets registered in PostgreSQL.")
     finally:
         conn.close()
