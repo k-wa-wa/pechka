@@ -1,0 +1,32 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: postgres-migrate
+  namespace: pechka
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: wait-for-postgres
+          command:
+            - sh
+            - -c
+            - until pg_isready -h postgres -U pechka; do echo "waiting for postgres..."; sleep 2; done
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+      containers:
+        - name: migrate
+          command:
+            - sh
+            - -c
+            - psql -h postgres -U pechka -d pechka -f /migrations/001_create_tables.up.sql
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD

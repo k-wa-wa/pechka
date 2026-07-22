@@ -6,6 +6,7 @@ resources:
 
 patches:
   - path: image-pull-policy-patch.yaml
+  - path: postgres/migrate-job-patch.yaml
 
 generatorOptions:
   disableNameSuffixHash: true

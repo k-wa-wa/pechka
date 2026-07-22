@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - migrate-job.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+configMapGenerator:
+  - name: postgres-migrations
+    namespace: pechka
+    files:
+      - 001_create_tables.up.sql=migrations/001_create_tables.up.sql
