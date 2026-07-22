@@ -32,7 +32,7 @@ func loadConfigFromEnv() LoadConfig {
 		DiscLabel:    discLabel,
 		ContentTitle: contentTitle,
 		ContentType:  os.Getenv("CONTENT_TYPE"),
-		Is360:          os.Getenv("IS_360") == "true",
+		Is360:        os.Getenv("IS_360") == "true",
 	}
 }
 
