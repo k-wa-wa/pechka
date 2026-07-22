@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pechka-config
+data:
+  postgres-host: "postgres"
+  postgres-port: "5432"
+  ssl-mode: "disable"
+  mongo-host: "mongodb"
+  mongo-port: "27017"
+  elasticsearch-url: "http://elasticsearch:9200"
+  minio-url: "minio:9000"
+  minio-bucket: "pechka"
+  allowed-ip-range: "0.0.0.0/0"

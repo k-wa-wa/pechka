@@ -22,23 +22,70 @@ spec:
           env:
             - name: PORT
               value: "8080"
+            - name: POSTGRES_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: postgres-host
+            - name: POSTGRES_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: postgres-port
+            - name: SSL_MODE
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: ssl-mode
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_DB
             - name: POSTGRES_DSN
+              value: "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/$(POSTGRES_DB)?sslmode=$(SSL_MODE)"
+            - name: MONGO_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: mongo-host
+            - name: MONGO_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: mongo-port
+            - name: MONGO_USER
               valueFrom:
                 secretKeyRef:
-                  name: api-secret
-                  key: POSTGRES_DSN
-            - name: MONGO_URL
+                  name: mongodb-secret
+                  key: MONGO_INITDB_ROOT_USERNAME
+            - name: MONGO_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: api-secret
-                  key: MONGO_URL
+                  name: mongodb-secret
+                  key: MONGO_INITDB_ROOT_PASSWORD
             - name: MONGO_DB
-              value: pechka
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-secret
+                  key: MONGO_INITDB_DATABASE
+            - name: MONGO_URL
+              value: "mongodb://$(MONGO_USER):$(MONGO_PASSWORD)@$(MONGO_HOST):$(MONGO_PORT)/$(MONGO_DB)?authSource=admin&w=1"
             - name: ELASTICSEARCH_URL
               valueFrom:
-                secretKeyRef:
-                  name: api-secret
-                  key: ELASTICSEARCH_URL
+                configMapKeyRef:
+                  name: pechka-config
+                  key: elasticsearch-url
             - name: ALLOWED_IP_RANGE
               valueFrom:
                 configMapKeyRef:

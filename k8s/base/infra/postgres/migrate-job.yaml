@@ -19,13 +19,13 @@ spec:
             - name: PGUSER
               valueFrom:
                 secretKeyRef:
-                  name: postgres-credentials
-                  key: user
+                  name: postgres-secret
+                  key: POSTGRES_USER
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: postgres-credentials
-                  key: password
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
       containers:
         - name: migrate
           image: postgres:16
@@ -37,18 +37,18 @@ spec:
             - name: PGUSER
               valueFrom:
                 secretKeyRef:
-                  name: postgres-credentials
-                  key: user
+                  name: postgres-secret
+                  key: POSTGRES_USER
             - name: PGDATABASE
               valueFrom:
                 secretKeyRef:
-                  name: postgres-credentials
-                  key: database
+                  name: postgres-secret
+                  key: POSTGRES_DB
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: postgres-credentials
-                  key: password
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
           volumeMounts:
             - name: migrations
               mountPath: /migrations

@@ -12,7 +12,6 @@ resources:
 
 
 patches:
-  - path: workflow-patch.yaml
   - path: pvc-local-path-patch.yaml
 
 
@@ -21,8 +20,6 @@ generatorOptions:
 
 configMapGenerator:
   - name: pechka-config
-    namespace: pechka
+    behavior: merge
     literals:
-      - minio-bucket=pechka
-      - minio-url=minio:9000
       - allowed-ip-range=10.0.0.0/8

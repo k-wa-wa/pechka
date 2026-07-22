@@ -16,6 +16,7 @@ kind: Kustomization
 
 resources:
   - namespace.yaml
+  - ../../base/infra/configmap
   - ../../base/api
   - ../../base/frontend
   - ../../base/infra/nginx
@@ -39,5 +40,6 @@ generatorOptions:
 
 configMapGenerator:
   - name: pechka-config
+    behavior: merge
     literals:
       - allowed-ip-range=0.0.0.0/0

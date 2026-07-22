@@ -88,13 +88,13 @@ spec:
             - name: MINIO_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: pechka-minio
-                  key: access-key
+                  name: minio-secret
+                  key: MINIO_ROOT_USER
             - name: MINIO_SECRET_KEY
               valueFrom:
                 secretKeyRef:
-                  name: pechka-minio
-                  key: secret-key
+                  name: minio-secret
+                  key: MINIO_ROOT_PASSWORD
           volumeMounts:
             - name: fixtures
               mountPath: /fixtures
@@ -111,11 +111,23 @@ spec:
                 -c "CREATE TABLE IF NOT EXISTS video_variants (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), content_id UUID NOT NULL REFERENCES contents(id) ON DELETE CASCADE, variant_type VARCHAR(20) NOT NULL, hls_key TEXT NOT NULL, bandwidth INTEGER, resolution VARCHAR(20), codecs VARCHAR(100), created_at TIMESTAMPTZ DEFAULT NOW())"
               echo "Migration complete"
           env:
-            - name: POSTGRES_DSN
+            - name: DB_USER
               valueFrom:
                 secretKeyRef:
-                  name: pechka-postgres
-                  key: dsn
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_DB
+            - name: POSTGRES_DSN
+              value: "postgres://$(DB_USER):$(DB_PASSWORD)@postgres:5432/$(DB_NAME)?sslmode=disable"
 
         # Step 3: Run load component with fixture HLS files
         - name: load
@@ -145,18 +157,30 @@ spec:
             - name: MINIO_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: pechka-minio
-                  key: access-key
+                  name: minio-secret
+                  key: MINIO_ROOT_USER
             - name: MINIO_SECRET_KEY
               valueFrom:
                 secretKeyRef:
-                  name: pechka-minio
-                  key: secret-key
-            - name: POSTGRES_DSN
+                  name: minio-secret
+                  key: MINIO_ROOT_PASSWORD
+            - name: DB_USER
               valueFrom:
                 secretKeyRef:
-                  name: pechka-postgres
-                  key: dsn
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_DB
+            - name: POSTGRES_DSN
+              value: "postgres://$(DB_USER):$(DB_PASSWORD)@postgres:5432/$(DB_NAME)?sslmode=disable"
           volumeMounts:
             - name: fixtures
               mountPath: /fixtures
@@ -188,11 +212,23 @@ spec:
 
               echo "=== All checks passed ==="
           env:
-            - name: POSTGRES_DSN
+            - name: DB_USER
               valueFrom:
                 secretKeyRef:
-                  name: pechka-postgres
-                  key: dsn
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_DB
+            - name: POSTGRES_DSN
+              value: "postgres://$(DB_USER):$(DB_PASSWORD)@postgres:5432/$(DB_NAME)?sslmode=disable"
           volumeMounts:
             - name: fixtures
               mountPath: /fixtures
