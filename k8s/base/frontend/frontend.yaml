@@ -3,6 +3,11 @@ kind: Deployment
 metadata:
   name: frontend
   namespace: pechka
+  annotations:
+    keel.sh/policy: force
+    keel.sh/trigger: poll
+    keel.sh/pollSchedule: "@every 2m"
+    keel.sh/monitorContainers: "frontend"
 spec:
   replicas: 1
   selector:
