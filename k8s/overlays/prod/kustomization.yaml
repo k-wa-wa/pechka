@@ -8,9 +8,8 @@ resources:
   - secrets/secrets.yaml
   - external-postgres.yaml
   - external-minio.yaml
-  - jobs/mc-job.yaml
-
   - ingress.yaml
+
 
 patches:
   - path: workflow-patch.yaml

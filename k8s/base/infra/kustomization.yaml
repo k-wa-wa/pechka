@@ -7,4 +7,6 @@ resources:
   - nginx
   - argo-workflows
   - postgres
+  - minio
+
 
