@@ -118,7 +118,11 @@ def register_assets(conn, content_id: str, s3_keys: list[str]) -> None:
     with conn.cursor() as cur:
         for key in s3_keys:
             cur.execute(
-                "INSERT INTO assets (content_id, asset_role, s3_key) VALUES (%s, 'thumbnail', %s)",
+                """
+                INSERT INTO assets (content_id, asset_role, s3_key)
+                VALUES (%s, 'thumbnail', %s)
+                ON CONFLICT (content_id, asset_role, s3_key) DO NOTHING
+                """,
                 (content_id, key),
             )
     conn.commit()

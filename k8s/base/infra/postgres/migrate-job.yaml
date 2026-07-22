@@ -32,7 +32,7 @@ spec:
           command:
             - sh
             - -c
-            - psql -h postgres -f /migrations/001_create_tables.up.sql
+            - for f in $(ls /migrations/*.up.sql | sort); do echo "Applying $f..."; psql -h postgres -f "$f"; done
           env:
             - name: PGUSER
               valueFrom:

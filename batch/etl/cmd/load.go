@@ -45,15 +45,24 @@ func ensureDisc(ctx context.Context, db *pgxpool.Pool, label string) (string, er
 	return id, err
 }
 
-func insertContent(ctx context.Context, db *pgxpool.Pool, shortID, discID string, cfg LoadConfig) (string, error) {
-	var contentID string
-	err := db.QueryRow(ctx,
+func upsertContent(ctx context.Context, db *pgxpool.Pool, proposedShortID, discID string, cfg LoadConfig) (contentID string, finalShortID string, err error) {
+	err = db.QueryRow(ctx,
 		`INSERT INTO contents (short_id, content_type, disc_id, title, status, is_360)
 		 VALUES ($1, $2, $3, $4, 'processing', $5)
-		 RETURNING id`,
-		shortID, cfg.ContentType, discID, cfg.ContentTitle, cfg.Is360,
-	).Scan(&contentID)
-	return contentID, err
+		 ON CONFLICT (disc_id) WHERE disc_id IS NOT NULL
+		 DO UPDATE SET status = 'processing', updated_at = NOW()
+		 RETURNING id, short_id`,
+		proposedShortID, cfg.ContentType, discID, cfg.ContentTitle, cfg.Is360,
+	).Scan(&contentID, &finalShortID)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to upsert content: %w", err)
+	}
+	if finalShortID != proposedShortID {
+		log.Printf("Existing content found for disc_id=%s title=%q. Reusing existing short_id=%s id=%s", discID, cfg.ContentTitle, finalShortID, contentID)
+	} else {
+		log.Printf("New content created for disc_id=%s title=%q: short_id=%s id=%s", discID, cfg.ContentTitle, finalShortID, contentID)
+	}
+	return contentID, finalShortID, nil
 }
 
 func markContentReady(ctx context.Context, db *pgxpool.Pool, contentID string) error {
@@ -106,11 +115,13 @@ func RunLoad(ctx context.Context, osArgs []string) error {
 			return fmt.Errorf("failed to ensure disc: %w", err)
 		}
 
-		contentID, err = insertContent(ctx, db, shortID, discID, cfg)
+		var finalShortID string
+		contentID, finalShortID, err = upsertContent(ctx, db, shortID, discID, cfg)
 		if err != nil {
-			return fmt.Errorf("failed to insert content: %w", err)
+			return fmt.Errorf("failed to upsert content: %w", err)
 		}
-		log.Printf("Content created: id=%s short_id=%s", contentID, shortID)
+		shortID = finalShortID
+		log.Printf("Content initialized: id=%s short_id=%s", contentID, shortID)
 
 		if err := os.WriteFile("/tmp/content-id", []byte(contentID), 0644); err != nil {
 			log.Printf("WARNING: failed to write /tmp/content-id: %v", err)

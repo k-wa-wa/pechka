@@ -104,7 +104,7 @@ spec:
                 - name: title
                   value: "{{item.title}}"
                 - name: short-id
-                  value: "{{inputs.parameters.short-id}}"
+                  value: "{{tasks.init-db.outputs.parameters.short-id}}"
                 - name: content-id
                   value: "{{tasks.init-db.outputs.parameters.content-id}}"
           - name: load
@@ -118,7 +118,7 @@ spec:
                 - name: content-title
                   value: "{{inputs.parameters.content-title}}"
                 - name: short-id
-                  value: "{{inputs.parameters.short-id}}"
+                  value: "{{tasks.init-db.outputs.parameters.short-id}}"
                 - name: phase
                   value: "finalize"
                 - name: content-id
@@ -134,7 +134,7 @@ spec:
                 - name: content-id
                   value: "{{tasks.init-db.outputs.parameters.content-id}}"
                 - name: short-id
-                  value: "{{inputs.parameters.short-id}}"
+                  value: "{{tasks.init-db.outputs.parameters.short-id}}"
           - name: refresh
             dependencies: [load]
             template: refresh-playlist
