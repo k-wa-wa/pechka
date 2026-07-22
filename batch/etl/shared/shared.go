@@ -3,9 +3,11 @@ package shared
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/minio/minio-go/v7"
@@ -189,7 +191,7 @@ func GenerateAndUploadMasterPlaylist(ctx context.Context, client *minio.Client, 
 
 	objectKey := fmt.Sprintf("resources/hls/%s/master.m3u8", shortID)
 	reader := strings.NewReader(content)
-	_, err := client.PutObject(ctx, bucket, objectKey, reader, int64(len(content)), minio.PutObjectOptions{
+	_, err := PutObjectWithRetry(ctx, client, bucket, objectKey, reader, int64(len(content)), minio.PutObjectOptions{
 		ContentType: "application/x-mpegURL",
 	})
 	if err != nil {
@@ -197,4 +199,70 @@ func GenerateAndUploadMasterPlaylist(ctx context.Context, client *minio.Client, 
 	}
 	log.Printf("Successfully uploaded master.m3u8 to MinIO key: %s", objectKey)
 	return true, nil
+}
+
+// FPutObjectWithRetry uploads a file to MinIO with exponential backoff retries.
+func FPutObjectWithRetry(ctx context.Context, client *minio.Client, bucket, objectKey, filePath string, opts minio.PutObjectOptions) (minio.UploadInfo, error) {
+	maxRetries := 5
+	backoff := 200 * time.Millisecond
+
+	var info minio.UploadInfo
+	var err error
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		info, err = client.FPutObject(ctx, bucket, objectKey, filePath, opts)
+		if err == nil {
+			return info, nil
+		}
+
+		log.Printf("WARNING: FPutObject failed for %s (attempt %d/%d): %v", objectKey, attempt, maxRetries, err)
+		if attempt == maxRetries {
+			break
+		}
+
+		select {
+		case <-ctx.Done():
+			return info, ctx.Err()
+		case <-time.After(backoff):
+		}
+		backoff *= 2
+	}
+	return info, fmt.Errorf("failed after %d attempts: %w", maxRetries, err)
+}
+
+// PutObjectWithRetry uploads reader content to MinIO with exponential backoff retries.
+func PutObjectWithRetry(ctx context.Context, client *minio.Client, bucket, objectKey string, reader io.Reader, objectSize int64, opts minio.PutObjectOptions) (minio.UploadInfo, error) {
+	maxRetries := 5
+	backoff := 200 * time.Millisecond
+
+	var info minio.UploadInfo
+	var err error
+
+	seeker, isSeeker := reader.(io.Seeker)
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		if isSeeker && attempt > 1 {
+			if _, seekErr := seeker.Seek(0, io.SeekStart); seekErr != nil {
+				return info, fmt.Errorf("failed to seek reader for retry: %w", seekErr)
+			}
+		}
+
+		info, err = client.PutObject(ctx, bucket, objectKey, reader, objectSize, opts)
+		if err == nil {
+			return info, nil
+		}
+
+		log.Printf("WARNING: PutObject failed for %s (attempt %d/%d): %v", objectKey, attempt, maxRetries, err)
+		if attempt == maxRetries {
+			break
+		}
+
+		select {
+		case <-ctx.Done():
+			return info, ctx.Err()
+		case <-time.After(backoff):
+		}
+		backoff *= 2
+	}
+	return info, fmt.Errorf("failed after %d attempts: %w", maxRetries, err)
 }

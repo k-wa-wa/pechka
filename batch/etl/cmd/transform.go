@@ -67,7 +67,7 @@ func uploadHLSDir(ctx context.Context, mcfg shared.MinioConfig, localDir, shortI
 		}
 
 		log.Printf("Uploading HLS file %s as %s...", f.Name(), objectKey)
-		_, err = minioClient.FPutObject(ctx, mcfg.Bucket, objectKey, localFilePath, minio.PutObjectOptions{
+		_, err = shared.FPutObjectWithRetry(ctx, minioClient, mcfg.Bucket, objectKey, localFilePath, minio.PutObjectOptions{
 			ContentType: contentType,
 		})
 		if err != nil {

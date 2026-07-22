@@ -20,6 +20,8 @@ import (
 	"github.com/bwmarrin/snowflake"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+
+	"github.com/k-wa-wa/pechka/batch/etl/shared"
 )
 
 type ExtractConfig struct {
@@ -169,7 +171,7 @@ func uploadMKVToMinIO(ctx context.Context, cfg ExtractConfig, localDir, discLabe
 			objectKey := fmt.Sprintf("mkv/%s/%s", discLabel, f.Name())
 
 			log.Printf("Uploading %s to MinIO bucket %s as %s...", f.Name(), cfg.MinioBucket, objectKey)
-			_, err = minioClient.FPutObject(ctx, cfg.MinioBucket, objectKey, localPath, minio.PutObjectOptions{
+			_, err = shared.FPutObjectWithRetry(ctx, minioClient, cfg.MinioBucket, objectKey, localPath, minio.PutObjectOptions{
 				ContentType: "video/x-matroska",
 			})
 			if err != nil {
