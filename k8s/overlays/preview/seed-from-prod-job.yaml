@@ -8,8 +8,10 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: postgres-seed-from-prod
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
-  ttlSecondsAfterFinished: 300
   backoffLimit: 3
   template:
     spec:
