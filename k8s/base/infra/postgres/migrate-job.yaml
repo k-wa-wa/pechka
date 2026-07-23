@@ -3,8 +3,10 @@ kind: Job
 metadata:
   name: postgres-migrate
   namespace: pechka
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
-  ttlSecondsAfterFinished: 300
   template:
     spec:
       restartPolicy: OnFailure
