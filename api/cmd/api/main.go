@@ -116,6 +116,10 @@ func main() {
 			}
 			if v.Error != nil {
 				attrs = append(attrs, "error", v.Error)
+			}
+			// 404/400のようなクライアント起因のエラーは正常系の一部として扱いINFOに留める。
+			// サーバー起因(5xx、またはHTTPError以外の予期しないエラー)のみERRORとする。
+			if v.Status >= 500 {
 				slog.ErrorContext(c.Request().Context(), "request", attrs...)
 			} else {
 				slog.InfoContext(c.Request().Context(), "request", attrs...)
