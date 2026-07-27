@@ -39,7 +39,12 @@ export default async function ContentDetailPage({ params }: Props) {
   if (isVr) {
     return (
       <div>
-        <ContentPlayer variants={variants} isVr={true} />
+        <ContentPlayer
+          variants={variants}
+          isVr={true}
+          shortId={content.short_id}
+          hasSubtitles={content.has_subtitles}
+        />
         <div
           style={{
             maxWidth: 900,
@@ -61,7 +66,12 @@ export default async function ContentDetailPage({ params }: Props) {
         padding: '32px 24px',
       }}
     >
-      <ContentPlayer variants={variants} isVr={false} />
+      <ContentPlayer
+        variants={variants}
+        isVr={false}
+        shortId={content.short_id}
+        hasSubtitles={content.has_subtitles}
+      />
       <div style={{ marginTop: 24 }}>
         <ContentInfo content={content} />
       </div>

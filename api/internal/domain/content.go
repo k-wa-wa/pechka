@@ -67,6 +67,7 @@ type MongoContent struct {
 	ThumbnailKey    *string        `bson:"thumbnail_key,omitempty" json:"thumbnail_key,omitempty"`
 	PublishedAt     *time.Time     `bson:"published_at,omitempty" json:"published_at,omitempty"`
 	UpdatedAt       time.Time      `bson:"updated_at" json:"updated_at"`
+	HasSubtitles    bool           `bson:"has_subtitles" json:"has_subtitles"`
 }
 
 type MongoVariant struct {

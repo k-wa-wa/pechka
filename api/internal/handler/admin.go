@@ -25,14 +25,25 @@ type pgDiscRepository interface {
 	Create(ctx context.Context, params pgRepo.CreateDiscParams) (*domain.Disc, error)
 }
 
-type AdminHandler struct {
-	contentRepo pgContentRepository
-	discRepo    pgDiscRepository
-	snowflake   *snowflake.Node
+type pgSubtitleRepository interface {
+	ListTracksByContentID(ctx context.Context, contentID string) ([]*domain.SubtitleTrack, error)
+	GetTrack(ctx context.Context, trackID string) (*domain.SubtitleTrack, error)
+	SetTrackStatus(ctx context.Context, trackID string, status domain.SubtitleTrackStatus) (*domain.SubtitleTrack, error)
+	ListCuesByTrackID(ctx context.Context, trackID string) ([]*domain.SubtitleCue, error)
+	UpdateCue(ctx context.Context, params pgRepo.UpdateCueParams) (*domain.SubtitleCue, error)
+	InsertCue(ctx context.Context, params pgRepo.InsertCueParams) (*domain.SubtitleCue, error)
+	DeleteCue(ctx context.Context, id string) error
 }
 
-func NewAdminHandler(contentRepo pgContentRepository, discRepo pgDiscRepository, node *snowflake.Node) *AdminHandler {
-	return &AdminHandler{contentRepo: contentRepo, discRepo: discRepo, snowflake: node}
+type AdminHandler struct {
+	contentRepo  pgContentRepository
+	discRepo     pgDiscRepository
+	subtitleRepo pgSubtitleRepository
+	snowflake    *snowflake.Node
+}
+
+func NewAdminHandler(contentRepo pgContentRepository, discRepo pgDiscRepository, subtitleRepo pgSubtitleRepository, node *snowflake.Node) *AdminHandler {
+	return &AdminHandler{contentRepo: contentRepo, discRepo: discRepo, subtitleRepo: subtitleRepo, snowflake: node}
 }
 
 type createContentRequest struct {
@@ -177,4 +188,115 @@ func (h *AdminHandler) CreateDisc(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	return c.JSON(http.StatusCreated, disc)
+}
+
+func (h *AdminHandler) ListSubtitleTracks(c echo.Context) error {
+	contentID := c.Param("content_id")
+	tracks, err := h.subtitleRepo.ListTracksByContentID(c.Request().Context(), contentID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	if tracks == nil {
+		tracks = []*domain.SubtitleTrack{}
+	}
+	return c.JSON(http.StatusOK, tracks)
+}
+
+func (h *AdminHandler) ListSubtitleCues(c echo.Context) error {
+	trackID := c.Param("track_id")
+	cues, err := h.subtitleRepo.ListCuesByTrackID(c.Request().Context(), trackID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	if cues == nil {
+		cues = []*domain.SubtitleCue{}
+	}
+	return c.JSON(http.StatusOK, cues)
+}
+
+type updateSubtitleTrackStatusRequest struct {
+	Status domain.SubtitleTrackStatus `json:"status" validate:"required"`
+}
+
+func (h *AdminHandler) UpdateSubtitleTrackStatus(c echo.Context) error {
+	trackID := c.Param("track_id")
+	var req updateSubtitleTrackStatusRequest
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	if req.Status != domain.SubtitleTrackStatusDraft && req.Status != domain.SubtitleTrackStatusPublished {
+		return echo.NewHTTPError(http.StatusBadRequest, "status must be draft or published")
+	}
+
+	track, err := h.subtitleRepo.SetTrackStatus(c.Request().Context(), trackID, req.Status)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return echo.NewHTTPError(http.StatusNotFound, "subtitle track not found")
+		}
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, track)
+}
+
+type updateSubtitleCueRequest struct {
+	Text    *string `json:"text"`
+	StartMs *int    `json:"start_ms"`
+	EndMs   *int    `json:"end_ms"`
+}
+
+func (h *AdminHandler) UpdateSubtitleCue(c echo.Context) error {
+	cueID := c.Param("cue_id")
+	var req updateSubtitleCueRequest
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	cue, err := h.subtitleRepo.UpdateCue(c.Request().Context(), pgRepo.UpdateCueParams{
+		ID:      cueID,
+		Text:    req.Text,
+		StartMs: req.StartMs,
+		EndMs:   req.EndMs,
+	})
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return echo.NewHTTPError(http.StatusNotFound, "cue not found")
+		}
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, cue)
+}
+
+type insertSubtitleCueRequest struct {
+	Seq     int    `json:"seq"`
+	StartMs int    `json:"start_ms"`
+	EndMs   int    `json:"end_ms"`
+	Text    string `json:"text"`
+}
+
+func (h *AdminHandler) InsertSubtitleCue(c echo.Context) error {
+	trackID := c.Param("track_id")
+	var req insertSubtitleCueRequest
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	cue, err := h.subtitleRepo.InsertCue(c.Request().Context(), pgRepo.InsertCueParams{
+		TrackID: trackID,
+		Seq:     req.Seq,
+		StartMs: req.StartMs,
+		EndMs:   req.EndMs,
+		Text:    req.Text,
+	})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusCreated, cue)
+}
+
+func (h *AdminHandler) DeleteSubtitleCue(c echo.Context) error {
+	cueID := c.Param("cue_id")
+	if err := h.subtitleRepo.DeleteCue(c.Request().Context(), cueID); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return c.NoContent(http.StatusNoContent)
 }

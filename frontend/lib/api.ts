@@ -6,6 +6,11 @@ import type {
   UpdateContentRequest,
   ContentStatus,
   ContentType,
+  SubtitleTrack,
+  SubtitleTrackStatus,
+  SubtitleCue,
+  UpdateSubtitleCueRequest,
+  InsertSubtitleCueRequest,
 } from './types'
 
 // Server components use API_URL (internal k8s service); browser uses relative URL via nginx
@@ -83,4 +88,59 @@ export async function updateContent(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
+}
+
+export async function getSubtitleTracks(contentId: string): Promise<SubtitleTrack[]> {
+  return fetchJson<SubtitleTrack[]>(
+    `${API_BASE}/api/v1/admin/contents/${contentId}/subtitles`,
+    { cache: 'no-store' }
+  )
+}
+
+export async function updateSubtitleTrackStatus(
+  trackId: string,
+  status: SubtitleTrackStatus
+): Promise<SubtitleTrack> {
+  return fetchJson<SubtitleTrack>(`${API_BASE}/api/v1/admin/subtitles/${trackId}/status`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  })
+}
+
+export async function getSubtitleCues(trackId: string): Promise<SubtitleCue[]> {
+  return fetchJson<SubtitleCue[]>(`${API_BASE}/api/v1/admin/subtitles/${trackId}/cues`, {
+    cache: 'no-store',
+  })
+}
+
+export async function updateSubtitleCue(
+  cueId: string,
+  body: UpdateSubtitleCueRequest
+): Promise<SubtitleCue> {
+  return fetchJson<SubtitleCue>(`${API_BASE}/api/v1/admin/subtitles/cues/${cueId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export async function insertSubtitleCue(
+  trackId: string,
+  body: InsertSubtitleCueRequest
+): Promise<SubtitleCue> {
+  return fetchJson<SubtitleCue>(`${API_BASE}/api/v1/admin/subtitles/${trackId}/cues`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export async function deleteSubtitleCue(cueId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/v1/admin/subtitles/cues/${cueId}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) {
+    throw new Error(`API error ${res.status}: ${res.statusText}`)
+  }
 }

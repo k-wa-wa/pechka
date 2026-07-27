@@ -82,12 +82,15 @@ func main() {
 
 	pgContent := pgRepo.NewContentRepository(pgPool)
 	pgDisc := pgRepo.NewDiscRepository(pgPool)
+	pgSubtitle := pgRepo.NewSubtitleRepository(pgPool)
 	mgContent := mongoRepo.NewContentRepository(mongoDB)
+	mgSubtitle := mongoRepo.NewSubtitleRepository(mongoDB)
 	esContent := elasticRepo.NewContentRepository(esClient)
 
 	contentsH := handler.NewContentsHandler(mgContent)
+	subtitlesH := handler.NewSubtitlesHandler(mgSubtitle)
 	searchH := handler.NewSearchHandler(esContent)
-	adminH := handler.NewAdminHandler(pgContent, pgDisc, sfNode)
+	adminH := handler.NewAdminHandler(pgContent, pgDisc, pgSubtitle, sfNode)
 	ingestH := handler.NewIngestHandler(dynClient)
 
 	e := echo.New()
@@ -133,16 +136,26 @@ func main() {
 	v1.GET("/contents", contentsH.List)
 	v1.GET("/contents/:short_id", contentsH.Get)
 	v1.GET("/contents/:short_id/variants", contentsH.GetVariants)
+	v1.GET("/contents/:short_id/subtitles/:lang", subtitlesH.GetVTT)
 	v1.GET("/search", searchH.Search)
 	v1.POST("/contents/ingest", ingestH.TriggerIngest, apiMiddleware.IPFilter(cfg.AllowedIPRange))
 
 	admin := v1.Group("/admin")
+	// admin配下は元々IP制限が掛かっていなかった(ingestのみ個別適用)。
+	// 字幕admin CRUD追加を機に、admin全体へ一括で適用する。
+	admin.Use(apiMiddleware.IPFilter(cfg.AllowedIPRange))
 	admin.GET("/contents", adminH.ListContents)
 	admin.POST("/contents", adminH.CreateContent)
 	admin.PUT("/contents/:id", adminH.UpdateContent)
 	admin.DELETE("/contents/:id", adminH.DeleteContent)
 	admin.GET("/discs", adminH.ListDiscs)
 	admin.POST("/discs", adminH.CreateDisc)
+	admin.GET("/contents/:content_id/subtitles", adminH.ListSubtitleTracks)
+	admin.PUT("/subtitles/:track_id/status", adminH.UpdateSubtitleTrackStatus)
+	admin.GET("/subtitles/:track_id/cues", adminH.ListSubtitleCues)
+	admin.POST("/subtitles/:track_id/cues", adminH.InsertSubtitleCue)
+	admin.PUT("/subtitles/cues/:cue_id", adminH.UpdateSubtitleCue)
+	admin.DELETE("/subtitles/cues/:cue_id", adminH.DeleteSubtitleCue)
 
 	slog.Info("starting server", "port", cfg.Port)
 	if err := e.Start(":" + cfg.Port); err != nil {

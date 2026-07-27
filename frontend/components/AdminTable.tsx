@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import type { Content, ContentStatus } from '@/lib/types'
 import EditModal from './EditModal'
+import SubtitleEditorModal from './SubtitleEditorModal'
 
 interface Props {
   initialContents: Content[]
@@ -32,6 +33,7 @@ const CONTENT_TYPE_LABEL: Record<string, string> = {
 export default function AdminTable({ initialContents }: Props) {
   const [contents, setContents] = useState<Content[]>(initialContents)
   const [editingContent, setEditingContent] = useState<Content | null>(null)
+  const [subtitleContent, setSubtitleContent] = useState<Content | null>(null)
 
   function handleSave(updated: Content) {
     setContents((prev) =>
@@ -219,6 +221,30 @@ export default function AdminTable({ initialContents }: Props) {
                   >
                     編集
                   </button>
+                  <button
+                    onClick={() => setSubtitleContent(content)}
+                    style={{
+                      marginLeft: 6,
+                      padding: '4px 12px',
+                      borderRadius: 6,
+                      border: '1px solid #30363d',
+                      backgroundColor: 'transparent',
+                      color: '#8b949e',
+                      cursor: 'pointer',
+                      fontSize: 12,
+                      transition: 'all 0.15s',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = '#58a6ff'
+                      e.currentTarget.style.color = '#58a6ff'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = '#30363d'
+                      e.currentTarget.style.color = '#8b949e'
+                    }}
+                  >
+                    字幕
+                  </button>
                 </td>
               </tr>
             ))}
@@ -231,6 +257,13 @@ export default function AdminTable({ initialContents }: Props) {
           content={editingContent}
           onClose={() => setEditingContent(null)}
           onSave={handleSave}
+        />
+      )}
+
+      {subtitleContent && (
+        <SubtitleEditorModal
+          content={subtitleContent}
+          onClose={() => setSubtitleContent(null)}
         />
       )}
     </>

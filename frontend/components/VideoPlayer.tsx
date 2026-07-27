@@ -5,6 +5,8 @@ import type { MongoVariant } from '@/lib/types'
 
 interface Props {
   variants: MongoVariant[]
+  shortId: string
+  hasSubtitles: boolean
 }
 
 const QUALITY_LABELS: Record<string, string> = {
@@ -16,7 +18,7 @@ const QUALITY_LABELS: Record<string, string> = {
   original: 'Original',
 }
 
-export default function VideoPlayer({ variants }: Props) {
+export default function VideoPlayer({ variants, shortId, hasSubtitles }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<import('hls.js').default | null>(null)
   const [selectedVariant, setSelectedVariant] = useState<string>('master')
@@ -162,7 +164,17 @@ export default function VideoPlayer({ variants }: Props) {
           controls
           playsInline
           style={{ width: '100%', height: '100%', display: 'block' }}
-        />
+        >
+          {hasSubtitles && (
+            <track
+              kind="subtitles"
+              srcLang="ja"
+              label="日本語"
+              src={`/api/v1/contents/${shortId}/subtitles/ja`}
+              default
+            />
+          )}
+        </video>
         {error && (
           <div
             style={{

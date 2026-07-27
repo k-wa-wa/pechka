@@ -14,6 +14,7 @@ export interface MongoContent {
   thumbnail_key: string | null
   published_at: string | null
   updated_at: string
+  has_subtitles: boolean
 }
 
 export interface MongoVariant {
@@ -54,4 +55,41 @@ export interface UpdateContentRequest {
   description?: string | null
   tags?: string[] | null
   status?: ContentStatus
+}
+
+export type SubtitleTrackStatus = 'draft' | 'published'
+
+export interface SubtitleTrack {
+  id: string
+  content_id: string
+  language: string
+  status: SubtitleTrackStatus
+  model: string
+  created_at: string
+  updated_at: string
+}
+
+export interface SubtitleCue {
+  id: string
+  track_id: string
+  seq: number
+  start_ms: number
+  end_ms: number
+  text: string
+  original_text: string
+  flagged: boolean
+  updated_at: string
+}
+
+export interface UpdateSubtitleCueRequest {
+  text?: string
+  start_ms?: number
+  end_ms?: number
+}
+
+export interface InsertSubtitleCueRequest {
+  seq: number
+  start_ms: number
+  end_ms: number
+  text: string
 }

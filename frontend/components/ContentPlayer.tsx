@@ -45,11 +45,13 @@ const VrViewer = dynamic(() => import('./VrViewer'), {
 interface Props {
   variants: MongoVariant[]
   isVr: boolean
+  shortId: string
+  hasSubtitles: boolean
 }
 
-export default function ContentPlayer({ variants, isVr }: Props) {
+export default function ContentPlayer({ variants, isVr, shortId, hasSubtitles }: Props) {
   if (isVr) {
     return <VrViewer variants={variants} />
   }
-  return <VideoPlayer variants={variants} />
+  return <VideoPlayer variants={variants} shortId={shortId} hasSubtitles={hasSubtitles} />
 }

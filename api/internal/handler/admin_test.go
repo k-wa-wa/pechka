@@ -51,6 +51,38 @@ func (m *mockPgDiscRepo) Create(ctx context.Context, params pgRepo.CreateDiscPar
 	return m.createFn(ctx, params)
 }
 
+type mockPgSubtitleRepo struct {
+	listTracksFn func(ctx context.Context, contentID string) ([]*domain.SubtitleTrack, error)
+	getTrackFn   func(ctx context.Context, trackID string) (*domain.SubtitleTrack, error)
+	setStatusFn  func(ctx context.Context, trackID string, status domain.SubtitleTrackStatus) (*domain.SubtitleTrack, error)
+	listCuesFn   func(ctx context.Context, trackID string) ([]*domain.SubtitleCue, error)
+	updateCueFn  func(ctx context.Context, params pgRepo.UpdateCueParams) (*domain.SubtitleCue, error)
+	insertCueFn  func(ctx context.Context, params pgRepo.InsertCueParams) (*domain.SubtitleCue, error)
+	deleteCueFn  func(ctx context.Context, id string) error
+}
+
+func (m *mockPgSubtitleRepo) ListTracksByContentID(ctx context.Context, contentID string) ([]*domain.SubtitleTrack, error) {
+	return m.listTracksFn(ctx, contentID)
+}
+func (m *mockPgSubtitleRepo) GetTrack(ctx context.Context, trackID string) (*domain.SubtitleTrack, error) {
+	return m.getTrackFn(ctx, trackID)
+}
+func (m *mockPgSubtitleRepo) SetTrackStatus(ctx context.Context, trackID string, status domain.SubtitleTrackStatus) (*domain.SubtitleTrack, error) {
+	return m.setStatusFn(ctx, trackID, status)
+}
+func (m *mockPgSubtitleRepo) ListCuesByTrackID(ctx context.Context, trackID string) ([]*domain.SubtitleCue, error) {
+	return m.listCuesFn(ctx, trackID)
+}
+func (m *mockPgSubtitleRepo) UpdateCue(ctx context.Context, params pgRepo.UpdateCueParams) (*domain.SubtitleCue, error) {
+	return m.updateCueFn(ctx, params)
+}
+func (m *mockPgSubtitleRepo) InsertCue(ctx context.Context, params pgRepo.InsertCueParams) (*domain.SubtitleCue, error) {
+	return m.insertCueFn(ctx, params)
+}
+func (m *mockPgSubtitleRepo) DeleteCue(ctx context.Context, id string) error {
+	return m.deleteCueFn(ctx, id)
+}
+
 func newSnowflakeNode(t *testing.T) *snowflake.Node {
 	t.Helper()
 	node, err := snowflake.NewNode(1)
@@ -61,7 +93,7 @@ func newSnowflakeNode(t *testing.T) *snowflake.Node {
 }
 
 func TestAdminHandler_CreateContent_MissingFields(t *testing.T) {
-	h := handler.NewAdminHandler(&mockPgContentRepo{}, &mockPgDiscRepo{}, newSnowflakeNode(t))
+	h := handler.NewAdminHandler(&mockPgContentRepo{}, &mockPgDiscRepo{}, &mockPgSubtitleRepo{}, newSnowflakeNode(t))
 	e := echo.New()
 
 	body := `{"description":"no title or type"}`
@@ -94,7 +126,7 @@ func TestAdminHandler_CreateContent_SetsStatusPending(t *testing.T) {
 		},
 	}
 
-	h := handler.NewAdminHandler(contentRepo, &mockPgDiscRepo{}, newSnowflakeNode(t))
+	h := handler.NewAdminHandler(contentRepo, &mockPgDiscRepo{}, &mockPgSubtitleRepo{}, newSnowflakeNode(t))
 	e := echo.New()
 
 	body := `{"content_type":"video","title":"Test Video"}`
@@ -124,7 +156,7 @@ func TestAdminHandler_ListContents_DefaultLimit(t *testing.T) {
 		},
 	}
 
-	h := handler.NewAdminHandler(contentRepo, &mockPgDiscRepo{}, newSnowflakeNode(t))
+	h := handler.NewAdminHandler(contentRepo, &mockPgDiscRepo{}, &mockPgSubtitleRepo{}, newSnowflakeNode(t))
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodGet, "/v1/admin/contents", nil)
 	rec := httptest.NewRecorder()
@@ -142,7 +174,7 @@ func TestAdminHandler_UpdateContent_NotFound(t *testing.T) {
 		},
 	}
 
-	h := handler.NewAdminHandler(contentRepo, &mockPgDiscRepo{}, newSnowflakeNode(t))
+	h := handler.NewAdminHandler(contentRepo, &mockPgDiscRepo{}, &mockPgSubtitleRepo{}, newSnowflakeNode(t))
 	e := echo.New()
 
 	body := `{"title":"new title"}`
@@ -164,7 +196,7 @@ func TestAdminHandler_UpdateContent_NotFound(t *testing.T) {
 }
 
 func TestAdminHandler_CreateDisc_MissingLabel(t *testing.T) {
-	h := handler.NewAdminHandler(&mockPgContentRepo{}, &mockPgDiscRepo{}, newSnowflakeNode(t))
+	h := handler.NewAdminHandler(&mockPgContentRepo{}, &mockPgDiscRepo{}, &mockPgSubtitleRepo{}, newSnowflakeNode(t))
 	e := echo.New()
 
 	body := `{}`
@@ -190,7 +222,7 @@ func TestAdminHandler_DeleteContent_Success(t *testing.T) {
 		},
 	}
 
-	h := handler.NewAdminHandler(contentRepo, &mockPgDiscRepo{}, newSnowflakeNode(t))
+	h := handler.NewAdminHandler(contentRepo, &mockPgDiscRepo{}, &mockPgSubtitleRepo{}, newSnowflakeNode(t))
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodDelete, "/v1/admin/contents/123", nil)
 	rec := httptest.NewRecorder()
@@ -213,7 +245,7 @@ func TestAdminHandler_DeleteContent_InternalError(t *testing.T) {
 		},
 	}
 
-	h := handler.NewAdminHandler(contentRepo, &mockPgDiscRepo{}, newSnowflakeNode(t))
+	h := handler.NewAdminHandler(contentRepo, &mockPgDiscRepo{}, &mockPgSubtitleRepo{}, newSnowflakeNode(t))
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodDelete, "/v1/admin/contents/123", nil)
 	rec := httptest.NewRecorder()
@@ -238,13 +270,94 @@ func TestAdminHandler_ListContents_EmptyReturnsArray(t *testing.T) {
 		},
 	}
 
-	h := handler.NewAdminHandler(contentRepo, &mockPgDiscRepo{}, newSnowflakeNode(t))
+	h := handler.NewAdminHandler(contentRepo, &mockPgDiscRepo{}, &mockPgSubtitleRepo{}, newSnowflakeNode(t))
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodGet, "/v1/admin/contents", nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
 	if err := h.ListContents(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result []any
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if result == nil {
+		t.Error("expected empty array, got null")
+	}
+}
+
+func TestAdminHandler_UpdateSubtitleTrackStatus_InvalidStatus(t *testing.T) {
+	h := handler.NewAdminHandler(&mockPgContentRepo{}, &mockPgDiscRepo{}, &mockPgSubtitleRepo{}, newSnowflakeNode(t))
+	e := echo.New()
+
+	body := `{"status":"bogus"}`
+	req := httptest.NewRequest(http.MethodPut, "/v1/admin/subtitles/1/status", strings.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetParamNames("track_id")
+	c.SetParamValues("1")
+
+	err := h.UpdateSubtitleTrackStatus(c)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	he := err.(*echo.HTTPError)
+	if he.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", he.Code)
+	}
+}
+
+func TestAdminHandler_UpdateSubtitleTrackStatus_Published(t *testing.T) {
+	var gotStatus domain.SubtitleTrackStatus
+	subtitleRepo := &mockPgSubtitleRepo{
+		setStatusFn: func(_ context.Context, trackID string, status domain.SubtitleTrackStatus) (*domain.SubtitleTrack, error) {
+			gotStatus = status
+			return &domain.SubtitleTrack{ID: trackID, Status: status}, nil
+		},
+	}
+
+	h := handler.NewAdminHandler(&mockPgContentRepo{}, &mockPgDiscRepo{}, subtitleRepo, newSnowflakeNode(t))
+	e := echo.New()
+
+	body := `{"status":"published"}`
+	req := httptest.NewRequest(http.MethodPut, "/v1/admin/subtitles/1/status", strings.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetParamNames("track_id")
+	c.SetParamValues("1")
+
+	if err := h.UpdateSubtitleTrackStatus(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
+	}
+	if gotStatus != domain.SubtitleTrackStatusPublished {
+		t.Errorf("expected status published, got %q", gotStatus)
+	}
+}
+
+func TestAdminHandler_ListSubtitleCues_EmptyReturnsArray(t *testing.T) {
+	subtitleRepo := &mockPgSubtitleRepo{
+		listCuesFn: func(_ context.Context, _ string) ([]*domain.SubtitleCue, error) {
+			return nil, nil
+		},
+	}
+
+	h := handler.NewAdminHandler(&mockPgContentRepo{}, &mockPgDiscRepo{}, subtitleRepo, newSnowflakeNode(t))
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/v1/admin/subtitles/1/cues", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetParamNames("track_id")
+	c.SetParamValues("1")
+
+	if err := h.ListSubtitleCues(c); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
