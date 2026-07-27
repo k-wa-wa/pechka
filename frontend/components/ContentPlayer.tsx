@@ -2,10 +2,11 @@
 
 import dynamic from 'next/dynamic'
 import type { MongoVariant } from '@/lib/types'
+import { useLanguage } from '@/lib/i18n/LanguageContext'
 
-const VideoPlayer = dynamic(() => import('./VideoPlayer'), {
-  ssr: false,
-  loading: () => (
+function LoadingFallback({ textKey }: { textKey: string }) {
+  const { t } = useLanguage()
+  return (
     <div
       style={{
         width: '100%',
@@ -18,28 +19,19 @@ const VideoPlayer = dynamic(() => import('./VideoPlayer'), {
         color: '#8b949e',
       }}
     >
-      読み込み中...
+      {t(textKey)}
     </div>
-  ),
+  )
+}
+
+const VideoPlayer = dynamic(() => import('./VideoPlayer'), {
+  ssr: false,
+  loading: () => <LoadingFallback textKey="player.loading" />,
 })
 
 const VrViewer = dynamic(() => import('./VrViewer'), {
   ssr: false,
-  loading: () => (
-    <div
-      style={{
-        width: '100%',
-        height: 'calc(100vh - 60px)',
-        backgroundColor: '#0d1117',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        color: '#8b949e',
-      }}
-    >
-      VRビューアを読み込み中...
-    </div>
-  ),
+  loading: () => <LoadingFallback textKey="player.loadingVr" />,
 })
 
 interface Props {

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { MongoVariant } from '@/lib/types'
+import { useLanguage } from '@/lib/i18n/LanguageContext'
 
 interface Props {
   variants: MongoVariant[]
@@ -25,6 +26,7 @@ export default function VideoPlayer({ variants, shortId, hasSubtitles }: Props) 
   const [selectedVariant, setSelectedVariant] = useState<string>('master')
   const [error, setError] = useState<string | null>(null)
   const [trackReloadKey, setTrackReloadKey] = useState(0)
+  const { t } = useLanguage()
 
   const lastPlaybackState = useRef({ currentTime: 0, paused: false })
 
@@ -154,7 +156,7 @@ export default function VideoPlayer({ variants, shortId, hasSubtitles }: Props) 
           borderRadius: 8,
         }}
       >
-        動画が見つかりません
+        {t('player.notFound')}
       </div>
     )
   }
@@ -219,7 +221,7 @@ export default function VideoPlayer({ variants, shortId, hasSubtitles }: Props) 
             marginTop: 8,
           }}
         >
-          <span style={{ fontSize: 13, color: '#8b949e' }}>画質:</span>
+          <span style={{ fontSize: 13, color: '#8b949e' }}>{t('player.quality')}</span>
           <div style={{ display: 'flex', gap: 4 }}>
             {masterVariant && (
               <button

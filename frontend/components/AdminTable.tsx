@@ -4,6 +4,7 @@ import { useState } from 'react'
 import type { Content, ContentStatus } from '@/lib/types'
 import EditModal from './EditModal'
 import SubtitleEditorModal from './SubtitleEditorModal'
+import { useLanguage } from '@/lib/i18n/LanguageContext'
 
 interface Props {
   initialContents: Content[]
@@ -34,6 +35,7 @@ export default function AdminTable({ initialContents }: Props) {
   const [contents, setContents] = useState<Content[]>(initialContents)
   const [editingContent, setEditingContent] = useState<Content | null>(null)
   const [subtitleContent, setSubtitleContent] = useState<Content | null>(null)
+  const { t, language } = useLanguage()
 
   function handleSave(updated: Content) {
     setContents((prev) =>
@@ -41,6 +43,15 @@ export default function AdminTable({ initialContents }: Props) {
     )
     setEditingContent(null)
   }
+
+  const tableHeaders = [
+    t('admin.table.colTitle'),
+    t('admin.table.colType'),
+    t('admin.table.colStatus'),
+    t('admin.table.colTags'),
+    t('admin.table.colUpdatedAt'),
+    '',
+  ]
 
   return (
     <>
@@ -65,22 +76,20 @@ export default function AdminTable({ initialContents }: Props) {
                 borderBottom: '1px solid #30363d',
               }}
             >
-              {['タイトル', '種別', 'ステータス', 'タグ', '更新日時', ''].map(
-                (h) => (
-                  <th
-                    key={h}
-                    style={{
-                      padding: '10px 14px',
-                      textAlign: 'left',
-                      color: '#8b949e',
-                      fontWeight: 500,
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {h}
-                  </th>
-                )
-              )}
+              {tableHeaders.map((h, idx) => (
+                <th
+                  key={idx}
+                  style={{
+                    padding: '10px 14px',
+                    textAlign: 'left',
+                    color: '#8b949e',
+                    fontWeight: 500,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {h}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -94,7 +103,7 @@ export default function AdminTable({ initialContents }: Props) {
                     color: '#8b949e',
                   }}
                 >
-                  コンテンツがありません
+                  {t('admin.table.noContents')}
                 </td>
               </tr>
             )}
@@ -187,13 +196,16 @@ export default function AdminTable({ initialContents }: Props) {
                     fontSize: 12,
                   }}
                 >
-                  {new Date(content.updated_at).toLocaleDateString('ja-JP', {
-                    year: 'numeric',
-                    month: '2-digit',
-                    day: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
+                  {new Date(content.updated_at).toLocaleDateString(
+                    language === 'ja' ? 'ja-JP' : 'en-US',
+                    {
+                      year: 'numeric',
+                      month: '2-digit',
+                      day: '2-digit',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    }
+                  )}
                 </td>
 
                 {/* Edit button */}
@@ -219,7 +231,7 @@ export default function AdminTable({ initialContents }: Props) {
                       e.currentTarget.style.color = '#8b949e'
                     }}
                   >
-                    編集
+                    {t('admin.table.btnEdit')}
                   </button>
                   <button
                     onClick={() => setSubtitleContent(content)}
@@ -243,7 +255,7 @@ export default function AdminTable({ initialContents }: Props) {
                       e.currentTarget.style.color = '#8b949e'
                     }}
                   >
-                    字幕
+                    {t('admin.table.btnSubtitles')}
                   </button>
                 </td>
               </tr>

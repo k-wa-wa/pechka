@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import type { Content, ContentStatus, UpdateContentRequest } from '@/lib/types'
+import { useLanguage } from '@/lib/i18n/LanguageContext'
 
 interface Props {
   content: Content
@@ -18,6 +19,7 @@ export default function EditModal({ content, onClose, onSave }: Props) {
   const [status, setStatus] = useState<ContentStatus>(content.status)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { t } = useLanguage()
 
   async function handleSave() {
     setSaving(true)
@@ -84,7 +86,7 @@ export default function EditModal({ content, onClose, onSave }: Props) {
           }}
         >
           <h2 style={{ margin: 0, fontSize: 16, color: '#e6edf3' }}>
-            コンテンツを編集
+            {t('editModal.title')}
           </h2>
           <button
             onClick={onClose}
@@ -105,7 +107,7 @@ export default function EditModal({ content, onClose, onSave }: Props) {
         {/* Form */}
         <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 13, color: '#8b949e' }}>タイトル</span>
+            <span style={{ fontSize: 13, color: '#8b949e' }}>{t('editModal.fieldTitle')}</span>
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
@@ -124,7 +126,7 @@ export default function EditModal({ content, onClose, onSave }: Props) {
           </label>
 
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 13, color: '#8b949e' }}>説明</span>
+            <span style={{ fontSize: 13, color: '#8b949e' }}>{t('editModal.fieldDescription')}</span>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -147,7 +149,7 @@ export default function EditModal({ content, onClose, onSave }: Props) {
 
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <span style={{ fontSize: 13, color: '#8b949e' }}>
-              タグ <span style={{ fontWeight: 400 }}>(カンマ区切り)</span>
+              {t('editModal.fieldTags')}
             </span>
             <input
               value={tags}
@@ -168,7 +170,7 @@ export default function EditModal({ content, onClose, onSave }: Props) {
           </label>
 
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 13, color: '#8b949e' }}>ステータス</span>
+            <span style={{ fontSize: 13, color: '#8b949e' }}>{t('editModal.fieldStatus')}</span>
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value as ContentStatus)}
@@ -232,7 +234,7 @@ export default function EditModal({ content, onClose, onSave }: Props) {
               fontSize: 14,
             }}
           >
-            キャンセル
+            {t('editModal.btnCancel')}
           </button>
           <button
             onClick={handleSave}
@@ -248,7 +250,7 @@ export default function EditModal({ content, onClose, onSave }: Props) {
               fontWeight: 600,
             }}
           >
-            {saving ? '保存中...' : '保存'}
+            {saving ? t('editModal.saving') : t('editModal.btnSave')}
           </button>
         </div>
       </div>

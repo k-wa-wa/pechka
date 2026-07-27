@@ -2,10 +2,12 @@
 
 import { useRouter } from 'next/navigation'
 import type { ContentType } from '@/lib/types'
+import { useLanguage } from '@/lib/i18n/LanguageContext'
 
-interface FilterOption {
+export interface FilterOption {
   value: ContentType | ''
-  label: string
+  labelKey?: string
+  label?: string
 }
 
 interface Props {
@@ -15,6 +17,7 @@ interface Props {
 
 export default function FilterBar({ types, currentType }: Props) {
   const router = useRouter()
+  const { t } = useLanguage()
 
   function handleChange(value: string) {
     if (value) {
@@ -26,12 +29,13 @@ export default function FilterBar({ types, currentType }: Props) {
 
   return (
     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-      {types.map((t) => {
-        const active = t.value === currentType
+      {types.map((tOpt) => {
+        const active = tOpt.value === currentType
+        const label = tOpt.labelKey ? t(tOpt.labelKey) : (tOpt.label ?? '')
         return (
           <button
-            key={t.value}
-            onClick={() => handleChange(t.value)}
+            key={tOpt.value}
+            onClick={() => handleChange(tOpt.value)}
             style={{
               padding: '5px 12px',
               borderRadius: 20,
@@ -44,7 +48,7 @@ export default function FilterBar({ types, currentType }: Props) {
               transition: 'all 0.15s',
             }}
           >
-            {t.label}
+            {label}
           </button>
         )
       })}

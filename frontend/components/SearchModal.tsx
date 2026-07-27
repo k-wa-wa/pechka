@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import type { SearchResult, ContentType } from '@/lib/types'
+import { useLanguage } from '@/lib/i18n/LanguageContext'
 
 const CONTENT_TYPE_LABEL: Record<ContentType, string> = {
   video: 'Video',
@@ -22,6 +23,7 @@ export default function SearchModal({ isOpen, onClose }: Props) {
   const [loading, setLoading] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const { t } = useLanguage()
 
   useEffect(() => {
     if (isOpen) {
@@ -134,7 +136,7 @@ export default function SearchModal({ isOpen, onClose }: Props) {
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="コンテンツを検索..."
+            placeholder={t('search.placeholder')}
             style={{
               flex: 1,
               background: 'transparent',
@@ -186,7 +188,7 @@ export default function SearchModal({ isOpen, onClose }: Props) {
                 animation: 'search-spin 0.8s linear infinite',
               }}
             />
-            <span>検索中...</span>
+            <span>{t('search.searching')}</span>
           </div>
         )}
 
@@ -255,7 +257,7 @@ export default function SearchModal({ isOpen, onClose }: Props) {
               fontSize: 14,
             }}
           >
-            「{query}」に一致するコンテンツが見つかりません
+            {t('search.noResultsPrefix')}{query}{t('search.noResultsSuffix')}
           </div>
         )}
       </div>
