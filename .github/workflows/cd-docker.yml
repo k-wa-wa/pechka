@@ -1,4 +1,4 @@
-name: Build and Push Docker Images
+name: CD / Build and Push Docker Images
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
       - 'api/**'
       - 'frontend/**'
       - 'batch/**'
-      - '.github/workflows/docker-build-push.yml'
+      - '.github/workflows/cd-docker.yml'
 
 permissions:
   contents: read

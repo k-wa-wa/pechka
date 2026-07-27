@@ -1,4 +1,4 @@
-name: ETL CI
+name: CI / ETL
 
 permissions:
   contents: read
@@ -9,12 +9,12 @@ on:
     paths:
       - 'batch/**'
       - 'db/**'
-      - '.github/workflows/etl-ci.yml'
+      - '.github/workflows/ci-etl.yml'
   pull_request:
     paths:
       - 'batch/**'
       - 'db/**'
-      - '.github/workflows/etl-ci.yml'
+      - '.github/workflows/ci-etl.yml'
 
 jobs:
   pechka-etl:
@@ -98,5 +98,3 @@ jobs:
 
       - name: Lint
         run: python -m py_compile generate.py
-
-

@@ -1,4 +1,4 @@
-name: Release Go Binary
+name: CD / ETL Binary Release
 
 on:
   push:

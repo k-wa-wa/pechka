@@ -1,4 +1,4 @@
-name: Frontend CI
+name: CI / Frontend
 
 permissions:
   contents: read
@@ -10,11 +10,11 @@ on:
     branches: [master]
     paths:
       - 'frontend/**'
-      - '.github/workflows/frontend-ci.yml'
+      - '.github/workflows/ci-frontend.yml'
   pull_request:
     paths:
       - 'frontend/**'
-      - '.github/workflows/frontend-ci.yml'
+      - '.github/workflows/ci-frontend.yml'
 
 jobs:
   frontend:
