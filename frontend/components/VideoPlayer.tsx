@@ -20,9 +20,11 @@ const QUALITY_LABELS: Record<string, string> = {
 
 export default function VideoPlayer({ variants, shortId, hasSubtitles }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const trackRef = useRef<HTMLTrackElement>(null)
   const hlsRef = useRef<import('hls.js').default | null>(null)
   const [selectedVariant, setSelectedVariant] = useState<string>('master')
   const [error, setError] = useState<string | null>(null)
+  const [trackReloadKey, setTrackReloadKey] = useState(0)
 
   const lastPlaybackState = useRef({ currentTime: 0, paused: false })
 
@@ -65,6 +67,15 @@ export default function VideoPlayer({ variants, shortId, hasSubtitles }: Props) 
 
     let destroyed = false
     let onLoadedMetadata: (() => void) | null = null
+
+    // hls.js の attachMedia() が video 要素にMediaSourceをアタッチする際、
+    // 既に存在する <track> のcue読み込み状態を壊す(readyState はLOADEDになるがcuesが0件になる)
+    // ことがある。MANIFEST_PARSED時点ではまだ早すぎて直らなかったため、実際に再生が始まった
+    // (playing イベント)タイミングで key を変更し、Reactに<track>要素を作り直させる。
+    function reloadTrack() {
+      setTrackReloadKey((k) => k + 1)
+    }
+    video.addEventListener('playing', reloadTrack, { once: true })
 
     async function init() {
       const Hls = (await import('hls.js')).default
@@ -126,6 +137,7 @@ export default function VideoPlayer({ variants, shortId, hasSubtitles }: Props) 
       if (onLoadedMetadata) {
         video.removeEventListener('loadedmetadata', onLoadedMetadata)
       }
+      video.removeEventListener('playing', reloadTrack)
     }
   }, [currentVariant])
 
@@ -167,6 +179,8 @@ export default function VideoPlayer({ variants, shortId, hasSubtitles }: Props) 
         >
           {hasSubtitles && (
             <track
+              key={trackReloadKey}
+              ref={trackRef}
               kind="subtitles"
               srcLang="ja"
               label="日本語"
