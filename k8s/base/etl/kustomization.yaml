@@ -5,3 +5,4 @@ namespace: pechka
 
 resources:
   - workflow.yaml
+  - subtitle-workflow.yaml

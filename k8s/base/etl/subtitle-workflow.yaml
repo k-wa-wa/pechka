@@ -1,0 +1,89 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: subtitle-gen
+  namespace: pechka
+spec:
+  # etl-bluray（ingest-flow）とは意図的に分離した WorkflowTemplate とする。
+  # 処理時間が長く（フル尺で数十分規模）、既存のHLS即時公開フローをブロックしたくないため。
+  # 既取り込み済みコンテンツへのバックフィルも想定し、content-id / mkv-path を指定して手動実行する。
+  templates:
+    - name: generate
+      inputs:
+        parameters:
+          - name: mkv-path
+          - name: content-id
+          - name: language
+            value: "ja"
+      # フル尺の文字起こしは数十分〜1時間規模になりうるため長めに確保する
+      activeDeadlineSeconds: 10800
+      container:
+        image: ghcr.io/k-wa-wa/pechka/etl-subtitle:latest
+        command: ["python", "generate.py"]
+        args:
+          - "--input"
+          - "{{inputs.parameters.mkv-path}}"
+          - "--content-id"
+          - "{{inputs.parameters.content-id}}"
+          - "--language"
+          - "{{inputs.parameters.language}}"
+        resources:
+          requests:
+            cpu: "4"
+            memory: 6Gi
+          limits:
+            cpu: "6"
+            memory: 10Gi
+        env:
+          - name: MINIO_BUCKET
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: minio-bucket
+          - name: MINIO_URL
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: minio-url
+          - name: MINIO_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: minio-secret
+                key: MINIO_ROOT_USER
+          - name: MINIO_SECRET_KEY
+            valueFrom:
+              secretKeyRef:
+                name: minio-secret
+                key: MINIO_ROOT_PASSWORD
+          - name: DB_HOST
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: postgres-host
+          - name: DB_PORT
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: postgres-port
+          - name: DB_USER
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: POSTGRES_USER
+          - name: DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: POSTGRES_PASSWORD
+          - name: DB_NAME
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: POSTGRES_DB
+          - name: SSL_MODE
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: ssl-mode
+          - name: POSTGRES_DSN
+            value: "postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=$(SSL_MODE)"

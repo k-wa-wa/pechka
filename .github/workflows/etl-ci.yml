@@ -78,4 +78,25 @@ jobs:
       - name: Lint
         run: python -m py_compile analyze.py
 
+  etl-subtitle:
+    name: ETL Subtitle Generator (Python)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: batch/subtitle
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: batch/subtitle/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Lint
+        run: python -m py_compile generate.py
+
 

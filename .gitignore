@@ -10,3 +10,5 @@ frontend/.next/
 frontend/tsconfig.tsbuildinfo
 frontend/playwright-report/
 frontend/test-results/
+__pycache__/
+*.pyc
