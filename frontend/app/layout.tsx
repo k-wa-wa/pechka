@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import Header from '@/components/Header'
+import { LanguageProvider } from '@/lib/i18n/LanguageContext'
 
 export const metadata: Metadata = {
   title: 'pechka',
@@ -15,9 +16,12 @@ export default function RootLayout({
   return (
     <html lang="ja">
       <body>
-        <Header />
-        <main style={{ minHeight: 'calc(100vh - 60px)' }}>{children}</main>
+        <LanguageProvider>
+          <Header />
+          <main style={{ minHeight: 'calc(100vh - 60px)' }}>{children}</main>
+        </LanguageProvider>
       </body>
     </html>
   )
 }
+

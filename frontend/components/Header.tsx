@@ -4,11 +4,15 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import SearchModal from './SearchModal'
+import SettingsModal from './SettingsModal'
+import { useLanguage } from '@/lib/i18n/LanguageContext'
 
 export default function Header() {
   const [searchOpen, setSearchOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const pathname = usePathname()
+  const { t } = useLanguage()
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -27,8 +31,8 @@ export default function Header() {
   }, [pathname])
 
   const navLinks = [
-    { href: '/', label: 'Home' },
-    { href: '/admin', label: 'Admin' },
+    { href: '/', label: t('nav.home') },
+    { href: '/admin', label: t('nav.admin') },
   ]
 
   return (
@@ -89,7 +93,7 @@ export default function Header() {
         {/* Search icon */}
         <button
           onClick={() => setSearchOpen(true)}
-          title="Search (Cmd+K)"
+          title={t('header.searchHint')}
           style={{
             background: 'none',
             border: '1px solid #30363d',
@@ -114,7 +118,7 @@ export default function Header() {
             <circle cx="11" cy="11" r="8" />
             <path d="m21 21-4.35-4.35" />
           </svg>
-          <span className="search-hint">Search</span>
+          <span className="search-hint">{t('header.search')}</span>
           <kbd
             style={{
               fontSize: 10,
@@ -126,6 +130,39 @@ export default function Header() {
           >
             ⌘K
           </kbd>
+        </button>
+
+        {/* Settings icon */}
+        <button
+          onClick={() => setSettingsOpen(true)}
+          title={t('header.settings')}
+          style={{
+            background: 'none',
+            border: '1px solid #30363d',
+            borderRadius: 6,
+            color: '#8b949e',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '6px',
+            fontSize: 13,
+            transition: 'color 0.15s, border-color 0.15s',
+          }}
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
         </button>
 
         {/* Mobile hamburger */}
@@ -205,6 +242,11 @@ export default function Header() {
       `}</style>
 
       <SearchModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
+      <SettingsModal
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+      />
     </>
   )
 }
+

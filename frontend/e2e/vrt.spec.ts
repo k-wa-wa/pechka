@@ -60,4 +60,14 @@ test.describe('Visual Regression Tests', () => {
     await waitForPageReady(page)
     await expect(page).toHaveScreenshot('content-vr360.png', SCREENSHOT_OPTIONS)
   })
+
+  test('settings modal', async ({ page }) => {
+    await page.goto('/')
+    await page.waitForSelector('h1', { timeout: 10_000 })
+    await waitForPageReady(page)
+    await page.click('button[title="設定"], button[title="Settings"]')
+    await page.waitForSelector('h2', { timeout: 5_000 })
+    await expect(page).toHaveScreenshot('settings-modal.png', SCREENSHOT_OPTIONS)
+  })
 })
+
