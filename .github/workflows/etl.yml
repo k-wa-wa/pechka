@@ -1,4 +1,4 @@
-name: CI/CD / ETL
+name: ETL
 
 permissions:
   contents: write
@@ -12,12 +12,12 @@ on:
     paths:
       - 'batch/**'
       - 'db/**'
-      - '.github/workflows/ci-cd-etl.yml'
+      - '.github/workflows/etl.yml'
   pull_request:
     paths:
       - 'batch/**'
       - 'db/**'
-      - '.github/workflows/ci-cd-etl.yml'
+      - '.github/workflows/etl.yml'
 
 jobs:
   test-etl:

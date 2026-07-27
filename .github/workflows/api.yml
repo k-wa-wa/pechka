@@ -1,4 +1,4 @@
-name: CI/CD / API
+name: API
 
 permissions:
   contents: read
@@ -9,11 +9,11 @@ on:
     branches: [master]
     paths:
       - 'api/**'
-      - '.github/workflows/ci-cd-api.yml'
+      - '.github/workflows/api.yml'
   pull_request:
     paths:
       - 'api/**'
-      - '.github/workflows/ci-cd-api.yml'
+      - '.github/workflows/api.yml'
 
 jobs:
   test:

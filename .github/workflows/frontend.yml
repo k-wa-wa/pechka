@@ -1,4 +1,4 @@
-name: CI/CD / Frontend
+name: Frontend
 
 permissions:
   contents: read
@@ -10,11 +10,11 @@ on:
     branches: [master]
     paths:
       - 'frontend/**'
-      - '.github/workflows/ci-cd-frontend.yml'
+      - '.github/workflows/frontend.yml'
   pull_request:
     paths:
       - 'frontend/**'
-      - '.github/workflows/ci-cd-frontend.yml'
+      - '.github/workflows/frontend.yml'
 
 jobs:
   test-frontend:
@@ -135,12 +135,12 @@ jobs:
           VRT の実行結果はプレビュー環境で確認できます：
           🔗 [VRT Report](https://pechka-pr-${PR_NUMBER}.cluster.wpc/vrt-report/index.html)
           
-          ※ UIの更新が意図通りである場合は、GitHub Actions の \`Ops / Update VRT Snapshots\` ワークフローを実行してスナップショットを更新してください。
+          ※ UIの更新が意図通りである場合は、GitHub Actions の \`Update VRT Snapshots\` ワークフローを実行してスナップショットを更新してください。
           EOF
           )
           
           if [ -n "$COMMENT_ID" ]; then
-            gh api -X PATCH repos/${{ github.repository }}/issues/${PR_NUMBER}/comments/${COMMENT_ID} -f body="$COMMENT_BODY"
+            gh api -X PATCH repos/${{ github.repository }}/issues/comments/${COMMENT_ID} -f body="$COMMENT_BODY"
           else
             gh pr comment "$PR_NUMBER" --body "$COMMENT_BODY"
           fi

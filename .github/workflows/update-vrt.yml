@@ -1,4 +1,4 @@
-name: Ops / Update VRT Snapshots
+name: Update VRT Snapshots
 
 on:
   workflow_dispatch:
