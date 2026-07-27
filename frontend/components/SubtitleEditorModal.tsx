@@ -162,7 +162,7 @@ export default function SubtitleEditorModal({ content, onClose }: Props) {
 
           {!loading && tracks.length === 0 && (
             <p style={{ color: '#8b949e' }}>
-              このコンテンツには字幕がありません（バッチ未実行、または処理中）。
+              このコンテンツには字幕がありません
             </p>
           )}
 
