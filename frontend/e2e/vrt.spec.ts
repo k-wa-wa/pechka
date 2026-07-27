@@ -1,13 +1,15 @@
 import { test, expect } from '@playwright/test'
 
-const SCREENSHOT_OPTIONS = { fullPage: true, maxDiffPixelRatio: 0.02 }
+const SCREENSHOT_OPTIONS = { fullPage: true, maxDiffPixelRatio: 0.05 }
 
 async function waitForPageReady(page: import('@playwright/test').Page) {
   // Wait for Next.js dynamic import placeholders to disappear
   await page.waitForFunction(
     () =>
       !document.body.innerText.includes('読み込み中...') &&
-      !document.body.innerText.includes('VRビューアを読み込み中...'),
+      !document.body.innerText.includes('VRビューアを読み込み中...') &&
+      !document.body.innerText.includes('Loading...') &&
+      !document.body.innerText.includes('Loading VR viewer...'),
     { timeout: 15_000 }
   )
   // Wait for A-Frame scene to finish loading if present

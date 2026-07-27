@@ -88,7 +88,8 @@ export default function ContentDetailView({ content, variants }: Props) {
           {content.published_at && (
             <span>
               {new Date(content.published_at).toLocaleDateString(
-                language === 'ja' ? 'ja-JP' : 'en-US'
+                language === 'ja' ? 'ja-JP' : 'en-US',
+                { timeZone: 'Asia/Tokyo' }
               )}{' '}
               {t('content.published')}
             </span>
