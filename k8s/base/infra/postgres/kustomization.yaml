@@ -15,3 +15,13 @@ configMapGenerator:
       - 002_add_unique_disc_title.up.sql=migrations/002_add_unique_disc_title.up.sql
       - 003_add_thumbnail_key.up.sql=migrations/003_add_thumbnail_key.up.sql
       - 004_add_subtitles.up.sql=migrations/004_add_subtitles.up.sql
+    options:
+      # このConfigMapに非hookのままだと、Argo CDの通常Syncフェーズ（PreSyncの後）で
+      # 適用される。postgres-migrate Job（PreSyncフック）はそれより先に走るため、
+      # 同一コミットでマイグレーションファイルを追加した回だけ、Jobが更新前の
+      # ConfigMap内容を読んでしまい、新しいマイグレーションが適用されない。
+      # ConfigMap自体もPreSyncフックにし、Jobより小さいsync-waveを与えることで、
+      # 同一Sync内で必ずConfigMap更新→Job実行の順になるようにする。
+      annotations:
+        argocd.argoproj.io/hook: PreSync
+        argocd.argoproj.io/sync-wave: "-1"

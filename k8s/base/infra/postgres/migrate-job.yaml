@@ -6,6 +6,9 @@ metadata:
   annotations:
     argocd.argoproj.io/hook: PreSync
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    # postgres-migrations ConfigMap（sync-wave: "-1"）より後に実行させるため明示する。
+    # デフォルトは "0" なので実質変更なしだが、依存関係を分かるように残す。
+    argocd.argoproj.io/sync-wave: "0"
 spec:
   template:
     spec:
