@@ -1,0 +1,208 @@
+name: CI/CD / ETL
+
+permissions:
+  contents: write
+  packages: write
+
+on:
+  push:
+    branches: [master]
+    tags:
+      - 'v*.*.*'
+    paths:
+      - 'batch/**'
+      - 'db/**'
+      - '.github/workflows/ci-cd-etl.yml'
+  pull_request:
+    paths:
+      - 'batch/**'
+      - 'db/**'
+      - '.github/workflows/ci-cd-etl.yml'
+
+jobs:
+  test-etl:
+    name: Test (Pechka ETL)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: batch/etl
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: batch/etl/go.mod
+          cache-dependency-path: batch/etl/go.sum
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Build
+        run: CGO_ENABLED=0 go build ./...
+
+  test-refresh-playlist:
+    name: Test (Refresh Playlist)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: batch/refresh-latest-playlist
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: batch/refresh-latest-playlist/go.mod
+          cache-dependency-path: batch/refresh-latest-playlist/go.sum
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Build
+        run: CGO_ENABLED=0 go build ./...
+
+  test-generate-thumbnail:
+    name: Test (Generate Thumbnail)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: batch/generate-thumbnail
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: batch/generate-thumbnail/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Lint
+        run: python -m py_compile analyze.py
+
+  test-subtitle:
+    name: Test (Subtitle)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: batch/subtitle
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: batch/subtitle/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Lint
+        run: python -m py_compile generate.py
+
+  push-image:
+    name: Push Image
+    needs: [test-etl, test-refresh-playlist, test-generate-thumbnail, test-subtitle]
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: etl-extract
+            context: .
+            file: ./batch/etl/Dockerfile.extract
+            image: ghcr.io/${{ github.repository }}/etl-extract
+          - name: etl-transform
+            context: .
+            file: ./batch/etl/Dockerfile.transform
+            image: ghcr.io/${{ github.repository }}/etl-transform
+          - name: etl-load
+            context: .
+            file: ./batch/etl/Dockerfile.load
+            image: ghcr.io/${{ github.repository }}/etl-load
+          - name: etl-generate-thumbnail
+            context: ./batch/generate-thumbnail
+            image: ghcr.io/${{ github.repository }}/etl-generate-thumbnail
+          - name: etl-subtitle
+            context: ./batch/subtitle
+            image: ghcr.io/${{ github.repository }}/etl-subtitle
+          - name: etl-refresh-latest-playlist
+            context: ./batch/refresh-latest-playlist
+            image: ghcr.io/${{ github.repository }}/etl-refresh-latest-playlist
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          push: true
+          tags: |
+            ${{ matrix.image }}:latest
+            ${{ matrix.image }}:sha-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  push-release-binary:
+    name: Push Release Binary
+    needs: [test-etl]
+    if: (github.ref == 'refs/heads/master' || github.ref_type == 'tag') && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: batch/etl/go.mod
+          cache-dependency-path: batch/etl/go.sum
+
+      - name: Build extract binary
+        run: |
+          cd batch/etl
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o pechka-etl .
+
+      - name: Create Release and Upload Asset (tag)
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          make_latest: true
+          files: batch/etl/pechka-etl
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Release and Upload Asset (latest)
+        if: github.ref_type == 'branch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          make_latest: true
+          files: batch/etl/pechka-etl
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
