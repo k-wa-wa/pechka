@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import type { MongoContent, ContentType } from '@/lib/types'
 
@@ -10,6 +10,8 @@ const CONTENT_TYPE_LABEL: Record<ContentType, string> = {
   vr360: 'VR360',
   document: 'Document',
 }
+
+const AUTO_SLIDE_INTERVAL = 5000
 
 function formatDuration(seconds: number): string {
   const h = Math.floor(seconds / 3600)
@@ -25,17 +27,39 @@ interface Props {
 
 export default function Carousel({ items }: Props) {
   const [current, setCurrent] = useState(0)
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const [isPlaying, setIsPlaying] = useState(true)
+  const [isHovered, setIsHovered] = useState(false)
+
+  const next = useCallback(() => {
+    if (items.length <= 1) return
+    setCurrent((c) => (c + 1) % items.length)
+  }, [items.length])
+
+  const prev = useCallback(() => {
+    if (items.length <= 1) return
+    setCurrent((c) => (c - 1 + items.length) % items.length)
+  }, [items.length])
+
+  useEffect(() => {
+    if (!isPlaying || isHovered || items.length <= 1) return
+
+    const timer = setInterval(() => {
+      next()
+    }, AUTO_SLIDE_INTERVAL)
+
+    return () => clearInterval(timer)
+  }, [isPlaying, isHovered, items.length, next])
 
   if (items.length === 0) return null
-
-  const prev = () => setCurrent((c) => (c - 1 + items.length) % items.length)
-  const next = () => setCurrent((c) => (c + 1) % items.length)
 
   const item = items[current]
 
   return (
-    <div style={{ position: 'relative', width: '100%', overflow: 'hidden' }}>
+    <div
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      style={{ position: 'relative', width: '100%', overflow: 'hidden' }}
+    >
       {/* Main slide */}
       <Link
         href={`/contents/${item.short_id}`}
@@ -53,29 +77,47 @@ export default function Carousel({ items }: Props) {
             position: 'relative',
           }}
         >
-          {item.thumbnail_key ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={`/thumbnails/${item.thumbnail_key}`}
-              alt={item.title}
-              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-            />
-          ) : (
-            <div
-              style={{
-                width: '100%',
-                height: '100%',
-                background: 'linear-gradient(135deg, #161b22 0%, #0d1117 100%)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#30363d" strokeWidth="1">
-                <polygon points="5 3 19 12 5 21 5 3" />
-              </svg>
-            </div>
-          )}
+          {items.map((slideItem, index) => {
+            const isActive = index === current
+            return (
+              <div
+                key={slideItem.short_id || index}
+                style={{
+                  position: index === 0 ? 'relative' : 'absolute',
+                  inset: 0,
+                  opacity: isActive ? 1 : 0,
+                  transition: 'opacity 0.6s ease-in-out',
+                  pointerEvents: isActive ? 'auto' : 'none',
+                  width: '100%',
+                  height: '100%',
+                }}
+              >
+                {slideItem.thumbnail_key ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={`/thumbnails/${slideItem.thumbnail_key}`}
+                    alt={slideItem.title}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      background: 'linear-gradient(135deg, #161b22 0%, #0d1117 100%)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#30363d" strokeWidth="1">
+                      <polygon points="5 3 19 12 5 21 5 3" />
+                    </svg>
+                  </div>
+                )}
+              </div>
+            )
+          })}
 
           {/* Gradient overlay */}
           <div
@@ -84,8 +126,27 @@ export default function Carousel({ items }: Props) {
               inset: 0,
               background:
                 'linear-gradient(to top, rgba(13,17,23,0.95) 0%, rgba(13,17,23,0.3) 50%, transparent 100%)',
+              pointerEvents: 'none',
             }}
           />
+
+          {/* Progress bar at the top of carousel */}
+          {items.length > 1 && isPlaying && !isHovered && (
+            <div
+              key={current}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                height: 3,
+                backgroundColor: '#58a6ff',
+                width: '100%',
+                animation: `carousel-progress ${AUTO_SLIDE_INTERVAL}ms linear`,
+                transformOrigin: 'left',
+                zIndex: 10,
+              }}
+            />
+          )}
 
           {/* Content info overlay */}
           <div
@@ -95,6 +156,7 @@ export default function Carousel({ items }: Props) {
               left: 0,
               right: 0,
               padding: '24px 32px',
+              zIndex: 2,
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
@@ -150,11 +212,14 @@ export default function Carousel({ items }: Props) {
         </div>
       </Link>
 
-      {/* Navigation buttons */}
+      {/* Navigation buttons & controls */}
       {items.length > 1 && (
         <>
           <button
-            onClick={(e) => { e.preventDefault(); prev() }}
+            onClick={(e) => {
+              e.preventDefault()
+              prev()
+            }}
             style={{
               position: 'absolute',
               left: 12,
@@ -170,6 +235,7 @@ export default function Carousel({ items }: Props) {
               justifyContent: 'center',
               cursor: 'pointer',
               color: '#e6edf3',
+              zIndex: 3,
             }}
             aria-label="Previous"
           >
@@ -178,7 +244,10 @@ export default function Carousel({ items }: Props) {
             </svg>
           </button>
           <button
-            onClick={(e) => { e.preventDefault(); next() }}
+            onClick={(e) => {
+              e.preventDefault()
+              next()
+            }}
             style={{
               position: 'absolute',
               right: 12,
@@ -194,6 +263,7 @@ export default function Carousel({ items }: Props) {
               justifyContent: 'center',
               cursor: 'pointer',
               color: '#e6edf3',
+              zIndex: 3,
             }}
             aria-label="Next"
           >
@@ -202,37 +272,85 @@ export default function Carousel({ items }: Props) {
             </svg>
           </button>
 
-          {/* Dots */}
+          {/* Dots & Play/Pause controls */}
           <div
-            ref={scrollRef}
             style={{
               position: 'absolute',
               bottom: 12,
               right: 16,
               display: 'flex',
-              gap: 6,
+              alignItems: 'center',
+              gap: 8,
+              zIndex: 3,
             }}
           >
-            {items.map((_, i) => (
-              <button
-                key={i}
-                onClick={() => setCurrent(i)}
-                style={{
-                  width: i === current ? 20 : 6,
-                  height: 6,
-                  borderRadius: 3,
-                  backgroundColor: i === current ? '#58a6ff' : '#30363d',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: 0,
-                  transition: 'width 0.2s, background 0.2s',
-                }}
-                aria-label={`Slide ${i + 1}`}
-              />
-            ))}
+            <button
+              onClick={() => setIsPlaying((p) => !p)}
+              style={{
+                backgroundColor: 'rgba(22,27,34,0.8)',
+                border: '1px solid #30363d',
+                borderRadius: '50%',
+                width: 24,
+                height: 24,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                color: '#8b949e',
+                padding: 0,
+              }}
+              aria-label={isPlaying ? 'Pause slideshow' : 'Start slideshow'}
+              title={isPlaying ? 'Pause auto-slide' : 'Start auto-slide'}
+            >
+              {isPlaying ? (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="4" width="4" height="16" />
+                  <rect x="14" y="4" width="4" height="16" />
+                </svg>
+              ) : (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                  <polygon points="5 3 19 12 5 21 5 3" />
+                </svg>
+              )}
+            </button>
+
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              {items.map((_, i) => (
+                <button
+                  key={i}
+                  onClick={(e) => {
+                    e.preventDefault()
+                    setCurrent(i)
+                  }}
+                  style={{
+                    width: i === current ? 20 : 6,
+                    height: 6,
+                    borderRadius: 3,
+                    backgroundColor: i === current ? '#58a6ff' : '#30363d',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: 0,
+                    transition: 'width 0.2s, background 0.2s',
+                  }}
+                  aria-label={`Slide ${i + 1}`}
+                />
+              ))}
+            </div>
           </div>
         </>
       )}
+
+      <style jsx global>{`
+        @keyframes carousel-progress {
+          from {
+            transform: scaleX(0);
+          }
+          to {
+            transform: scaleX(1);
+          }
+        }
+      `}</style>
     </div>
   )
 }
+
