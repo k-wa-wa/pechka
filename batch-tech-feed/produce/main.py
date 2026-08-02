@@ -161,7 +161,7 @@ def _add_tts(parser: argparse.ArgumentParser) -> None:
         help="'mock' generates silence sized from the text length (no TTS engine needed)",
     )
     parser.add_argument("--engine-url", default="http://aivisspeech:10101")
-    parser.add_argument("--speaker", type=int, default=0)
+    parser.add_argument("--speaker", type=int, default=synthesize.DEFAULT_SPEAKER_ID, help="speaker/style ID (default: 888753760 - Mao/Normal)")
     parser.add_argument("--speed", type=float, default=synthesize.DEFAULT_SPEED_SCALE, help="speech speed scale (default: 1.25)")
     parser.add_argument("--intonation", type=float, default=synthesize.DEFAULT_INTONATION_SCALE, help="intonation scale (default: 1.15)")
     parser.add_argument("--pad-ms", type=int, default=synthesize.DEFAULT_PAD_MS)

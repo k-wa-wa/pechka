@@ -17,6 +17,9 @@ spec:
       # 音声合成エンジン(AivisSpeech / VOICEVOX Engine)を使用する。
       - name: tts-engine
         value: "voicevox"
+      # AivisSpeech Speaker ID (デフォルト: 888753760 - まお / ノーマル)
+      - name: speaker
+        value: "888753760"
       # 再実行してもコンテンツが増えないための同一性キー。
       # 空なら台本の digest_date から tech-feed:<date> が組み立てられる。
       - name: source-key
@@ -30,6 +33,7 @@ spec:
           - name: topics
           - name: since-days
           - name: tts-engine
+          - name: speaker
           - name: source-key
       dag:
         tasks:
@@ -48,6 +52,8 @@ spec:
                   value: "{{inputs.parameters.topics}}"
                 - name: tts-engine
                   value: "{{inputs.parameters.tts-engine}}"
+                - name: speaker
+                  value: "{{inputs.parameters.speaker}}"
                 - name: source-key
                   value: "{{inputs.parameters.source-key}}"
               # 収集結果は /tmp のファイルとして受け渡す。Bluray 取り込みが
@@ -95,6 +101,7 @@ spec:
         parameters:
           - name: topics
           - name: tts-engine
+          - name: speaker
           - name: source-key
         artifacts:
           - name: candidates
@@ -112,6 +119,8 @@ spec:
           - "{{inputs.parameters.topics}}"
           - "--engine"
           - "{{inputs.parameters.tts-engine}}"
+          - "--speaker"
+          - "{{inputs.parameters.speaker}}"
           - "--source-key"
           - "{{inputs.parameters.source-key}}"
           - "--quiet"
@@ -196,6 +205,8 @@ spec:
         parameters:
           - name: tts-engine
             value: "voicevox"
+          - name: speaker
+            value: "888753760"
           - name: source-key
             value: ""
       activeDeadlineSeconds: 10800
@@ -209,6 +220,8 @@ spec:
           - "/work"
           - "--engine"
           - "{{inputs.parameters.tts-engine}}"
+          - "--speaker"
+          - "{{inputs.parameters.speaker}}"
           - "--source-key"
           - "{{inputs.parameters.source-key}}"
           - "--quiet"

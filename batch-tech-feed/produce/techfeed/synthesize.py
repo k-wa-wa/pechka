@@ -24,6 +24,7 @@ DEFAULT_PAD_MS = 250
 REQUEST_TIMEOUT_SEC = 120
 
 # デフォルト設定値
+DEFAULT_SPEAKER_ID = 888753760  # AivisSpeech のデフォルト話者 (まお / ノーマル)
 DEFAULT_SPEED_SCALE = 1.25
 DEFAULT_INTONATION_SCALE = 1.15
 
@@ -95,7 +96,7 @@ class MockSynthesizer(Synthesizer):
 def build_synthesizer(
     engine: str,
     engine_url: str,
-    speaker: int,
+    speaker: int = DEFAULT_SPEAKER_ID,
     speed: float = DEFAULT_SPEED_SCALE,
     intonation: float = DEFAULT_INTONATION_SCALE,
 ) -> Synthesizer:
