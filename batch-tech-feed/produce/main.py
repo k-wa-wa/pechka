@@ -78,7 +78,9 @@ def cmd_compose(args: argparse.Namespace) -> str:
 
 def cmd_synthesize(args: argparse.Namespace) -> dict:
     scr, entries = _load_entries(args.script, args.assets_dir)
-    synth = synthesize.build_synthesizer(args.engine, args.engine_url, args.speaker, args.speed)
+    synth = synthesize.build_synthesizer(
+        args.engine, args.engine_url, args.speaker, args.speed, args.intonation
+    )
 
     print(f"synthesizing with engine={args.engine}...")
     durations = synthesize.run(entries, args.out, synth, pad_ms=args.pad_ms)
@@ -160,7 +162,8 @@ def _add_tts(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--engine-url", default="http://aivisspeech:10101")
     parser.add_argument("--speaker", type=int, default=0)
-    parser.add_argument("--speed", type=float, default=1.0)
+    parser.add_argument("--speed", type=float, default=synthesize.DEFAULT_SPEED_SCALE, help="speech speed scale (default: 1.25)")
+    parser.add_argument("--intonation", type=float, default=synthesize.DEFAULT_INTONATION_SCALE, help="intonation scale (default: 1.15)")
     parser.add_argument("--pad-ms", type=int, default=synthesize.DEFAULT_PAD_MS)
 
 

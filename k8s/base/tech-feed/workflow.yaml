@@ -14,9 +14,9 @@ spec:
         value: "3"
       - name: since-days
         value: "2"
-      # AivisSpeech を常駐させるまでは mock（無音）で回す。
+      # 音声合成エンジン(AivisSpeech / VOICEVOX Engine)を使用する。
       - name: tts-engine
-        value: "mock"
+        value: "voicevox"
       # 再実行してもコンテンツが増えないための同一性キー。
       # 空なら台本の digest_date から tech-feed:<date> が組み立てられる。
       - name: source-key
@@ -195,7 +195,7 @@ spec:
       inputs:
         parameters:
           - name: tts-engine
-            value: "mock"
+            value: "voicevox"
           - name: source-key
             value: ""
       activeDeadlineSeconds: 10800

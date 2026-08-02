@@ -15,13 +15,17 @@ from pathlib import Path
 
 import requests
 
-from . import media
+from . import media, phonetics
 from .timeline import Entry
 
 # 文と文のあいだに入れる無音。これがないと読み上げが詰まって聞き取りづらい。
 DEFAULT_PAD_MS = 250
 # TTSエンジン側の合成は数秒かかりうるが、無応答で無限に待たされるのは避ける。
 REQUEST_TIMEOUT_SEC = 120
+
+# デフォルト設定値
+DEFAULT_SPEED_SCALE = 1.25
+DEFAULT_INTONATION_SCALE = 1.15
 
 # --engine mock 用。日本語の読み上げ速度をおおよそ 7 文字/秒とみなした概算で、
 # 尺の妥当性を目視確認できる程度の精度があれば十分である。
@@ -37,21 +41,32 @@ class Synthesizer:
 class VoicevoxSynthesizer(Synthesizer):
     """VOICEVOX互換エンジン(AivisSpeech Engine を含む)のクライアント。"""
 
-    def __init__(self, base_url: str, speaker: int, speed: float = 1.0) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        speaker: int,
+        speed: float = DEFAULT_SPEED_SCALE,
+        intonation: float = DEFAULT_INTONATION_SCALE,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.speaker = speaker
         self.speed = speed
+        self.intonation = intonation
         self._session = requests.Session()
 
     def synthesize(self, text: str, dst: str) -> None:
+        # 技術用語や英略称をVOICEVOX読み上げ用に正規化する。
+        tts_text = phonetics.normalize_for_tts(text)
+
         query = self._session.post(
             f"{self.base_url}/audio_query",
-            params={"text": text, "speaker": self.speaker},
+            params={"text": tts_text, "speaker": self.speaker},
             timeout=REQUEST_TIMEOUT_SEC,
         )
         query.raise_for_status()
         params = query.json()
         params["speedScale"] = self.speed
+        params["intonationScale"] = self.intonation
         # 間はこちら側で一律に付けるため(media.normalize_audio)、エンジン側の前後無音は落とす。
         params["prePhonemeLength"] = 0.0
         params["postPhonemeLength"] = 0.0
@@ -77,11 +92,17 @@ class MockSynthesizer(Synthesizer):
         media.silence(dst, MOCK_BASE_MS + len(text) * MOCK_MS_PER_CHAR)
 
 
-def build_synthesizer(engine: str, engine_url: str, speaker: int, speed: float) -> Synthesizer:
+def build_synthesizer(
+    engine: str,
+    engine_url: str,
+    speaker: int,
+    speed: float = DEFAULT_SPEED_SCALE,
+    intonation: float = DEFAULT_INTONATION_SCALE,
+) -> Synthesizer:
     if engine == "mock":
         return MockSynthesizer()
     if engine == "voicevox":
-        return VoicevoxSynthesizer(engine_url, speaker, speed)
+        return VoicevoxSynthesizer(engine_url, speaker, speed, intonation)
     raise ValueError(f"unknown engine: {engine!r} (expected 'voicevox' or 'mock')")
 
 
