@@ -1,0 +1,121 @@
+name: Tech Feed
+
+permissions:
+  contents: read
+  packages: write
+
+on:
+  push:
+    branches: [master]
+    tags:
+      - 'v*.*.*'
+    paths:
+      - 'batch-tech-feed/**'
+      - 'k8s/base/tech-feed/**'
+      - '.github/workflows/tech-feed.yml'
+  pull_request:
+    paths:
+      - 'batch-tech-feed/**'
+      - 'k8s/base/tech-feed/**'
+      - '.github/workflows/tech-feed.yml'
+
+jobs:
+  test-collect:
+    name: Test (Tech Feed Collect)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: batch-tech-feed/collect
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: batch-tech-feed/collect/go.mod
+          cache-dependency-path: batch-tech-feed/collect/go.sum
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Build
+        run: CGO_ENABLED=0 go build ./...
+
+  test-produce:
+    name: Test (Tech Feed Produce)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: batch-tech-feed/produce
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: batch-tech-feed/produce/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Lint Python
+        run: python -m py_compile main.py
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: batch-tech-feed/produce/remotion/package-lock.json
+
+      - name: Install Remotion dependencies
+        run: |
+          cd remotion
+          npm ci
+
+  push-image:
+    name: Push Image
+    needs: [test-collect, test-produce]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: tech-feed-collect
+            context: ./batch-tech-feed/collect
+            file: ./batch-tech-feed/collect/Dockerfile
+            image: ghcr.io/${{ github.repository }}/tech-feed-collect
+          - name: tech-feed-produce
+            context: ./batch-tech-feed/produce
+            file: ./batch-tech-feed/produce/Dockerfile
+            image: ghcr.io/${{ github.repository }}/tech-feed-produce
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          push: true
+          tags: |
+            ${{ matrix.image }}:latest
+            ${{ matrix.image }}:sha-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
