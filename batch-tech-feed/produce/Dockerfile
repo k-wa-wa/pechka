@@ -5,11 +5,28 @@
 FROM node:22-bookworm-slim
 
 # fonts-noto-cjk がないと Chrome が日本語を豆腐(□)で描画する。
+# Remotion (Chrome Headless) の起動に必要な依存ライブラリを追加。
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
     ffmpeg \
     fonts-noto-cjk \
+    libnspr4 \
+    libnss3 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libdbus-1-3 \
+    libxkbcommon0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libasound2 \
+    libpango-1.0-0 \
+    libcairo2 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
