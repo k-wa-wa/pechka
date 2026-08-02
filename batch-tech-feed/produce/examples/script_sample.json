@@ -1,0 +1,117 @@
+{
+  "digest_date": "2026-08-01",
+  "title": "今日の技術トピック 3選",
+  "_note": "疎通確認用に人手で書いたサンプル台本。全レイアウト(title/bullets/code/figure/diagram)を通す。内容は形式を確かめるための例であり、実在のリリースを述べたものではない。",
+  "sections": [
+    {
+      "seq": 1,
+      "slide": {
+        "layout": "title",
+        "title": "今日の技術トピック 3選",
+        "subtitle": "2026年8月1日"
+      },
+      "narration": [
+        "こんにちは。今日の技術トピックを3件お届けする。",
+        "取り上げるのは、コンテナ基盤、ビルドツール、そして観測性まわりの話題である。"
+      ]
+    },
+    {
+      "seq": 2,
+      "slide": {
+        "layout": "bullets",
+        "title": "サンプルトピック A",
+        "subtitle": "コンテナ基盤のアップグレード方針",
+        "items": [
+          "ベータだった機能が正式版に昇格した",
+          "移行時に非互換となる設定が2箇所ある",
+          "アップグレードは段階的に進めるのが安全"
+        ]
+      },
+      "narration": [
+        { "text": "1つ目は、コンテナ基盤のアップグレードについて。", "focus": null },
+        { "text": "これまでベータ扱いだった機能が、今回のリリースで正式版に昇格した。", "focus": 0 },
+        { "text": "本番投入を見送っていた構成でも、そのまま使えるようになる。", "focus": 0 },
+        { "text": "一方で、移行にあたって非互換となる設定が2箇所ある。", "focus": 1 },
+        { "text": "したがって、アップグレードは一気にではなく段階的に進めるのが安全である。", "focus": 2 }
+      ],
+      "sources": [
+        { "title": "Sample Release Notes", "url": "https://example.com/release-notes", "publisher": "example.com" }
+      ]
+    },
+    {
+      "seq": 3,
+      "slide": {
+        "layout": "figure",
+        "title": "まずは dry-run で確認",
+        "subtitle": "何が引っかかるかを先に見る",
+        "image": "assets/upgrade_dry_run.png",
+        "caption": "`--dry-run` は変更を加えずに、注意が必要な設定だけを一覧する"
+      },
+      "narration": [
+        "実際の手順を見てみる。",
+        "アップグレードコマンドには dry-run オプションがあり、変更を加えずに確認だけができる。",
+        "先ほどの非互換な設定が2件、ここで警告として出ている。"
+      ],
+      "sources": [
+        { "title": "Sample CLI Reference", "url": "https://example.com/cli", "publisher": "example.com" }
+      ]
+    },
+    {
+      "seq": 4,
+      "slide": {
+        "layout": "code",
+        "title": "サンプルトピック B",
+        "subtitle": "ビルド設定の書き方が変わった",
+        "language": "yaml",
+        "code": "build:\n  target: release\n  cache:\n    enabled: true\n    scope: workspace\n  output:\n    format: oci"
+      },
+      "narration": [
+        "2つ目は、ビルドツールの設定形式の変更について。",
+        "キャッシュの指定が、これまでのフラグ形式からブロック形式に変わった。",
+        "スコープを明示できるようになったため、ワークスペース単位でキャッシュを共有できる。"
+      ],
+      "sources": [
+        { "title": "Sample Changelog", "url": "https://example.com/changelog", "publisher": "example.com" }
+      ]
+    },
+    {
+      "seq": 5,
+      "slide": {
+        "layout": "diagram",
+        "title": "キャッシュはどこで共有されるのか",
+        "subtitle": "スコープ指定で共有範囲が決まる",
+        "diagram": "flowchart LR\n  subgraph WS[\"workspace スコープ\"]\n    A[\"app-a のビルド\"]\n    B[\"app-b のビルド\"]\n  end\n  C[(\"共有キャッシュ\")]\n  A -->|\"読み書き\"| C\n  B -->|\"読み書き\"| C\n  D[\"別ワークスペース\"] -.->|\"届かない\"| C",
+        "caption": "同一ワークスペース内のビルドだけがキャッシュを共有する"
+      },
+      "narration": [
+        "図にすると分かりやすい。",
+        "同じワークスペースに属するビルドどうしは、ひとつのキャッシュを読み書きする。",
+        "別のワークスペースからは参照されないため、意図しない混線は起きない。"
+      ],
+      "sources": [
+        { "title": "Sample Changelog", "url": "https://example.com/changelog", "publisher": "example.com" }
+      ]
+    },
+    {
+      "seq": 6,
+      "slide": {
+        "layout": "bullets",
+        "title": "サンプルトピック C",
+        "subtitle": "観測性まわりの小ネタ",
+        "items": [
+          "メトリクスの命名規約が更新された",
+          "既存の名前は当面そのまま動く"
+        ]
+      },
+      "narration": [
+        { "text": "最後は、観測性まわりの小さな話題である。", "focus": null },
+        { "text": "メトリクスの命名規約が更新され、単位をサフィックスに付ける形が推奨になった。", "focus": 0 },
+        { "text": "既存の名前も当面はそのまま動くため、急いで直す必要はない。", "focus": 1 },
+        { "text": "今日は以上である。" }
+      ],
+      "sources": [
+        { "title": "Sample Convention Doc", "url": "https://example.com/conventions", "publisher": "example.com" }
+      ]
+    }
+  ]
+}

@@ -12,3 +12,5 @@ frontend/playwright-report/
 frontend/test-results/
 __pycache__/
 *.pyc
+
+node_modules/

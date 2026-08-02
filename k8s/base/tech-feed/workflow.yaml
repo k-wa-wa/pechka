@@ -1,0 +1,244 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: tech-feed
+  namespace: pechka
+spec:
+  # Bluray 取り込み（etl-bluray）とは完全に独立している。イメージも DB の同一性キーも
+  # 共有しておらず、片方を止めても他方に影響しない。共有するのは配信先だけ
+  # （MinIO の resources/hls と PostgreSQL の contents）。
+  entrypoint: daily
+  arguments:
+    parameters:
+      - name: topics
+        value: "3"
+      - name: since-days
+        value: "2"
+      - name: llm
+        value: "claude"
+      # AivisSpeech を常駐させるまでは mock（無音）で回す。
+      - name: tts-engine
+        value: "mock"
+      # 再実行してもコンテンツが増えないための同一性キー。
+      # 空なら台本の digest_date から tech-feed:<date> が組み立てられる。
+      - name: source-key
+        value: ""
+
+  templates:
+    # 1. daily (Collect -> Produce)
+    - name: daily
+      inputs:
+        parameters:
+          - name: topics
+          - name: since-days
+          - name: llm
+          - name: tts-engine
+          - name: source-key
+      dag:
+        tasks:
+          - name: collect
+            template: collect
+            arguments:
+              parameters:
+                - name: since-days
+                  value: "{{inputs.parameters.since-days}}"
+          - name: produce
+            dependencies: [collect]
+            template: produce
+            arguments:
+              parameters:
+                - name: topics
+                  value: "{{inputs.parameters.topics}}"
+                - name: llm
+                  value: "{{inputs.parameters.llm}}"
+                - name: tts-engine
+                  value: "{{inputs.parameters.tts-engine}}"
+                - name: source-key
+                  value: "{{inputs.parameters.source-key}}"
+              # 収集結果は /tmp のファイルとして受け渡す。Bluray 取り込みが
+              # mkv-files.json / short-id を outputs.parameters で渡しているのと同じ形。
+              # raw artifact なので artifact repository の設定は要らない。
+              artifacts:
+                - name: candidates
+                  raw:
+                    data: "{{tasks.collect.outputs.parameters.candidates}}"
+
+    # 2. collect (Gathers article candidates from RSS / official APIs)
+    #    外部ストレージも DB も触らないので、認証情報を一切必要としない。
+    - name: collect
+      inputs:
+        parameters:
+          - name: since-days
+      activeDeadlineSeconds: 900
+      container:
+        image: ghcr.io/k-wa-wa/pechka/tech-feed-collect:latest
+        args:
+          - "-sources"
+          - "/etc/tech-feed/sources.json"
+          - "-since-days"
+          - "{{inputs.parameters.since-days}}"
+          - "-output"
+          - "/tmp/candidates.json"
+        resources:
+          requests:
+            cpu: "100m"
+            memory: 128Mi
+          limits:
+            cpu: "500m"
+            memory: 512Mi
+      outputs:
+        parameters:
+          - name: candidates
+            valueFrom:
+              path: /tmp/candidates.json
+
+    # 3. produce (Compose -> Synthesize -> Render -> Publish)
+    #    中間成果物（wav 群・mp4・HLS セグメント）が大きく段をまたげないため、
+    #    ここは1コンテナで通す。
+    - name: produce
+      inputs:
+        parameters:
+          - name: topics
+          - name: llm
+          - name: tts-engine
+          - name: source-key
+        artifacts:
+          - name: candidates
+            path: /tmp/candidates.json
+      activeDeadlineSeconds: 10800
+      container:
+        image: ghcr.io/k-wa-wa/pechka/tech-feed-produce:latest
+        args:
+          - "produce"
+          - "--out"
+          - "/work"
+          - "--candidates"
+          - "/tmp/candidates.json"
+          - "--topics"
+          - "{{inputs.parameters.topics}}"
+          - "--llm"
+          - "{{inputs.parameters.llm}}"
+          - "--engine"
+          - "{{inputs.parameters.tts-engine}}"
+          - "--source-key"
+          - "{{inputs.parameters.source-key}}"
+          - "--quiet"
+        resources:
+          requests:
+            cpu: "2"
+            memory: 4Gi
+          limits:
+            cpu: "4"
+            memory: 8Gi
+        volumeMounts:
+          - name: work
+            mountPath: /work
+          - name: claude-home
+            mountPath: /home/node/.claude
+        env: &publish-env
+          - name: MINIO_BUCKET
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: minio-bucket
+          - name: MINIO_URL
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: minio-url
+          - name: MINIO_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: minio-secret
+                key: MINIO_ROOT_USER
+          - name: MINIO_SECRET_KEY
+            valueFrom:
+              secretKeyRef:
+                name: minio-secret
+                key: MINIO_ROOT_PASSWORD
+          - name: DB_HOST
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: postgres-host
+          - name: DB_PORT
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: postgres-port
+          - name: DB_USER
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: POSTGRES_USER
+          - name: DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: POSTGRES_PASSWORD
+          - name: DB_NAME
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: POSTGRES_DB
+          - name: SSL_MODE
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: ssl-mode
+          - name: POSTGRES_DSN
+            value: "postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=$(SSL_MODE)"
+      volumes:
+        - name: work
+          emptyDir:
+            sizeLimit: 8Gi
+        # `claude` CLI の認証情報。無い環境では -p llm=ollama を使う。
+        - name: claude-home
+          secret:
+            secretName: claude-credentials
+            optional: true
+
+    # 4. from-script (Builds from a hand-written script; skips collect and compose)
+    #    台本は ConfigMap（k8s/base/tech-feed/script.json）から来る。
+    - name: from-script
+      inputs:
+        parameters:
+          - name: tts-engine
+            value: "mock"
+          - name: source-key
+            value: ""
+      activeDeadlineSeconds: 10800
+      container:
+        image: ghcr.io/k-wa-wa/pechka/tech-feed-produce:latest
+        args:
+          - "all"
+          - "--script"
+          - "/scripts/script.json"
+          - "--out"
+          - "/work"
+          - "--engine"
+          - "{{inputs.parameters.tts-engine}}"
+          - "--source-key"
+          - "{{inputs.parameters.source-key}}"
+          - "--quiet"
+        resources:
+          requests:
+            cpu: "2"
+            memory: 4Gi
+          limits:
+            cpu: "4"
+            memory: 8Gi
+        volumeMounts:
+          - name: work
+            mountPath: /work
+          - name: script
+            mountPath: /scripts
+            readOnly: true
+        env: *publish-env
+      volumes:
+        - name: work
+          emptyDir:
+            sizeLimit: 8Gi
+        - name: script
+          configMap:
+            name: tech-feed-script

@@ -1,0 +1,18 @@
+{
+  "_note": "RSS と公式 API のみ。HTML スクレイピングはしない(docs/407 §2.1)。",
+  "rss": [
+    { "name": "Publickey",        "url": "https://www.publickey1.jp/atom.xml" },
+    { "name": "Zenn Trending",    "url": "https://zenn.dev/feed" },
+    { "name": "Kubernetes Blog",  "url": "https://kubernetes.io/feed.xml" },
+    { "name": "CNCF Blog",        "url": "https://www.cncf.io/feed/" },
+    { "name": "AWS News",         "url": "https://aws.amazon.com/blogs/aws/feed/" },
+    { "name": "Cloudflare Blog",  "url": "https://blog.cloudflare.com/rss/" },
+    { "name": "GitHub Changelog", "url": "https://github.blog/changelog/feed/" }
+  ],
+  "hacker_news": { "enabled": true, "top_n": 60, "min_score": 150 },
+  "github_releases": [
+    "kubernetes/kubernetes",
+    "argoproj/argo-cd",
+    "grafana/grafana"
+  ]
+}

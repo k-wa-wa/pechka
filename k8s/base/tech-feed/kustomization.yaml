@@ -1,0 +1,17 @@
+# Bluray 取り込み（etl-bluray）と同じく Argo Workflows の WorkflowTemplate である。
+# argo submit --from workflowtemplate/tech-feed で呼び出す。
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: pechka
+
+resources:
+  - workflow.yaml
+
+configMapGenerator:
+  # from-script エントリポイント用の手書き台本。
+  # 名前にハッシュが付くので、script.json を変えると WorkflowTemplate の spec も変わる。
+  - name: tech-feed-script
+    namespace: pechka
+    files:
+      - script.json=script.json

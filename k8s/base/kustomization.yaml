@@ -7,3 +7,4 @@ resources:
   - api
   - frontend
   - etl
+  - tech-feed
