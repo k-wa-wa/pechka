@@ -10,7 +10,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     ffmpeg \
     fonts-noto-cjk \
+    curl \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# agy CLI のインストール
+RUN curl -fsSL https://antigravity.google/cli/install.sh | bash
+ENV PATH="/root/.antigravity/bin:${PATH}"
 
 WORKDIR /app
 

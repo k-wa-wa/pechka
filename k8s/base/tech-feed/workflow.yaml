@@ -15,7 +15,7 @@ spec:
       - name: since-days
         value: "2"
       - name: llm
-        value: "claude"
+        value: "agy"
       # AivisSpeech を常駐させるまでは mock（無音）で回す。
       - name: tts-engine
         value: "mock"
@@ -133,9 +133,13 @@ spec:
         volumeMounts:
           - name: work
             mountPath: /work
-          - name: claude-home
-            mountPath: /home/node/.claude
         env: &publish-env
+          - name: GEMINI_API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: gemini-secret
+                key: GEMINI_API_KEY
+                optional: true
           - name: MINIO_BUCKET
             valueFrom:
               configMapKeyRef:
@@ -192,11 +196,6 @@ spec:
         - name: work
           emptyDir:
             sizeLimit: 8Gi
-        # `claude` CLI の認証情報。無い環境では -p llm=ollama を使う。
-        - name: claude-home
-          secret:
-            secretName: claude-credentials
-            optional: true
 
     # 4. from-script (Builds from a hand-written script; skips collect and compose)
     #    台本は ConfigMap（k8s/base/tech-feed/script.json）から来る。

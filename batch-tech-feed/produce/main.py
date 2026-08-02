@@ -136,7 +136,7 @@ def _add_compose(parser: argparse.ArgumentParser) -> None:
         "--candidates", default="",
         help="candidates.json written by the collect job (default: <out>/candidates.json)",
     )
-    parser.add_argument("--llm", default="claude", choices=["claude", "ollama"])
+    parser.add_argument("--llm", default="agy", choices=["agy", "claude", "ollama"])
     parser.add_argument("--llm-model", default="", help="model name for the chosen provider")
     parser.add_argument("--ollama-url", default="", help="base URL when --llm ollama")
     parser.add_argument("--topics", type=int, default=3, help="how many topics to cover")
