@@ -1,7 +1,16 @@
+# postgres-migrate / postgres-seed-from-prod (PreSyncフック, sync-wave: "0") が
+# pg_isready で疎通確認するため、このpostgres本体一式も通常Syncフェーズ任せにはできない。
+# 新規namespace(PRごとのpreview環境)では通常Syncフェーズの適用がPreSyncフックの完了待ちで
+# 発生しないため、DB自体が永久に起動しないままフックが失敗し続ける。
+# postgres-secret (local-secrets.yaml) と同じ理由でPreSyncフック化し、
+# Jobより小さいsync-waveを与える。
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: postgres-config
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/sync-wave: "-1"
 data:
   POSTGRES_DB: pechka
   PGDATA: /var/lib/postgresql/data/pgdata
@@ -16,6 +25,9 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: postgres-pvc
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
   storageClassName: local-path
   accessModes:
@@ -28,6 +40,9 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: postgres
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
   serviceName: postgres
   replicas: 1
@@ -80,6 +95,9 @@ apiVersion: v1
 kind: Service
 metadata:
   name: postgres
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
   selector:
     app: postgres

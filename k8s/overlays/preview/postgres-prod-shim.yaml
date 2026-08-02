@@ -3,10 +3,15 @@
 # 実体は nuage-cluster リポジトリの external-service namespace が一元管理しているので、
 # ここでは同名serviceでDNS転送するだけでよい(IPの手動同期は不要)。
 # namespaceは指定しない(destination.namespaceでPRごとのnamespaceに配置される)。
+# postgres-seed-from-prod (PreSyncフック) がこのServiceを参照するため、他のpostgres本体
+# 一式 (postgres/postgres.yaml) と同じ理由でPreSyncフック化し、Jobより小さいsync-waveを与える。
 apiVersion: v1
 kind: Service
 metadata:
   name: postgres-prod
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
   type: ExternalName
   externalName: postgres.external-service.svc.cluster.local
