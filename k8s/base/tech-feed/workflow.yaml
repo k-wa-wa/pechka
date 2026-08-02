@@ -14,8 +14,6 @@ spec:
         value: "3"
       - name: since-days
         value: "2"
-      - name: llm
-        value: "agy"
       # AivisSpeech を常駐させるまでは mock（無音）で回す。
       - name: tts-engine
         value: "mock"
@@ -31,7 +29,6 @@ spec:
         parameters:
           - name: topics
           - name: since-days
-          - name: llm
           - name: tts-engine
           - name: source-key
       dag:
@@ -49,8 +46,6 @@ spec:
               parameters:
                 - name: topics
                   value: "{{inputs.parameters.topics}}"
-                - name: llm
-                  value: "{{inputs.parameters.llm}}"
                 - name: tts-engine
                   value: "{{inputs.parameters.tts-engine}}"
                 - name: source-key
@@ -99,7 +94,6 @@ spec:
       inputs:
         parameters:
           - name: topics
-          - name: llm
           - name: tts-engine
           - name: source-key
         artifacts:
@@ -116,8 +110,6 @@ spec:
           - "/tmp/candidates.json"
           - "--topics"
           - "{{inputs.parameters.topics}}"
-          - "--llm"
-          - "{{inputs.parameters.llm}}"
           - "--engine"
           - "{{inputs.parameters.tts-engine}}"
           - "--source-key"

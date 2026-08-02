@@ -67,8 +67,8 @@ def cmd_compose(args: argparse.Namespace) -> str:
     candidates = candidates_mod.load(path)
     print(f"composing a script from {len(candidates)} candidate(s)...")
     data = compose.run(
-        candidates, args.llm, digest_date=args.digest_date,
-        topics=args.topics, model=args.llm_model, ollama_url=args.ollama_url,
+        candidates, digest_date=args.digest_date,
+        topics=args.topics, model=args.llm_model,
     )
     dst = str(Path(args.out) / SCRIPT_NAME)
     compose.save(data, dst)
@@ -136,9 +136,7 @@ def _add_compose(parser: argparse.ArgumentParser) -> None:
         "--candidates", default="",
         help="candidates.json written by the collect job (default: <out>/candidates.json)",
     )
-    parser.add_argument("--llm", default="agy", choices=["agy", "claude", "ollama"])
-    parser.add_argument("--llm-model", default="", help="model name for the chosen provider")
-    parser.add_argument("--ollama-url", default="", help="base URL when --llm ollama")
+    parser.add_argument("--llm-model", default="", help="model name for agy")
     parser.add_argument("--topics", type=int, default=3, help="how many topics to cover")
     parser.add_argument("--digest-date", default="", help="YYYY-MM-DD (default: today)")
 

@@ -1,9 +1,6 @@
-"""LLM の呼び出し口。プロバイダを差し替えられるようにしてある。
+"""LLM の呼び出し口。agy CLI を使用する。
 
-本番は `agy` CLI。認証は GEMINI_API_KEY 等の環境変数に委ねる。
-
-ローカルの Ollama も残してある。外に出したくない情報源を扱う場合や、`agy` が
-使えないときのフォールバックとして使う。
+認証は GEMINI_API_KEY 等の環境変数に委ねる。
 """
 
 from __future__ import annotations
@@ -13,10 +10,7 @@ import os
 import shutil
 import subprocess
 
-import requests
-
 DEFAULT_AGY_MODEL = ""
-DEFAULT_OLLAMA_MODEL = "batiai/qwen3.6-27b:iq3"
 # 台本1本の生成。数千字の出力を見込む。
 TIMEOUT_SEC = 900
 
@@ -30,20 +24,34 @@ class LLM:
         raise NotImplementedError
 
 
+def _find_agy_binary() -> str:
+    path = shutil.which("agy")
+    if path:
+        return path
+    for candidate in [
+        os.path.expanduser("~/.local/bin/agy"),
+        "/root/.local/bin/agy",
+        os.path.expanduser("~/.antigravity/bin/agy"),
+        "/root/.antigravity/bin/agy",
+    ]:
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return ""
+
+
 class AgyCLI(LLM):
     """`agy -p` を叩く。認証は GEMINI_API_KEY 等の環境変数に委ねる。"""
 
-    def __init__(self, model: str = DEFAULT_AGY_MODEL, binary: str = "agy") -> None:
+    def __init__(self, model: str = DEFAULT_AGY_MODEL) -> None:
         self.model = model
-        self.binary = binary
 
     def complete(self, prompt: str) -> str:
-        if shutil.which(self.binary) is None:
+        binary = _find_agy_binary()
+        if not binary:
             raise LLMError(
-                f"{self.binary!r} not found on PATH. "
-                "Install the agy CLI, or use --llm ollama."
+                "agy CLI not found on PATH or ~/.local/bin/agy."
             )
-        cmd = [self.binary, "-p", prompt, "--output-format", "json"]
+        cmd = [binary, "-p", prompt, "--output-format", "json"]
         if self.model:
             cmd.extend(["--model", self.model])
 
@@ -67,28 +75,8 @@ class AgyCLI(LLM):
         return proc.stdout
 
 
-class Ollama(LLM):
-    def __init__(self, base_url: str, model: str = DEFAULT_OLLAMA_MODEL) -> None:
-        self.base_url = base_url.rstrip("/")
-        self.model = model
-
-    def complete(self, prompt: str) -> str:
-        res = requests.post(
-            f"{self.base_url}/api/generate",
-            json={"model": self.model, "prompt": prompt, "stream": False, "format": "json"},
-            timeout=TIMEOUT_SEC,
-        )
-        res.raise_for_status()
-        return res.json().get("response", "")
-
-
-def build(provider: str, model: str = "", ollama_url: str = "") -> LLM:
-    if provider in ("agy", "claude"):
-        return AgyCLI(model or DEFAULT_AGY_MODEL)
-    if provider == "ollama":
-        url = ollama_url or os.environ.get("OLLAMA_URL", "http://lm-server:11434")
-        return Ollama(url, model or DEFAULT_OLLAMA_MODEL)
-    raise ValueError(f"unknown llm provider: {provider!r} (expected 'agy' or 'ollama')")
+def build(model: str = "") -> LLM:
+    return AgyCLI(model or DEFAULT_AGY_MODEL)
 
 
 def extract_json(text: str) -> dict:

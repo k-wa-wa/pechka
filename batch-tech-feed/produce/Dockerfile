@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # agy CLI のインストール
 RUN curl -fsSL https://antigravity.google/cli/install.sh | bash
-ENV PATH="/root/.antigravity/bin:${PATH}"
+ENV PATH="/root/.local/bin:/root/.antigravity/bin:${PATH}"
 
 WORKDIR /app
 

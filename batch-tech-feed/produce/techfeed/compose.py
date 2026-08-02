@@ -94,17 +94,15 @@ def build_prompt(candidates: list[Candidate], digest_date: str, topics: int) -> 
 
 def run(
     candidates: list[Candidate],
-    provider: str,
     digest_date: str = "",
     topics: int = 3,
     model: str = "",
-    ollama_url: str = "",
 ) -> dict:
     if not candidates:
         raise SystemExit("no candidates to compose from; run the 'collect' step first")
 
     digest_date = digest_date or date.today().isoformat()
-    client = llm_mod.build(provider, model, ollama_url)
+    client = llm_mod.build(model)
     prompt = build_prompt(candidates, digest_date, topics)
 
     last_error = ""
@@ -112,7 +110,7 @@ def run(
         ask = prompt if attempt == 1 else (
             f"{prompt}\n\n# 直前の出力は次の理由で不正だった。修正して JSON を出し直せ\n{last_error}"
         )
-        print(f"  attempt {attempt}/{MAX_ATTEMPTS} (provider={provider})...")
+        print(f"  attempt {attempt}/{MAX_ATTEMPTS}...")
         raw = client.complete(ask)
 
         try:
