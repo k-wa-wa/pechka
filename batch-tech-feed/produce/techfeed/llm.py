@@ -1,14 +1,15 @@
-"""LLM の呼び出し口。agy CLI を使用する。
+"""LLM の呼び出し口。google-antigravity SDK を使用する。
 
-認証は GEMINI_API_KEY 等の環境変数に委ねる。
+認証は GEMINI_API_KEY 環境変数に委ねる。
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
-import shutil
-import subprocess
+
+from google.antigravity import Agent, LocalAgentConfig
 
 DEFAULT_AGY_MODEL = ""
 # 台本1本の生成。数千字の出力を見込む。
@@ -24,59 +25,30 @@ class LLM:
         raise NotImplementedError
 
 
-def _find_agy_binary() -> str:
-    path = shutil.which("agy")
-    if path:
-        return path
-    for candidate in [
-        os.path.expanduser("~/.local/bin/agy"),
-        "/root/.local/bin/agy",
-        os.path.expanduser("~/.antigravity/bin/agy"),
-        "/root/.antigravity/bin/agy",
-    ]:
-        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-            return candidate
-    return ""
-
-
-class AgyCLI(LLM):
-    """`agy -p` を叩く。認証は GEMINI_API_KEY 等の環境変数に委ねる。"""
+class AgySDK(LLM):
+    """google-antigravity SDK の Agent を使用してプロンプトを実行する。"""
 
     def __init__(self, model: str = DEFAULT_AGY_MODEL) -> None:
         self.model = model
 
     def complete(self, prompt: str) -> str:
-        binary = _find_agy_binary()
-        if not binary:
-            raise LLMError(
-                "agy CLI not found on PATH or ~/.local/bin/agy."
-            )
-        cmd = [binary, "-p", prompt, "--output-format", "json"]
-        if self.model:
-            cmd.extend(["--model", self.model])
+        if not os.environ.get("GEMINI_API_KEY"):
+            raise LLMError("GEMINI_API_KEY environment variable is not set")
 
-        proc = subprocess.run(
-            cmd,
-            capture_output=True, text=True, timeout=TIMEOUT_SEC,
-        )
-        if proc.returncode != 0:
-            raise LLMError(f"agy exited {proc.returncode}: {proc.stderr[-1500:]}")
+        async def _chat() -> str:
+            config = LocalAgentConfig()
+            async with Agent(config) as agent:
+                response = await agent.chat(prompt)
+                return await response.text()
 
         try:
-            envelope = json.loads(proc.stdout)
-        except json.JSONDecodeError as e:
-            raise LLMError(f"agy returned non-JSON output: {e}\n{proc.stdout[:500]}") from e
-
-        if isinstance(envelope, dict):
-            if envelope.get("is_error"):
-                raise LLMError(f"agy reported an error: {envelope.get('result', '')[:500]}")
-            if "result" in envelope:
-                return envelope["result"]
-        return proc.stdout
+            return asyncio.run(_chat())
+        except Exception as e:
+            raise LLMError(f"google-antigravity agent chat failed: {e}") from e
 
 
 def build(model: str = "") -> LLM:
-    return AgyCLI(model or DEFAULT_AGY_MODEL)
+    return AgySDK(model or DEFAULT_AGY_MODEL)
 
 
 def extract_json(text: str) -> dict:

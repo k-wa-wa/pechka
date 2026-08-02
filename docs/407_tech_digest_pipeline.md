@@ -61,16 +61,16 @@ RSS と公式 API のみを対象とする。
 
 ### 2.2 選別・台本生成（LLM）
 
-**本番は `agy` CLI を採る。**
+**本番は `google-antigravity` Python SDK を採る。**
 
-当初はローカルの `lm-server`（Ollama）も検討されたが、台本の品質と安定性を重視し `agy` CLI に一本化している。
+当初はローカルの `lm-server`（Ollama）や CLI も検討されたが、`GEMINI_API_KEY` による認証と安定したバッチ実行を重視し `google-antigravity` SDK に一本化している。
 
 処理は 2 段に分ける。段ごとにプロバイダを変えられる構成にしておくと、選別だけローカルに落として API 呼び出しを減らす、といった調整ができる。
 
 1. **選別（filter）**: 収集した数十〜数百件から今日取り上げる 3〜5 件を選ぶ。分類タスクに近く、ローカル LLM でも十分に務まる
-2. **台本化（compose）**: 選ばれた記事から構造化台本を書く。品質が効くのはここ。`agy` CLI を使う
+2. **台本化（compose）**: 選ばれた記事から構造化台本を書く。品質が効くのはここ。`google-antigravity` SDK を使う
 
-出力は構造化 JSON に固定する（後述）。`agy -p` に台本スキーマを渡して JSON を書かせ、`batch-tech-feed` 側の `script.py` で検証してから後段へ流す。**バッチが受け取る境界は常に検証済みの台本であり、LLM の出力をそのままレンダリングに渡さない。**
+出力は構造化 JSON に固定する（後述）。SDK に台本スキーマを渡して JSON を書かせ、`batch-tech-feed` 側の `script.py` で検証してから後段へ流す。**バッチが受け取る境界は常に検証済みの台本であり、LLM の出力をそのままレンダリングに渡さない。**
 
 #### 台本の中間形式（このパイプラインの中核）
 
@@ -252,7 +252,7 @@ Elasticsearch には `body_md` を入れる。記事本文の全文検索が既�
 ┌─────────────────────────────────────────────────────────┐
 │ ① collect    候補記事の収集 → candidates.json            │
 │ ② compose    LLM で選別 + 台本生成 → script.json          │
-│                  └─ agy CLI                               │
+│                  └─ google-antigravity Python SDK          │
 │ ③ synthesize AivisSpeech Engine で文ごとに WAV + 実尺     │
 │ ④ render     スライド HTML → Playwright → PNG 群          │
 │ ⑤ mux        ffmpeg: PNG + WAV → digest.mp4              │
@@ -294,7 +294,7 @@ batch-tech-feed/
 ├── techfeed/
 │   ├── candidates.py    # 収集結果の受け取り
 │   ├── compose.py       # LLM に台本を書かせる
-│   ├── llm.py           # agy CLI 呼び出し
+│   ├── llm.py           # google-antigravity SDK 呼び出し
 │   ├── script.py        # 台本の検証
 │   ├── timeline.py      # 実尺からタイムラインを導出
 │   ├── synthesize.py    # TTS
@@ -319,7 +319,7 @@ batch-tech-feed/
 | 工程 | 実行場所 | 目安 |
 | :-- | :-- | :-- |
 | collect | k8s (CPU) | 1 分未満 |
-| compose | `agy` CLI | 1〜数分（台本数千字） |
+| compose | `google-antigravity` SDK | 1〜数分（台本数千字） |
 | synthesize | k8s (CPU, 逐次) | 数分（100 文程度） |
 | render（Remotion。映像＋音声多重化） | k8s (CPU) | 数分（並列度に依存） |
 | transcode (ABR) | k8s (CPU) | 数分〜十数分（既存 ETL と同じ特性） |
@@ -344,7 +344,7 @@ MVP-1 の実測（6 セクション / 20 文 / 96 秒の動画、`--engine mock`
 
 ### 4.2 LLM をローカルで完結させるか — 決着済み
 
-**`agy` CLI に一本化する**ことに決めた（§2.2）。台本の品質がこの機能の価値を直接決めるため、そこを未知数に賭けない判断である。
+**`google-antigravity` Python SDK に一本化する**ことに決めた（§2.2）。`GEMINI_API_KEY` を直接使用した安定動作と台本の品質を両立させる判断である。
 
 ### 4.3 動画と記事の関係
 
