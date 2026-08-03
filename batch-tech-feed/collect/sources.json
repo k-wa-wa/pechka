@@ -1,30 +1,110 @@
 {
   "_note": "収集ソースの設定。rss, hacker_news, github_releases, html_scrape をサポート。is_primary で1次情報/2次情報を区別。",
   "rss": [
-    { "name": "Publickey",            "url": "https://www.publickey1.jp/atom.xml",                 "is_primary": false },
-    { "name": "Zenn Trending",        "url": "https://zenn.dev/feed",                              "is_primary": false },
-    { "name": "Kubernetes Blog",      "url": "https://kubernetes.io/feed.xml",                     "is_primary": true  },
-    { "name": "CNCF Blog",            "url": "https://www.cncf.io/feed/",                          "is_primary": true  },
-    { "name": "AWS News",             "url": "https://aws.amazon.com/blogs/aws/feed/",             "is_primary": true  },
-    { "name": "Cloudflare Blog",      "url": "https://blog.cloudflare.com/rss/",                   "is_primary": true  },
-    { "name": "GitHub Changelog",     "url": "https://github.blog/changelog/feed/",                "is_primary": true  },
-    { "name": "Alibaba Qwen Blog",    "url": "https://qwenlm.github.io/blog/index.xml",           "is_primary": true  },
-    { "name": "NVIDIA Developer Blog","url": "https://developer.nvidia.com/blog/feed/",          "is_primary": true  },
-    { "name": "NVIDIA Newsroom",      "url": "https://nvidianews.nvidia.com/rss",                  "is_primary": true  },
-    { "name": "AMD Press Releases",   "url": "https://ir.amd.com/news-events/press-releases/rss", "is_primary": true  },
-    { "name": "Intel Newsroom",       "url": "https://newsroom.intel.com/feed",                    "is_primary": true  }
+    {
+      "name": "Publickey",
+      "url": "https://www.publickey1.jp/atom.xml",
+      "is_primary": false
+    },
+    {
+      "name": "Zenn Trending",
+      "url": "https://zenn.dev/feed",
+      "is_primary": false
+    },
+    {
+      "name": "Kubernetes Blog",
+      "url": "https://kubernetes.io/feed.xml",
+      "is_primary": true
+    },
+    {
+      "name": "CNCF Blog",
+      "url": "https://www.cncf.io/feed/",
+      "is_primary": true
+    },
+    {
+      "name": "AWS News",
+      "url": "https://aws.amazon.com/blogs/aws/feed/",
+      "is_primary": true
+    },
+    {
+      "name": "Cloudflare Blog",
+      "url": "https://blog.cloudflare.com/rss/",
+      "is_primary": true
+    },
+    {
+      "name": "GitHub Changelog",
+      "url": "https://github.blog/changelog/feed/",
+      "is_primary": true
+    },
+    {
+      "name": "Alibaba Qwen Blog",
+      "url": "https://qwenlm.github.io/blog/index.xml",
+      "is_primary": true
+    },
+    {
+      "name": "NVIDIA Developer Blog",
+      "url": "https://developer.nvidia.com/blog/feed/",
+      "is_primary": true
+    },
+    {
+      "name": "NVIDIA Newsroom",
+      "url": "https://nvidianews.nvidia.com/rss",
+      "is_primary": true
+    },
+    {
+      "name": "AMD Press Releases",
+      "url": "https://ir.amd.com/news-events/press-releases/rss",
+      "is_primary": true
+    },
+    {
+      "name": "Intel Newsroom",
+      "url": "https://newsroom.intel.com/feed",
+      "is_primary": true
+    }
   ],
-  "hacker_news": { "enabled": true, "top_n": 60, "min_score": 150, "is_primary": false },
+  "hacker_news": {
+    "enabled": true,
+    "top_n": 60,
+    "min_score": 150,
+    "is_primary": false
+  },
   "github_releases": [
-    { "repo": "kubernetes/kubernetes",        "is_primary": true },
-    { "repo": "argoproj/argo-cd",             "is_primary": true },
-    { "repo": "grafana/grafana",              "is_primary": true },
-    { "repo": "openai/openai-python",          "is_primary": true },
-    { "repo": "anthropics/anthropic-sdk-python","is_primary": true },
-    { "repo": "QwenLM/Qwen2.5",                "is_primary": true },
-    { "repo": "MoonshotAI/Kimi-k1.5",          "is_primary": true },
-    { "repo": "ROCm/ROCm",                     "is_primary": true },
-    { "repo": "intel/intel-graphics-compiler", "is_primary": true }
+    {
+      "repo": "kubernetes/kubernetes",
+      "is_primary": true
+    },
+    {
+      "repo": "argoproj/argo-cd",
+      "is_primary": true
+    },
+    {
+      "repo": "grafana/grafana",
+      "is_primary": true
+    },
+    {
+      "repo": "openai/openai-python",
+      "is_primary": true
+    },
+    {
+      "repo": "anthropics/anthropic-sdk-python",
+      "is_primary": true
+    },
+    {
+      "repo": "QwenLM/Qwen2.5",
+      "is_primary": true
+    },
+    {
+      "repo": "MoonshotAI/Kimi-k1.5",
+      "is_primary": true
+    },
+    {
+      "repo": "ROCm/ROCm",
+      "is_primary": true
+    },
+    {
+      "repo": "intel/intel-graphics-compiler",
+      "is_primary": true
+    }
   ],
   "html_scrape": [
     {
