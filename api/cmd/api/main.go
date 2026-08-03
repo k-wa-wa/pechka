@@ -152,6 +152,8 @@ func main() {
 	admin.POST("/contents", adminH.CreateContent)
 	admin.PUT("/contents/:id", adminH.UpdateContent)
 	admin.DELETE("/contents/:id", adminH.DeleteContent)
+	admin.POST("/contents/:id/archive", adminH.ArchiveContent)
+	admin.POST("/contents/:id/unarchive", adminH.UnarchiveContent)
 	admin.GET("/discs", adminH.ListDiscs)
 	admin.POST("/discs", adminH.CreateDisc)
 	admin.GET("/contents/:content_id/subtitles", adminH.ListSubtitleTracks)

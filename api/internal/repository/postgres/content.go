@@ -33,7 +33,7 @@ func (r *ContentRepository) Create(ctx context.Context, params CreateContentPara
 	row := r.pool.QueryRow(ctx, `
 		INSERT INTO contents (short_id, content_type, disc_id, title, description, duration_seconds, is_360, tags, status)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING id, short_id, content_type, disc_id, title, description, duration_seconds, is_360, tags, status, published_at, created_at, updated_at
+		RETURNING id, short_id, content_type, disc_id, title, description, duration_seconds, is_360, tags, status, published_at, archived_at, created_at, updated_at
 	`, params.ShortID, params.ContentType, params.DiscID, params.Title, params.Description,
 		params.DurationSeconds, params.Is360, params.Tags, params.Status)
 
@@ -82,7 +82,7 @@ func (r *ContentRepository) Update(ctx context.Context, params UpdateContentPara
 	query := fmt.Sprintf(`
 		UPDATE contents SET %s
 		WHERE id = $%d
-		RETURNING id, short_id, content_type, disc_id, title, description, duration_seconds, is_360, tags, status, published_at, created_at, updated_at
+		RETURNING id, short_id, content_type, disc_id, title, description, duration_seconds, is_360, tags, status, published_at, archived_at, created_at, updated_at
 	`, strings.Join(setClauses, ", "), argIdx)
 
 	row := r.pool.QueryRow(ctx, query, args...)
@@ -94,9 +94,29 @@ func (r *ContentRepository) Delete(ctx context.Context, id string) error {
 	return err
 }
 
+// SetArchived はコンテンツのアーカイブ状態を切り替える。
+// 実データは削除せず archived_at にタイムスタンプを立てる/クリアするだけの論理削除。
+func (r *ContentRepository) SetArchived(ctx context.Context, id string, archived bool) (*domain.Content, error) {
+	var row scanner
+	if archived {
+		row = r.pool.QueryRow(ctx, `
+			UPDATE contents SET archived_at = CURRENT_TIMESTAMP
+			WHERE id = $1
+			RETURNING id, short_id, content_type, disc_id, title, description, duration_seconds, is_360, tags, status, published_at, archived_at, created_at, updated_at
+		`, id)
+	} else {
+		row = r.pool.QueryRow(ctx, `
+			UPDATE contents SET archived_at = NULL
+			WHERE id = $1
+			RETURNING id, short_id, content_type, disc_id, title, description, duration_seconds, is_360, tags, status, published_at, archived_at, created_at, updated_at
+		`, id)
+	}
+	return scanContent(row)
+}
+
 func (r *ContentRepository) GetByID(ctx context.Context, id string) (*domain.Content, error) {
 	row := r.pool.QueryRow(ctx, `
-		SELECT id, short_id, content_type, disc_id, title, description, duration_seconds, is_360, tags, status, published_at, created_at, updated_at
+		SELECT id, short_id, content_type, disc_id, title, description, duration_seconds, is_360, tags, status, published_at, archived_at, created_at, updated_at
 		FROM contents WHERE id = $1
 	`, id)
 	return scanContent(row)
@@ -104,19 +124,29 @@ func (r *ContentRepository) GetByID(ctx context.Context, id string) (*domain.Con
 
 type ListContentsParams struct {
 	Status *domain.ContentStatus
-	Limit  int
-	Offset int
+	// IncludeArchived が false の場合、アーカイブ済み(archived_at IS NOT NULL)のコンテンツは除外される。
+	// admin画面はアーカイブ済みも含めて表示・管理するため true を指定する。
+	IncludeArchived bool
+	Limit           int
+	Offset          int
 }
 
 func (r *ContentRepository) List(ctx context.Context, params ListContentsParams) ([]*domain.Content, error) {
-	query := `SELECT id, short_id, content_type, disc_id, title, description, duration_seconds, is_360, tags, status, published_at, created_at, updated_at FROM contents`
+	query := `SELECT id, short_id, content_type, disc_id, title, description, duration_seconds, is_360, tags, status, published_at, archived_at, created_at, updated_at FROM contents`
+	conditions := []string{}
 	args := []any{}
 	argIdx := 1
 
 	if params.Status != nil {
-		query += fmt.Sprintf(" WHERE status = $%d", argIdx)
+		conditions = append(conditions, fmt.Sprintf("status = $%d", argIdx))
 		args = append(args, *params.Status)
 		argIdx++
+	}
+	if !params.IncludeArchived {
+		conditions = append(conditions, "archived_at IS NULL")
+	}
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
 
 	query += fmt.Sprintf(" ORDER BY updated_at DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
@@ -147,7 +177,7 @@ func scanContent(row scanner) (*domain.Content, error) {
 	var c domain.Content
 	err := row.Scan(
 		&c.ID, &c.ShortID, &c.ContentType, &c.DiscID, &c.Title, &c.Description,
-		&c.DurationSeconds, &c.Is360, &c.Tags, &c.Status, &c.PublishedAt, &c.CreatedAt, &c.UpdatedAt,
+		&c.DurationSeconds, &c.Is360, &c.Tags, &c.Status, &c.PublishedAt, &c.ArchivedAt, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err

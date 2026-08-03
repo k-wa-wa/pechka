@@ -18,6 +18,7 @@ type pgContentRepository interface {
 	Create(ctx context.Context, params pgRepo.CreateContentParams) (*domain.Content, error)
 	Update(ctx context.Context, params pgRepo.UpdateContentParams) (*domain.Content, error)
 	Delete(ctx context.Context, id string) error
+	SetArchived(ctx context.Context, id string, archived bool) (*domain.Content, error)
 }
 
 type pgDiscRepository interface {
@@ -126,6 +127,33 @@ func (h *AdminHandler) DeleteContent(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
+// ArchiveContent はコンテンツを論理削除(アーカイブ)する。
+// 物理データは削除せず archived_at を設定し、admin画面以外(公開API/検索)から見えなくする。
+func (h *AdminHandler) ArchiveContent(c echo.Context) error {
+	id := c.Param("id")
+	content, err := h.contentRepo.SetArchived(c.Request().Context(), id, true)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return echo.NewHTTPError(http.StatusNotFound, "content not found")
+		}
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, content)
+}
+
+// UnarchiveContent はアーカイブ済みコンテンツを元の公開状態に戻す。
+func (h *AdminHandler) UnarchiveContent(c echo.Context) error {
+	id := c.Param("id")
+	content, err := h.contentRepo.SetArchived(c.Request().Context(), id, false)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return echo.NewHTTPError(http.StatusNotFound, "content not found")
+		}
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, content)
+}
+
 func (h *AdminHandler) ListContents(c echo.Context) error {
 	limit, _ := strconv.Atoi(c.QueryParam("limit"))
 	if limit <= 0 || limit > 100 {
@@ -141,8 +169,10 @@ func (h *AdminHandler) ListContents(c echo.Context) error {
 
 	contents, err := h.contentRepo.List(c.Request().Context(), pgRepo.ListContentsParams{
 		Status: status,
-		Limit:  limit,
-		Offset: offset,
+		// admin画面ではアーカイブ済みコンテンツも一覧・管理できるようにする。
+		IncludeArchived: true,
+		Limit:           limit,
+		Offset:          offset,
 	})
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())

@@ -203,6 +203,47 @@ paths:
         "204":
           description: No Content
 
+  /v1/admin/contents/{id}/archive:
+    post:
+      summary: コンテンツをアーカイブ(論理削除)する
+      description: >
+        物理データは削除せず archived_at を設定する。
+        アーカイブ済みコンテンツは admin画面以外(公開API/検索)から見えなくなる。
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Content"
+        "404":
+          description: Not Found
+
+  /v1/admin/contents/{id}/unarchive:
+    post:
+      summary: コンテンツのアーカイブを解除する
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Content"
+        "404":
+          description: Not Found
+
   /v1/admin/discs:
     get:
       summary: ディスク一覧取得
@@ -274,6 +315,11 @@ components:
           type: string
           format: date-time
           nullable: true
+        archived_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: アーカイブ(論理削除)された日時。nullの場合は未アーカイブ。
         created_at:
           type: string
           format: date-time

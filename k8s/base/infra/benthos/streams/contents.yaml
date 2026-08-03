@@ -20,6 +20,7 @@ pipeline:
               c.status,
               c.thumbnail_key,
               c.published_at,
+              c.archived_at,
               c.updated_at,
               d.label AS disc_label,
               COALESCE(
@@ -53,6 +54,7 @@ pipeline:
               "status": this.status,
               "thumbnail_key": this.thumbnail_key,
               "published_at": this.published_at,
+              "archived_at": this.archived_at,
               "updated_at": this.updated_at,
               "disc_label": this.disc_label,
               "variants": this.variants.parse_json().catch(this.variants),
@@ -74,6 +76,7 @@ pipeline:
               "status": item.status,
               "thumbnail_key": item.thumbnail_key,
               "published_at": item.published_at,
+              "archived_at": item.archived_at,
               "updated_at": item.updated_at,
               "disc_label": item.disc_label,
               "variants": item.variants.parse_json().catch(item.variants),

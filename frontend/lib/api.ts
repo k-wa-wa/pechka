@@ -90,6 +90,18 @@ export async function updateContent(
   })
 }
 
+export async function archiveContent(id: string): Promise<Content> {
+  return fetchJson<Content>(`${API_BASE}/api/v1/admin/contents/${id}/archive`, {
+    method: 'POST',
+  })
+}
+
+export async function unarchiveContent(id: string): Promise<Content> {
+  return fetchJson<Content>(`${API_BASE}/api/v1/admin/contents/${id}/unarchive`, {
+    method: 'POST',
+  })
+}
+
 export async function getSubtitleTracks(contentId: string): Promise<SubtitleTrack[]> {
   return fetchJson<SubtitleTrack[]>(
     `${API_BASE}/api/v1/admin/contents/${contentId}/subtitles`,

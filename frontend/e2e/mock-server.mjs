@@ -113,6 +113,7 @@ const ADMIN_CONTENTS = CONTENTS.map((c, i) => ({
   tags: c.tags,
   status: c.status,
   published_at: c.published_at,
+  archived_at: null,
   created_at: c.updated_at,
   updated_at: c.updated_at,
 }))

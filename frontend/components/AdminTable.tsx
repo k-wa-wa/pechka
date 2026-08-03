@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import type { Content, ContentStatus } from '@/lib/types'
+import { archiveContent, unarchiveContent } from '@/lib/api'
 import EditModal from './EditModal'
 import SubtitleEditorModal from './SubtitleEditorModal'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
@@ -35,6 +36,7 @@ export default function AdminTable({ initialContents }: Props) {
   const [contents, setContents] = useState<Content[]>(initialContents)
   const [editingContent, setEditingContent] = useState<Content | null>(null)
   const [subtitleContent, setSubtitleContent] = useState<Content | null>(null)
+  const [archivingId, setArchivingId] = useState<string | null>(null)
   const { t, language } = useLanguage()
 
   function handleSave(updated: Content) {
@@ -42,6 +44,26 @@ export default function AdminTable({ initialContents }: Props) {
       prev.map((c) => (c.id === updated.id ? updated : c))
     )
     setEditingContent(null)
+  }
+
+  async function handleToggleArchive(content: Content) {
+    const archiving = !content.archived_at
+    const confirmMessage = archiving
+      ? t('admin.table.confirmArchive')
+      : t('admin.table.confirmUnarchive')
+    if (!window.confirm(confirmMessage)) return
+
+    setArchivingId(content.id)
+    try {
+      const updated = archiving
+        ? await archiveContent(content.id)
+        : await unarchiveContent(content.id)
+      setContents((prev) => prev.map((c) => (c.id === updated.id ? updated : c)))
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : t('admin.table.archiveError'))
+    } finally {
+      setArchivingId(null)
+    }
   }
 
   const tableHeaders = [
@@ -158,6 +180,22 @@ export default function AdminTable({ initialContents }: Props) {
                   >
                     {STATUS_LABEL[content.status] ?? content.status}
                   </span>
+                  {content.archived_at && (
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        marginLeft: 6,
+                        padding: '2px 8px',
+                        borderRadius: 4,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        backgroundColor: '#30363d',
+                        color: '#8b949e',
+                      }}
+                    >
+                      {t('admin.table.badgeArchived')}
+                    </span>
+                  )}
                 </td>
 
                 {/* Tags */}
@@ -257,6 +295,34 @@ export default function AdminTable({ initialContents }: Props) {
                     }}
                   >
                     {t('admin.table.btnSubtitles')}
+                  </button>
+                  <button
+                    onClick={() => handleToggleArchive(content)}
+                    disabled={archivingId === content.id}
+                    style={{
+                      marginLeft: 6,
+                      padding: '4px 12px',
+                      borderRadius: 6,
+                      border: '1px solid #30363d',
+                      backgroundColor: 'transparent',
+                      color: archivingId === content.id ? '#8b949e88' : '#8b949e',
+                      cursor: archivingId === content.id ? 'not-allowed' : 'pointer',
+                      fontSize: 12,
+                      transition: 'all 0.15s',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = '#da3633'
+                      e.currentTarget.style.color = '#da3633'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = '#30363d'
+                      e.currentTarget.style.color =
+                        archivingId === content.id ? '#8b949e88' : '#8b949e'
+                    }}
+                  >
+                    {content.archived_at
+                      ? t('admin.table.btnUnarchive')
+                      : t('admin.table.btnArchive')}
                   </button>
                 </td>
               </tr>
