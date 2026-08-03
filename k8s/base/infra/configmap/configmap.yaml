@@ -14,4 +14,4 @@ data:
   allowed-ip-range: "0.0.0.0/0"
   bare-web-proxy-url: "http://bare-web-proxy-service.bare-web-proxy.svc.cluster.local"
   openai-model: "preview/Kimi-K2.6"
-  openai-base-url: "https://api.ai.sakura.ad.jp/"
+  openai-base-url: "https://api.ai.sakura.ad.jp/v1"
