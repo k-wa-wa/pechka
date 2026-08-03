@@ -1,0 +1,9 @@
+nameReference:
+- kind: ConfigMap
+  fieldSpecs:
+  - kind: WorkflowTemplate
+    group: argoproj.io
+    path: spec/templates/volumes/configMap/name
+  - kind: CronWorkflow
+    group: argoproj.io
+    path: spec/workflowSpec/templates/volumes/configMap/name

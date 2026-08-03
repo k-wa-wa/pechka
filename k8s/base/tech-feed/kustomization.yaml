@@ -9,6 +9,9 @@ resources:
   - workflow.yaml
   - aivisspeech.yaml
 
+configurations:
+  - kustomize-config.yaml
+
 configMapGenerator:
   # from-script エントリポイント用の手書き台本。
   # 名前にハッシュが付くので、script.json を変えると WorkflowTemplate の spec も変わる。
