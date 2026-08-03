@@ -8,11 +8,11 @@ import (
 	"github.com/k-wa-wa/pechka/batch-tech-feed/cmd"
 )
 
-// 収集を担う Go 側のエントリポイント。台本生成から公開までは Python 側
-// (main.py) が担当する。両者は別の Job / 別のイメージで動く。
+// 収集・選定・一次情報検証・台本生成を担う Go 側のエントリポイント。
+// 音声合成から動画化・配信までは Python 側 (main.py) が担当する。
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "Usage: tech-feed <collect> [args]\n")
+		fmt.Fprintf(os.Stderr, "Usage: tech-feed <collect|filter|enrich|compose> [args]\n")
 		os.Exit(1)
 	}
 
@@ -24,8 +24,14 @@ func main() {
 	switch cmdName {
 	case "collect":
 		err = cmd.RunCollect(ctx, subArgs)
+	case "filter":
+		err = cmd.RunFilter(ctx, subArgs)
+	case "enrich":
+		err = cmd.RunEnrich(ctx, subArgs)
+	case "compose":
+		err = cmd.RunCompose(ctx, subArgs)
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown command: %s\nUsage: tech-feed <collect> [args]\n", cmdName)
+		fmt.Fprintf(os.Stderr, "Unknown command: %s\nUsage: tech-feed <collect|filter|enrich|compose> [args]\n", cmdName)
 		os.Exit(1)
 	}
 

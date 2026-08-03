@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/mmcdole/gofeed"
 
 	"github.com/k-wa-wa/pechka/batch-tech-feed/shared"
@@ -24,31 +26,52 @@ const (
 	summaryLimit = 400
 )
 
-// Candidate は Python 側(techfeed/candidates.py)の dataclass と対になる。
-// フィールド名を変えるときは両方を直すこと。
+// Candidate は Python 側(techfeed/candidates.py)および後続フェーズと対になる。
 type Candidate struct {
 	Title       string `json:"title"`
 	URL         string `json:"url"`
 	Publisher   string `json:"publisher"`
 	PublishedAt string `json:"published_at"`
 	Summary     string `json:"summary"`
-	Score       *int   `json:"score"`
+	Score       *int   `json:"score,omitempty"`
+	IsPrimary   bool   `json:"is_primary"`
+	PrimaryURL  string `json:"primary_url,omitempty"`
+	Content     string `json:"content,omitempty"`
+}
+
+// HTMLScrapeSource は HTML スクレイピング対象の設定。
+type HTMLScrapeSource struct {
+	Name              string `json:"name"`
+	URL               string `json:"url"`
+	IsDynamic         bool   `json:"is_dynamic"`
+	IsPrimary         bool   `json:"is_primary"`
+	ContainerSelector string `json:"container_selector"`
+	TitleSelector     string `json:"title_selector"`
+	URLAttribute      string `json:"url_attribute"`
+	BaseURL           string `json:"base_url"`
+}
+
+// GitHubReleaseSource は GitHub Releases のソース設定。
+type GitHubReleaseSource struct {
+	Repo      string `json:"repo"`
+	IsPrimary bool   `json:"is_primary"`
 }
 
 // Sources は sources.json の形。
 type Sources struct {
 	RSS []struct {
-		Name string `json:"name"`
-		URL  string `json:"url"`
+		Name      string `json:"name"`
+		URL       string `json:"url"`
+		IsPrimary bool   `json:"is_primary"`
 	} `json:"rss"`
 	HackerNews struct {
-		Enabled  bool `json:"enabled"`
-		TopN     int  `json:"top_n"`
-		MinScore int  `json:"min_score"`
+		Enabled   bool `json:"enabled"`
+		TopN      int  `json:"top_n"`
+		MinScore  int  `json:"min_score"`
+		IsPrimary bool `json:"is_primary"`
 	} `json:"hacker_news"`
-	// 未認証でも叩けるが、GitHub API はレート制限が 60 req/hour と低い。
-	// 対象を増やすなら認証を足すこと。
-	GitHubReleases []string `json:"github_releases"`
+	GitHubReleases []GitHubReleaseSource `json:"github_releases"`
+	HTMLScrape     []HTMLScrapeSource    `json:"html_scrape"`
 }
 
 type collector struct {
@@ -57,7 +80,6 @@ type collector struct {
 	since time.Time
 }
 
-// within は日付が読めないフィードを弾かずに通す。落とすより拾いすぎる方が害が小さい。
 func (c *collector) within(published *time.Time) bool {
 	return published == nil || published.After(c.since)
 }
@@ -69,8 +91,8 @@ func iso(t *time.Time) string {
 	return t.Format(time.RFC3339)
 }
 
-func (c *collector) fromRSS(name, url string) ([]Candidate, error) {
-	res, err := shared.Get(c.client, url)
+func (c *collector) fromRSS(name, feedURL string, isPrimary bool) ([]Candidate, error) {
+	res, err := shared.Get(c.client, feedURL)
 	if err != nil {
 		return nil, err
 	}
@@ -96,12 +118,13 @@ func (c *collector) fromRSS(name, url string) ([]Candidate, error) {
 			Publisher:   name,
 			PublishedAt: iso(published),
 			Summary:     shared.Truncate(shared.StripTags(item.Description), summaryLimit),
+			IsPrimary:   isPrimary,
 		})
 	}
 	return out, nil
 }
 
-func (c *collector) fromHackerNews(topN, minScore int) ([]Candidate, error) {
+func (c *collector) fromHackerNews(topN, minScore int, isPrimary bool) ([]Candidate, error) {
 	var ids []int
 	if err := shared.GetJSON(c.client, hnAPI+"/topstories.json", &ids); err != nil {
 		return nil, err
@@ -119,11 +142,9 @@ func (c *collector) fromHackerNews(topN, minScore int) ([]Candidate, error) {
 			Score int    `json:"score"`
 			Time  int64  `json:"time"`
 		}
-		// 1件取れなくても残りで続ける。1件の失敗で収集全体を落とす価値はない。
 		if err := shared.GetJSON(c.client, fmt.Sprintf("%s/item/%d.json", hnAPI, id), &item); err != nil {
 			continue
 		}
-		// Ask HN 等は URL を持たない。動画で紹介できないので落とす。
 		if item.Type != "story" || item.URL == "" || item.Score < minScore {
 			continue
 		}
@@ -138,12 +159,13 @@ func (c *collector) fromHackerNews(topN, minScore int) ([]Candidate, error) {
 			Publisher:   "Hacker News",
 			PublishedAt: iso(&published),
 			Score:       &score,
+			IsPrimary:   isPrimary,
 		})
 	}
 	return out, nil
 }
 
-func (c *collector) fromGitHubReleases(repo string) ([]Candidate, error) {
+func (c *collector) fromGitHubReleases(repo string, isPrimary bool) ([]Candidate, error) {
 	var releases []struct {
 		TagName     string `json:"tag_name"`
 		HTMLURL     string `json:"html_url"`
@@ -152,8 +174,8 @@ func (c *collector) fromGitHubReleases(repo string) ([]Candidate, error) {
 		Prerelease  bool   `json:"prerelease"`
 		PublishedAt string `json:"published_at"`
 	}
-	url := fmt.Sprintf("%s/repos/%s/releases?per_page=5", githubAPI, repo)
-	if err := shared.GetJSON(c.client, url, &releases); err != nil {
+	reqURL := fmt.Sprintf("%s/repos/%s/releases?per_page=5", githubAPI, repo)
+	if err := shared.GetJSON(c.client, reqURL, &releases); err != nil {
 		return nil, err
 	}
 
@@ -172,18 +194,76 @@ func (c *collector) fromGitHubReleases(repo string) ([]Candidate, error) {
 			Publisher:   "GitHub / " + repo,
 			PublishedAt: iso(&published),
 			Summary:     shared.Truncate(rel.Body, summaryLimit),
+			IsPrimary:   isPrimary,
 		})
 	}
 	return out, nil
 }
 
-// collectAll は情報源を順に巡り、集まった候補を返す。
-// 1つの情報源が落ちていても残りで続行する(docs/102 US-6.2)。
+func (c *collector) fromHTMLScrape(s HTMLScrapeSource) ([]Candidate, error) {
+	targetURL := s.URL
+	proxyBase := os.Getenv("BARE_WEB_PROXY_URL")
+	if s.IsDynamic && proxyBase != "" {
+		targetURL = fmt.Sprintf("%s/?url=%s", strings.TrimRight(proxyBase, "/"), url.QueryEscape(s.URL))
+	}
+
+	res, err := shared.Get(c.client, targetURL)
+	if err != nil {
+		return nil, fmt.Errorf("fetch html failed for %s: %w", s.Name, err)
+	}
+	defer res.Body.Close()
+
+	doc, err := goquery.NewDocumentFromReader(res.Body)
+	if err != nil {
+		return nil, fmt.Errorf("parse html failed for %s: %w", s.Name, err)
+	}
+
+	var out []Candidate
+	seen := make(map[string]bool)
+
+	doc.Find(s.ContainerSelector).Each(func(_ int, sel *goquery.Selection) {
+		link, exists := sel.Attr(s.URLAttribute)
+		if !exists || link == "" {
+			return
+		}
+		if s.BaseURL != "" && !strings.HasPrefix(link, "http://") && !strings.HasPrefix(link, "https://") {
+			link = strings.TrimRight(s.BaseURL, "/") + "/" + strings.TrimLeft(link, "/")
+		}
+
+		if seen[link] {
+			return
+		}
+		seen[link] = true
+
+		title := ""
+		if s.TitleSelector != "" {
+			title = strings.TrimSpace(sel.Find(s.TitleSelector).First().Text())
+		}
+		if title == "" {
+			title = strings.TrimSpace(sel.Text())
+		}
+		if title == "" || len(title) < 5 {
+			return
+		}
+
+		now := time.Now().UTC()
+		out = append(out, Candidate{
+			Title:       title,
+			URL:         link,
+			Publisher:   s.Name,
+			PublishedAt: iso(&now),
+			Summary:     shared.Truncate(title, summaryLimit),
+			IsPrimary:   s.IsPrimary,
+		})
+	})
+	return out, nil
+}
+
 func (c *collector) collectAll(sources Sources) []Candidate {
 	var found []Candidate
 
 	for _, feed := range sources.RSS {
-		got, err := c.fromRSS(feed.Name, feed.URL)
+		got, err := c.fromRSS(feed.Name, feed.URL, feed.IsPrimary)
 		if err != nil {
 			log.Printf("  rss  %-28s SKIP (%v)", feed.Name, err)
 			continue
@@ -193,7 +273,7 @@ func (c *collector) collectAll(sources Sources) []Candidate {
 	}
 
 	if sources.HackerNews.Enabled {
-		got, err := c.fromHackerNews(sources.HackerNews.TopN, sources.HackerNews.MinScore)
+		got, err := c.fromHackerNews(sources.HackerNews.TopN, sources.HackerNews.MinScore, sources.HackerNews.IsPrimary)
 		if err != nil {
 			log.Printf("  hn   %-28s SKIP (%v)", "Hacker News", err)
 		} else {
@@ -202,20 +282,29 @@ func (c *collector) collectAll(sources Sources) []Candidate {
 		}
 	}
 
-	for _, repo := range sources.GitHubReleases {
-		got, err := c.fromGitHubReleases(repo)
+	for _, gh := range sources.GitHubReleases {
+		got, err := c.fromGitHubReleases(gh.Repo, gh.IsPrimary)
 		if err != nil {
-			log.Printf("  gh   %-28s SKIP (%v)", repo, err)
+			log.Printf("  gh   %-28s SKIP (%v)", gh.Repo, err)
 			continue
 		}
-		log.Printf("  gh   %-28s %3d", repo, len(got))
+		log.Printf("  gh   %-28s %3d", gh.Repo, len(got))
 		found = append(found, got...)
 	}
+
+	for _, scrape := range sources.HTMLScrape {
+		got, err := c.fromHTMLScrape(scrape)
+		if err != nil {
+			log.Printf("  html %-28s SKIP (%v)", scrape.Name, err)
+			continue
+		}
+		log.Printf("  html %-28s %3d", scrape.Name, len(got))
+		found = append(found, got...)
+	}
+
 	return found
 }
 
-// dedupe は同じ URL を1件に畳み、新しい順に並べる。
-// 複数のフィードに同じ記事が載ることがあるため。
 func dedupe(found []Candidate) []Candidate {
 	seen := map[string]bool{}
 	out := make([]Candidate, 0, len(found))
@@ -226,7 +315,6 @@ func dedupe(found []Candidate) []Candidate {
 		seen[cand.URL] = true
 		out = append(out, cand)
 	}
-	// プロンプトの先頭ほど目に入りやすいので、新しいものを前に置く。
 	sort.SliceStable(out, func(i, j int) bool {
 		return out[i].PublishedAt > out[j].PublishedAt
 	})
@@ -234,11 +322,6 @@ func dedupe(found []Candidate) []Candidate {
 }
 
 // RunCollect は情報源から候補を集め、candidates.json として書き出す。
-//
-// 出力先を /tmp 配下のファイルにしているのは、Argo の outputs.parameters で
-// 次のステップへ渡すためである(Bluray 取り込みが mkv-files.json / short-id を
-// 受け渡しているのと同じ形)。この工程は外部ストレージも DB も触らないので、
-// 認証情報を一切必要としない。
 func RunCollect(ctx context.Context, osArgs []string) error {
 	fs := flag.NewFlagSet("collect", flag.ContinueOnError)
 	sourcesPath := fs.String("sources", "/etc/tech-feed/sources.json", "path to sources.json")
@@ -273,8 +356,6 @@ func RunCollect(ctx context.Context, osArgs []string) error {
 
 	log.Printf("candidates: %d -> %s", len(candidates), *output)
 	if len(candidates) == 0 {
-		// 全滅は情報源の設定ミスか、全サイトが落ちているかのどちらか。
-		// 後段の台本生成が確実に失敗するので、ここで気づけるようにする。
 		return fmt.Errorf("no candidates collected; check %s and the network", *sourcesPath)
 	}
 	return nil
