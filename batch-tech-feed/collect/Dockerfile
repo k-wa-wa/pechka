@@ -10,6 +10,5 @@ RUN CGO_ENABLED=0 go build -o tech-feed .
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=builder /app/tech-feed /usr/local/bin/tech-feed
-COPY sources.json /etc/tech-feed/sources.json
 ENTRYPOINT ["/usr/local/bin/tech-feed"]
 CMD ["pipeline"]

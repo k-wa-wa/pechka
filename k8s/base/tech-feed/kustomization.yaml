@@ -16,3 +16,7 @@ configMapGenerator:
     namespace: pechka
     files:
       - script.json=script.json
+  - name: tech-feed-sources
+    namespace: pechka
+    files:
+      - sources.json=sources.json

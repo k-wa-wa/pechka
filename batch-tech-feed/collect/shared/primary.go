@@ -8,23 +8,51 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/PuerkitoBio/goquery"
 )
 
-var primaryDomainPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)github\.com/[^/]+/[^/]+`),
-	regexp.MustCompile(`(?i)[a-z0-9-]+\.openai\.com`),
-	regexp.MustCompile(`(?i)[a-z0-9-]+\.anthropic\.com`),
-	regexp.MustCompile(`(?i)kubernetes\.io`),
-	regexp.MustCompile(`(?i)cncf\.io`),
-	regexp.MustCompile(`(?i)aws\.amazon\.com`),
-	regexp.MustCompile(`(?i)blog\.cloudflare\.com`),
-	regexp.MustCompile(`(?i)qwenlm\.github\.io`),
-	regexp.MustCompile(`(?i)developer\.nvidia\.com`),
-	regexp.MustCompile(`(?i)nvidianews\.nvidia\.com`),
-	regexp.MustCompile(`(?i)ir\.amd\.com`),
-	regexp.MustCompile(`(?i)newsroom\.intel\.com`),
+var (
+	patternsMu            sync.RWMutex
+	primaryDomainPatterns = []*regexp.Regexp{
+		regexp.MustCompile(`(?i)github\.com/[^/]+/[^/]+`),
+		regexp.MustCompile(`(?i)([a-z0-9-]+\.)?openai\.com`),
+		regexp.MustCompile(`(?i)([a-z0-9-]+\.)?anthropic\.com`),
+		regexp.MustCompile(`(?i)([a-z0-9-]+\.)?moonshot\.cn`),
+		regexp.MustCompile(`(?i)kubernetes\.io`),
+		regexp.MustCompile(`(?i)cncf\.io`),
+		regexp.MustCompile(`(?i)aws\.amazon\.com`),
+		regexp.MustCompile(`(?i)blog\.cloudflare\.com`),
+		regexp.MustCompile(`(?i)qwenlm\.github\.io`),
+		regexp.MustCompile(`(?i)([a-z0-9-]+\.)?nvidia\.com`),
+		regexp.MustCompile(`(?i)([a-z0-9-]+\.)?amd\.com`),
+		regexp.MustCompile(`(?i)([a-z0-9-]+\.)?intel\.com`),
+		regexp.MustCompile(`(?i)huggingface\.co`),
+		regexp.MustCompile(`(?i)arxiv\.org`),
+		regexp.MustCompile(`(?i)([a-z0-9-]+\.)?google(blog)?\.(com|dev)`),
+		regexp.MustCompile(`(?i)research\.google`),
+		regexp.MustCompile(`(?i)([a-z0-9-]+\.)?microsoft\.com`),
+	}
+)
+
+// SetPrimaryDomainPatterns は一次情報ドメインの正規表現パターンを動的に登録・更新する。
+func SetPrimaryDomainPatterns(patterns []string) {
+	if len(patterns) == 0 {
+		return
+	}
+	var compiled []*regexp.Regexp
+	for _, p := range patterns {
+		re, err := regexp.Compile(p)
+		if err == nil {
+			compiled = append(compiled, re)
+		}
+	}
+	if len(compiled) > 0 {
+		patternsMu.Lock()
+		primaryDomainPatterns = compiled
+		patternsMu.Unlock()
+	}
 }
 
 // IsPrimaryDomain は与えられた URL が一次情報ドメインであるかを判定する。
@@ -34,7 +62,12 @@ func IsPrimaryDomain(rawURL string) bool {
 		return false
 	}
 	host := u.Host
-	for _, pattern := range primaryDomainPatterns {
+
+	patternsMu.RLock()
+	patterns := primaryDomainPatterns
+	patternsMu.RUnlock()
+
+	for _, pattern := range patterns {
 		if pattern.MatchString(host) || pattern.MatchString(rawURL) {
 			return true
 		}

@@ -1,5 +1,24 @@
 {
   "_note": "収集ソースの設定。rss, hacker_news, github_releases, html_scrape をサポート。is_primary で1次情報/2次情報を区別。",
+  "primary_domain_patterns": [
+    "(?i)github\\.com/[^/]+/[^/]+",
+    "(?i)([a-z0-9-]+\\.)?openai\\.com",
+    "(?i)([a-z0-9-]+\\.)?anthropic\\.com",
+    "(?i)([a-z0-9-]+\\.)?moonshot\\.cn",
+    "(?i)kubernetes\\.io",
+    "(?i)cncf\\.io",
+    "(?i)aws\\.amazon\\.com",
+    "(?i)blog\\.cloudflare\\.com",
+    "(?i)qwenlm\\.github\\.io",
+    "(?i)([a-z0-9-]+\\.)?nvidia\\.com",
+    "(?i)([a-z0-9-]+\\.)?amd\\.com",
+    "(?i)([a-z0-9-]+\\.)?intel\\.com",
+    "(?i)huggingface\\.co",
+    "(?i)arxiv\\.org",
+    "(?i)([a-z0-9-]+\\.)?google(blog)?\\.(com|dev)",
+    "(?i)research\\.google",
+    "(?i)([a-z0-9-]+\\.)?microsoft\\.com"
+  ],
   "rss": [
     {
       "name": "Publickey",
@@ -48,7 +67,7 @@
     },
     {
       "name": "NVIDIA Newsroom",
-      "url": "https://nvidianews.nvidia.com/rss",
+      "url": "https://nvidianews.nvidia.com/releases.xml",
       "is_primary": true
     },
     {

@@ -59,7 +59,8 @@ type GitHubReleaseSource struct {
 
 // Sources は sources.json の形。
 type Sources struct {
-	RSS []struct {
+	PrimaryDomainPatterns []string `json:"primary_domain_patterns"`
+	RSS                   []struct {
 		Name      string `json:"name"`
 		URL       string `json:"url"`
 		IsPrimary bool   `json:"is_primary"`
@@ -358,6 +359,7 @@ func RunCollect(ctx context.Context, osArgs []string) error {
 	if err := json.Unmarshal(raw, &sources); err != nil {
 		return fmt.Errorf("failed to parse sources: %w", err)
 	}
+	shared.SetPrimaryDomainPatterns(sources.PrimaryDomainPatterns)
 
 	c := &collector{
 		client: shared.NewHTTPClient(),

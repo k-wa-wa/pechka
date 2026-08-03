@@ -16,9 +16,17 @@ func RunEnrich(ctx context.Context, osArgs []string) error {
 	fs := flag.NewFlagSet("enrich", flag.ContinueOnError)
 	inputPath := fs.String("input", "/tmp/filtered.json", "path to filtered.json")
 	outputPath := fs.String("output", "/tmp/enriched.json", "where to write enriched.json")
+	sourcesPath := fs.String("sources", "/etc/tech-feed/sources.json", "path to sources.json")
 	maxOutput := fs.Int("max", 10, "maximum number of verified enriched candidates")
 	if err := fs.Parse(osArgs); err != nil {
 		return err
+	}
+
+	if rawSources, err := os.ReadFile(*sourcesPath); err == nil {
+		var sources Sources
+		if err := json.Unmarshal(rawSources, &sources); err == nil {
+			shared.SetPrimaryDomainPatterns(sources.PrimaryDomainPatterns)
+		}
 	}
 
 	raw, err := os.ReadFile(*inputPath)
@@ -54,7 +62,7 @@ func RunEnrich(ctx context.Context, osArgs []string) error {
 			log.Printf("  [Secondary Source] Tracing primary link for %s (%s)...", c.Title, c.URL)
 			primaryURL, err := shared.ExtractPrimaryURL(httpClient, c.URL)
 			if err != nil {
-				log.Printf("    SKIP: no valid primary source link found in secondary source (%s): %v", c.URL, err)
+				log.Printf("    WARN: no valid primary source link found in secondary source (%s): %v", c.URL, err)
 				// 誤情報防止のため、1次ソースが見つからない2次情報は落とす
 				continue
 			}
@@ -62,7 +70,7 @@ func RunEnrich(ctx context.Context, osArgs []string) error {
 			log.Printf("    -> Found Primary URL: %s. Fetching content...", primaryURL)
 			content, err := shared.FetchTextContent(httpClient, primaryURL)
 			if err != nil {
-				log.Printf("    SKIP: failed to fetch content for primary URL (%s): %v", primaryURL, err)
+				log.Printf("    WARN: failed to fetch content for primary URL (%s): %v", primaryURL, err)
 				continue
 			}
 

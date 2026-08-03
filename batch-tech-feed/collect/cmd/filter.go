@@ -43,7 +43,10 @@ func RunFilter(ctx context.Context, osArgs []string) error {
 		return fmt.Errorf("input candidates list is empty")
 	}
 
-	selected := filterCandidates(ctx, candidates, *topN)
+	selected, err := filterCandidates(ctx, candidates, *topN)
+	if err != nil {
+		return fmt.Errorf("filter step failed: %w", err)
+	}
 	log.Printf("filter: selected %d candidates -> %s", len(selected), *outputPath)
 
 	body, err := json.MarshalIndent(selected, "", "  ")
@@ -54,20 +57,21 @@ func RunFilter(ctx context.Context, osArgs []string) error {
 	return os.WriteFile(*outputPath, body, 0o644)
 }
 
-func filterCandidates(ctx context.Context, candidates []Candidate, topN int) []Candidate {
+func filterCandidates(ctx context.Context, candidates []Candidate, topN int) ([]Candidate, error) {
 	aiClient := shared.NewOpenAIClient()
-	if aiClient.IsConfigured() {
-		log.Printf("filter: running LLM-based trend filter via OpenAI API...")
-		filtered, err := filterWithLLM(ctx, aiClient, candidates, topN)
-		if err == nil && len(filtered) > 0 {
-			return filtered
-		}
-		log.Printf("filter: LLM filter failed or returned empty (%v); falling back to rule-based filter", err)
-	} else {
-		log.Printf("filter: OPENAI_API_KEY not set; using rule-based trend filter")
+	if !aiClient.IsConfigured() {
+		return nil, fmt.Errorf("OPENAI_API_KEY is not configured")
 	}
 
-	return filterRuleBased(candidates, topN)
+	log.Printf("filter: running LLM-based trend filter via OpenAI API...")
+	filtered, err := filterWithLLM(ctx, aiClient, candidates, topN)
+	if err != nil {
+		return nil, fmt.Errorf("LLM trend filter failed: %w", err)
+	}
+	if len(filtered) == 0 {
+		return nil, fmt.Errorf("LLM trend filter returned 0 candidates")
+	}
+	return filtered, nil
 }
 
 func filterWithLLM(ctx context.Context, client *shared.OpenAIClient, candidates []Candidate, topN int) ([]Candidate, error) {

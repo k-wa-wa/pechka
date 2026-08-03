@@ -113,6 +113,14 @@ spec:
                 name: pechka-config
                 key: openai-model
                 optional: true
+        volumeMounts:
+          - name: sources
+            mountPath: /etc/tech-feed
+            readOnly: true
+      volumes:
+        - name: sources
+          configMap:
+            name: tech-feed-sources
 
       outputs:
         parameters:

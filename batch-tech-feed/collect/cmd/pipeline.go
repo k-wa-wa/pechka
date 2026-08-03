@@ -52,6 +52,7 @@ func RunPipeline(ctx context.Context, osArgs []string) error {
 	enrichArgs := []string{
 		"-input", filtFile,
 		"-output", enriFile,
+		"-sources", *sourcesPath,
 		"-max", fmt.Sprintf("%d", *maxEnrich),
 	}
 	if err := RunEnrich(ctx, enrichArgs); err != nil {
