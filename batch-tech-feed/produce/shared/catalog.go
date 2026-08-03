@@ -2,12 +2,14 @@ package shared
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -15,10 +17,19 @@ import (
 const (
 	ContentTypeContentType = "video"
 	ShortIDMax             = 50
+	RandomSuffixLen        = 6 // 6桁のランダムヘキサ(例: a1b2c3)
 )
 
 var defaultTags = []string{"tech-feed"}
 var nonAlphaNumRegex = regexp.MustCompile(`[^a-zA-Z0-9]+`)
+
+func randomHex(byteLen int) string {
+	b := make([]byte, byteLen)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("%x", time.Now().UnixNano())[:byteLen*2]
+	}
+	return hex.EncodeToString(b)
+}
 
 func ShortIDFor(sourceKey string) string {
 	slug := strings.Trim(nonAlphaNumRegex.ReplaceAllString(sourceKey, "-"), "-")
@@ -26,16 +37,18 @@ func ShortIDFor(sourceKey string) string {
 	if slug == "" {
 		slug = "tech-feed"
 	}
-	if len(slug) <= ShortIDMax {
-		return slug
+
+	suffix := randomHex(RandomSuffixLen / 2) // 3 bytes -> 6 hex chars
+	maxSlugLen := ShortIDMax - (len(suffix) + 1)
+
+	if len(slug) > maxSlugLen {
+		h := sha1.New()
+		h.Write([]byte(sourceKey))
+		digest := hex.EncodeToString(h.Sum(nil))[:6]
+		slug = strings.TrimRight(slug[:maxSlugLen-7], "-") + "-" + digest
 	}
 
-	h := sha1.New()
-	h.Write([]byte(sourceKey))
-	digest := hex.EncodeToString(h.Sum(nil))[:8]
-
-	truncated := strings.TrimRight(slug[:ShortIDMax-9], "-")
-	return fmt.Sprintf("%s-%s", truncated, digest)
+	return fmt.Sprintf("%s-%s", slug, suffix)
 }
 
 func ConnectCatalogDB(ctx context.Context) (*pgx.Conn, error) {
