@@ -414,12 +414,7 @@ D1 以降への引き継ぎ:
 **Bluray 取り込みとは完全に独立したジョブ**として `batch-tech-feed/` に実装した。
 
 Bluray 取り込みと同じく Argo Workflows の **WorkflowTemplate**（`tech-feed`）として
-呼び出せるようにしてある。エントリポイントは2つ。
-
-| entrypoint | 台本の出どころ |
-| :-- | :-- |
-| `daily`（既定） | 収集 → LLM が書く |
-| `from-script` | ConfigMap の `script.json`（手書き） |
+呼び出せるようにしてある。エントリポイントは `daily`（既定）。
 
 ```
 collect (Go)  ──▶  /tmp/candidates.json  ──▶  produce (Python)

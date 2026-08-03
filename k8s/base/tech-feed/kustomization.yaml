@@ -13,12 +13,7 @@ configurations:
   - kustomize-config.yaml
 
 configMapGenerator:
-  # from-script エントリポイント用の手書き台本。
-  # 名前にハッシュが付くので、script.json を変えると WorkflowTemplate の spec も変わる。
-  - name: tech-feed-script
-    namespace: pechka
-    files:
-      - script.json=script.json
+  # 名前にハッシュが付くため、sources.json 等の中身を変更すると WorkflowTemplate の spec も更新・再生成される。
   - name: tech-feed-sources
     namespace: pechka
     files:
