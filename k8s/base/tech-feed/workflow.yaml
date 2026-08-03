@@ -70,6 +70,7 @@ spec:
       activeDeadlineSeconds: 1800
       container:
         image: ghcr.io/k-wa-wa/pechka/tech-feed-collect:latest
+        imagePullPolicy: Always
         args:
           - "pipeline"
           - "-sources"
@@ -134,6 +135,7 @@ spec:
       activeDeadlineSeconds: 10800
       container:
         image: ghcr.io/k-wa-wa/pechka/tech-feed-produce:latest
+        imagePullPolicy: Always
         args:
           - "all"
           - "--script"
@@ -229,6 +231,7 @@ spec:
       activeDeadlineSeconds: 10800
       container:
         image: ghcr.io/k-wa-wa/pechka/tech-feed-produce:latest
+        imagePullPolicy: Always
         args:
           - "all"
           - "--script"
