@@ -32,7 +32,7 @@
       "url": "https://openai.com/news/",
       "is_dynamic": true,
       "is_primary": true,
-      "container_selector": "a[href^='/index/']",
+      "container_selector": "a[href*='/index/']",
       "title_selector": "h3",
       "url_attribute": "href",
       "base_url": "https://openai.com"
@@ -42,7 +42,7 @@
       "url": "https://www.anthropic.com/news",
       "is_dynamic": true,
       "is_primary": true,
-      "container_selector": "a[href^='/news/']",
+      "container_selector": "a[href*='/news/']",
       "title_selector": "h3, h2, .title",
       "url_attribute": "href",
       "base_url": "https://www.anthropic.com"
