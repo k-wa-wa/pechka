@@ -1,6 +1,12 @@
 # prod (postgres-prod shim 経由) のデータを、k8s/overlays/preview が起動したローカルpostgresへ
 # 一度だけ流し込む。--clean --if-exists により、postgres-migrate が空テーブルを作っていても
-# 安全に上書きできる(2つのApplicationの同期順は問わない)。
+# 安全に上書きできる。
+#
+# postgres-migrate (sync-wave "0") より前に完了させる必要がある: このJobは pg_dump --clean で
+# 本番の現在のスキーマ・データにまるごと置き換えるため、そのPRブランチで新しく追加された
+# マイグレーション(本番にまだ無いカラム等)は、このJobの「後」にpostgres-migrateが全マイグレーションを
+# 適用し直すことで初めてpreview環境にも反映される。順序が逆になると、本番にまだ無い新規カラムが
+# このJobの--cleanでいつまでも消え続けてしまう。
 #
 # postgres (ローカル, k8s/overlays/preview側のSecret) と postgres-seed-secret (prod読み取り用,
 # このoverlayのSecret) は同じnamespace内にいれば別Applicationが作った資源でも参照できる。
@@ -11,6 +17,7 @@ metadata:
   annotations:
     argocd.argoproj.io/hook: PreSync
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
   backoffLimit: 3
   template:
