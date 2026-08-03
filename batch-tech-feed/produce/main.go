@@ -32,13 +32,7 @@ func main() {
 			err = cmd.RunRender(ctx, subArgs)
 		}
 	case "all":
-		_, err = cmd.RunSynthesize(ctx, subArgs)
-		if err == nil {
-			err = cmd.RunRender(ctx, subArgs)
-		}
-		if err == nil {
-			err = cmd.RunPublish(ctx, subArgs)
-		}
+		err = cmd.RunAll(ctx, subArgs)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\nUsage: produce <synthesize|render|publish|build|all> [args]\n", cmdName)
 		os.Exit(1)
