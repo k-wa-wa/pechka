@@ -13,6 +13,9 @@ resources:
 configurations:
   - kustomize-config.yaml
 
+generatorOptions:
+  disableNameSuffixHash: true
+
 configMapGenerator:
   - name: tech-feed-sources-ai
     namespace: pechka
