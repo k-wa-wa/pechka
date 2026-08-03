@@ -1,6 +1,7 @@
 package shared
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -34,7 +35,7 @@ func NewOpenAIClient() *OpenAIClient {
 		apiKey:  apiKey,
 		baseURL: strings.TrimRight(baseURL, "/"),
 		model:   model,
-		client:  &http.Client{Timeout: 60 * time.Second},
+		client:  &http.Client{Timeout: 300 * time.Second},
 	}
 }
 
@@ -55,11 +56,14 @@ type ChatCompletionRequest struct {
 	Model       string        `json:"model"`
 	Messages    []ChatMessage `json:"messages"`
 	Temperature float64       `json:"temperature"`
+	Stream      bool          `json:"stream"`
 }
 
-type ChatCompletionResponse struct {
+type ChatCompletionChunk struct {
 	Choices []struct {
-		Message ChatMessage `json:"message"`
+		Delta struct {
+			Content string `json:"content"`
+		} `json:"delta"`
 	} `json:"choices"`
 	Error *struct {
 		Message string `json:"message"`
@@ -77,6 +81,7 @@ func (c *OpenAIClient) Complete(ctx context.Context, prompt string) (string, err
 			{Role: "user", Content: prompt},
 		},
 		Temperature: 0.2,
+		Stream:      true,
 	}
 
 	data, err := json.Marshal(reqBody)
@@ -100,27 +105,49 @@ func (c *OpenAIClient) Complete(ctx context.Context, prompt string) (string, err
 	}
 	defer res.Body.Close()
 
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
-
 	if res.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(res.Body)
 		return "", fmt.Errorf("openai API returned status %d: %s", res.StatusCode, string(body))
 	}
 
-	var resp ChatCompletionResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return "", fmt.Errorf("failed to decode response: %w", err)
+	scanner := bufio.NewScanner(res.Body)
+	buf := make([]byte, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+
+	var sb strings.Builder
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, ":") {
+			continue
+		}
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		dataStr := strings.TrimPrefix(line, "data: ")
+		if dataStr == "[DONE]" {
+			break
+		}
+
+		var chunk ChatCompletionChunk
+		if err := json.Unmarshal([]byte(dataStr), &chunk); err != nil {
+			continue
+		}
+		if chunk.Error != nil {
+			return "", fmt.Errorf("openai API streaming error: %s", chunk.Error.Message)
+		}
+		if len(chunk.Choices) > 0 {
+			sb.WriteString(chunk.Choices[0].Delta.Content)
+		}
 	}
 
-	if resp.Error != nil {
-		return "", fmt.Errorf("openai API error: %s", resp.Error.Message)
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("error reading stream: %w", err)
 	}
 
-	if len(resp.Choices) == 0 {
-		return "", fmt.Errorf("openai API returned no choices")
+	result := sb.String()
+	if result == "" {
+		return "", fmt.Errorf("openai API returned empty content")
 	}
 
-	return resp.Choices[0].Message.Content, nil
+	return result, nil
 }
