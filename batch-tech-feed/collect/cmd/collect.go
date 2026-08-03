@@ -204,14 +204,18 @@ func (c *collector) fromHTMLScrape(s HTMLScrapeSource) ([]Candidate, error) {
 	targetURL := s.URL
 	proxyBase := os.Getenv("BARE_WEB_PROXY_URL")
 	if s.IsDynamic && proxyBase != "" {
-		targetURL = fmt.Sprintf("%s/?url=%s", strings.TrimRight(proxyBase, "/"), url.QueryEscape(s.URL))
+		targetURL = fmt.Sprintf("%s/proxy?url=%s", strings.TrimRight(proxyBase, "/"), url.QueryEscape(s.URL))
 	}
 
 	res, err := shared.Get(c.client, targetURL)
 	if err != nil {
-		return nil, fmt.Errorf("fetch html failed for %s: %w", s.Name, err)
+		return nil, fmt.Errorf("fetch html failed for %s (url: %s): %w", s.Name, targetURL, err)
 	}
 	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("fetch html HTTP %d for %s (url: %s)", res.StatusCode, s.Name, targetURL)
+	}
 
 	doc, err := goquery.NewDocumentFromReader(res.Body)
 	if err != nil {
@@ -221,13 +225,28 @@ func (c *collector) fromHTMLScrape(s HTMLScrapeSource) ([]Candidate, error) {
 	var out []Candidate
 	seen := make(map[string]bool)
 
-	doc.Find(s.ContainerSelector).Each(func(_ int, sel *goquery.Selection) {
+	matched := doc.Find(s.ContainerSelector)
+	if matched.Length() == 0 {
+		log.Printf("  html %-28s WARN: selector %q matched 0 elements (target: %s)", s.Name, s.ContainerSelector, targetURL)
+	}
+
+	matched.Each(func(_ int, sel *goquery.Selection) {
 		link, exists := sel.Attr(s.URLAttribute)
 		if !exists || link == "" {
 			return
 		}
 		if s.BaseURL != "" && !strings.HasPrefix(link, "http://") && !strings.HasPrefix(link, "https://") {
 			link = strings.TrimRight(s.BaseURL, "/") + "/" + strings.TrimLeft(link, "/")
+		}
+
+		if strings.Contains(link, "/proxy?url=") || strings.Contains(link, "/proxy?q=") {
+			if u, err := url.Parse(link); err == nil {
+				if q := u.Query().Get("url"); q != "" {
+					link = q
+				} else if q := u.Query().Get("q"); q != "" {
+					link = q
+				}
+			}
 		}
 
 		if seen[link] {
