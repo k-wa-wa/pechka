@@ -16,7 +16,6 @@ func RunPublish(ctx context.Context, osArgs []string) error {
 	fs := flag.NewFlagSet("publish", flag.ContinueOnError)
 	outDir := fs.String("out", "", "working directory")
 	output := fs.String("output", "", "mp4 to publish (default: <out>/digest.mp4)")
-	sourceKey := fs.String("source-key", "", "idempotency key for re-runs")
 	description := fs.String("description", "", "content description")
 
 	if err := fs.Parse(osArgs); err != nil {
@@ -47,14 +46,11 @@ func RunPublish(ctx context.Context, osArgs []string) error {
 		return fmt.Errorf("%s not found; run the 'build' or 'render' step first", mp4Path)
 	}
 
-	sk := *sourceKey
-	if sk == "" {
-		dateStr := manifest.DigestDate
-		if dateStr == "" {
-			dateStr = "unknown"
-		}
-		sk = fmt.Sprintf("tech-feed:%s", dateStr)
+	dateStr := manifest.DigestDate
+	if dateStr == "" {
+		dateStr = "unknown"
 	}
+	sk := fmt.Sprintf("tech-feed:%s", dateStr)
 
 	title := manifest.Title
 	if title == "" {

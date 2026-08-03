@@ -17,10 +17,6 @@ spec:
       # AivisSpeech Speaker ID (デフォルト: 888753760 - まお / ノーマル)
       - name: speaker
         value: "888753760"
-      # 再実行してもコンテンツが増えないための同一性キー。
-      # 空なら台本の digest_date から tech-feed:<date> が組み立てられる。
-      - name: source-key
-        value: ""
 
   templates:
     # 1. daily (Collect/Pipeline -> Produce)
@@ -30,7 +26,6 @@ spec:
           - name: topics
           - name: since-days
           - name: speaker
-          - name: source-key
       dag:
         tasks:
           - name: collect
@@ -48,8 +43,6 @@ spec:
               parameters:
                 - name: speaker
                   value: "{{inputs.parameters.speaker}}"
-                - name: source-key
-                  value: "{{inputs.parameters.source-key}}"
               artifacts:
                 - name: script
                   raw:
@@ -129,7 +122,6 @@ spec:
       inputs:
         parameters:
           - name: speaker
-          - name: source-key
         artifacts:
           - name: script
             path: /tmp/script.json
@@ -147,8 +139,6 @@ spec:
           - "voicevox"
           - "--speaker"
           - "{{inputs.parameters.speaker}}"
-          - "--source-key"
-          - "{{inputs.parameters.source-key}}"
           - "--quiet"
         resources:
           requests:

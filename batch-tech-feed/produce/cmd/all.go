@@ -30,7 +30,6 @@ func RunAll(ctx context.Context, osArgs []string) error {
 	concurrency := fs.Int("concurrency", 0, "rendering concurrency")
 	quiet := fs.Bool("quiet", false, "suppress progress output")
 
-	sourceKey := fs.String("source-key", "", "idempotency key for re-runs")
 	description := fs.String("description", "", "content description")
 
 	if err := fs.Parse(osArgs); err != nil {
@@ -79,9 +78,6 @@ func RunAll(ctx context.Context, osArgs []string) error {
 	}
 	if *output != "" {
 		publishArgs = append(publishArgs, "-output", *output)
-	}
-	if *sourceKey != "" {
-		publishArgs = append(publishArgs, "-source-key", *sourceKey)
 	}
 	if *description != "" {
 		publishArgs = append(publishArgs, "-description", *description)
