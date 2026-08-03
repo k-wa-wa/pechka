@@ -106,6 +106,13 @@ spec:
                 name: pechka-config
                 key: bare-web-proxy-url
                 optional: true
+          - name: OPENAI_MODEL
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: openai-model
+                optional: true
+
       outputs:
         parameters:
           - name: script

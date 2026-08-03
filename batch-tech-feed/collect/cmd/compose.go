@@ -57,7 +57,7 @@ func RunCompose(ctx context.Context, osArgs []string) error {
 
 	client := shared.NewOpenAIClient()
 	if !client.IsConfigured() {
-		return fmt.Errorf("OPENAI_API_KEY or OPENAI_FULL_URL must be configured for compose command")
+		return fmt.Errorf("OPENAI_API_KEY must be configured for compose command")
 	}
 
 	basePrompt := buildComposePrompt(candidates, *digestDate, *topics)
