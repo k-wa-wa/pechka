@@ -14,9 +14,6 @@ spec:
         value: "3"
       - name: since-days
         value: "2"
-      # 音声合成エンジン(AivisSpeech / VOICEVOX Engine)を使用する。
-      - name: tts-engine
-        value: "voicevox"
       # AivisSpeech Speaker ID (デフォルト: 888753760 - まお / ノーマル)
       - name: speaker
         value: "888753760"
@@ -32,7 +29,6 @@ spec:
         parameters:
           - name: topics
           - name: since-days
-          - name: tts-engine
           - name: speaker
           - name: source-key
       dag:
@@ -50,8 +46,6 @@ spec:
             template: produce
             arguments:
               parameters:
-                - name: tts-engine
-                  value: "{{inputs.parameters.tts-engine}}"
                 - name: speaker
                   value: "{{inputs.parameters.speaker}}"
                 - name: source-key
@@ -134,7 +128,6 @@ spec:
     - name: produce
       inputs:
         parameters:
-          - name: tts-engine
           - name: speaker
           - name: source-key
         artifacts:
@@ -151,7 +144,7 @@ spec:
           - "--out"
           - "/work"
           - "--engine"
-          - "{{inputs.parameters.tts-engine}}"
+          - "voicevox"
           - "--speaker"
           - "{{inputs.parameters.speaker}}"
           - "--source-key"
