@@ -15,17 +15,12 @@ import (
 type OpenAIClient struct {
 	apiKey  string
 	baseURL string
-	fullURL string
 	model   string
 	client  *http.Client
 }
 
 func NewOpenAIClient() *OpenAIClient {
 	apiKey := os.Getenv("OPENAI_API_KEY")
-	fullURL := os.Getenv("OPENAI_FULL_URL")
-	if fullURL == "" {
-		fullURL = os.Getenv("OPENAI_API_URL")
-	}
 	baseURL := os.Getenv("OPENAI_BASE_URL")
 	if baseURL == "" {
 		baseURL = "https://api.openai.com/v1"
@@ -38,20 +33,16 @@ func NewOpenAIClient() *OpenAIClient {
 	return &OpenAIClient{
 		apiKey:  apiKey,
 		baseURL: strings.TrimRight(baseURL, "/"),
-		fullURL: fullURL,
 		model:   model,
 		client:  &http.Client{Timeout: 60 * time.Second},
 	}
 }
 
 func (c *OpenAIClient) IsConfigured() bool {
-	return c.apiKey != "" || c.fullURL != ""
+	return c.apiKey != ""
 }
 
 func (c *OpenAIClient) endpointURL() string {
-	if c.fullURL != "" {
-		return c.fullURL
-	}
 	return c.baseURL + "/chat/completions"
 }
 
@@ -77,7 +68,7 @@ type ChatCompletionResponse struct {
 
 func (c *OpenAIClient) Complete(ctx context.Context, prompt string) (string, error) {
 	if !c.IsConfigured() {
-		return "", fmt.Errorf("neither OPENAI_API_KEY nor OPENAI_FULL_URL / OPENAI_API_URL is configured")
+		return "", fmt.Errorf("OPENAI_API_KEY is not configured")
 	}
 
 	reqBody := ChatCompletionRequest{

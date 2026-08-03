@@ -56,7 +56,8 @@ func ConnectCatalogDB(ctx context.Context) (*pgx.Conn, error) {
 		if sslmode == "" {
 			sslmode = "disable"
 		}
-		dsn = fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s", user, password, host, port, dbname, sslmode)
+		dsn = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+			host, port, user, password, dbname, sslmode)
 	}
 
 	conn, err := pgx.Connect(ctx, dsn)

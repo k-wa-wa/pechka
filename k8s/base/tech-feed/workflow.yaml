@@ -26,7 +26,7 @@ spec:
         value: ""
 
   templates:
-    # 1. daily (Collect -> Produce)
+    # 1. daily (Collect/Pipeline -> Produce)
     - name: daily
       inputs:
         parameters:
@@ -43,43 +43,43 @@ spec:
               parameters:
                 - name: since-days
                   value: "{{inputs.parameters.since-days}}"
+                - name: topics
+                  value: "{{inputs.parameters.topics}}"
           - name: produce
             dependencies: [collect]
             template: produce
             arguments:
               parameters:
-                - name: topics
-                  value: "{{inputs.parameters.topics}}"
                 - name: tts-engine
                   value: "{{inputs.parameters.tts-engine}}"
                 - name: speaker
                   value: "{{inputs.parameters.speaker}}"
                 - name: source-key
                   value: "{{inputs.parameters.source-key}}"
-              # 収集結果は /tmp のファイルとして受け渡す。Bluray 取り込みが
-              # mkv-files.json / short-id を outputs.parameters で渡しているのと同じ形。
-              # raw artifact なので artifact repository の設定は要らない。
               artifacts:
-                - name: candidates
+                - name: script
                   raw:
-                    data: "{{tasks.collect.outputs.parameters.candidates}}"
+                    data: "{{tasks.collect.outputs.parameters.script}}"
 
-    # 2. collect (Gathers article candidates from RSS / official APIs)
-    #    外部ストレージも DB も触らないので、認証情報を一切必要としない。
+    # 2. collect (Gathers article candidates, filters trends, verifies primary sources, and composes script.json)
     - name: collect
       inputs:
         parameters:
           - name: since-days
-      activeDeadlineSeconds: 900
+          - name: topics
+      activeDeadlineSeconds: 1800
       container:
         image: ghcr.io/k-wa-wa/pechka/tech-feed-collect:latest
         args:
+          - "pipeline"
           - "-sources"
           - "/etc/tech-feed/sources.json"
           - "-since-days"
           - "{{inputs.parameters.since-days}}"
+          - "-topics"
+          - "{{inputs.parameters.topics}}"
           - "-output"
-          - "/tmp/candidates.json"
+          - "/tmp/script.json"
         resources:
           requests:
             cpu: "100m"
@@ -87,36 +87,52 @@ spec:
           limits:
             cpu: "500m"
             memory: 512Mi
+        env:
+          - name: OPENAI_API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: openai-secret
+                key: OPENAI_API_KEY
+                optional: true
+          - name: OPENAI_BASE_URL
+            valueFrom:
+              secretKeyRef:
+                name: openai-secret
+                key: OPENAI_BASE_URL
+                optional: true
+          - name: BARE_WEB_PROXY_URL
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: bare-web-proxy-url
+                optional: true
       outputs:
         parameters:
-          - name: candidates
+          - name: script
             valueFrom:
-              path: /tmp/candidates.json
+              path: /tmp/script.json
 
-    # 3. produce (Compose -> Synthesize -> Render -> Publish)
+    # 3. produce (Synthesize -> Render -> Publish)
     #    中間成果物（wav 群・mp4・HLS セグメント）が大きく段をまたげないため、
     #    ここは1コンテナで通す。
     - name: produce
       inputs:
         parameters:
-          - name: topics
           - name: tts-engine
           - name: speaker
           - name: source-key
         artifacts:
-          - name: candidates
-            path: /tmp/candidates.json
+          - name: script
+            path: /tmp/script.json
       activeDeadlineSeconds: 10800
       container:
         image: ghcr.io/k-wa-wa/pechka/tech-feed-produce:latest
         args:
-          - "produce"
+          - "all"
+          - "--script"
+          - "/tmp/script.json"
           - "--out"
           - "/work"
-          - "--candidates"
-          - "/tmp/candidates.json"
-          - "--topics"
-          - "{{inputs.parameters.topics}}"
           - "--engine"
           - "{{inputs.parameters.tts-engine}}"
           - "--speaker"
@@ -135,12 +151,6 @@ spec:
           - name: work
             mountPath: /work
         env: &publish-env
-          - name: GEMINI_API_KEY
-            valueFrom:
-              secretKeyRef:
-                name: gemini-secret
-                key: GEMINI_API_KEY
-                optional: true
           - name: MINIO_BUCKET
             valueFrom:
               configMapKeyRef:
@@ -198,7 +208,7 @@ spec:
           emptyDir:
             sizeLimit: 8Gi
 
-    # 4. from-script (Builds from a hand-written script; skips collect and compose)
+    # 4. from-script (Builds from a hand-written script; skips collect, filter, enrich, and compose)
     #    台本は ConfigMap（k8s/base/tech-feed/script.json）から来る。
     - name: from-script
       inputs:

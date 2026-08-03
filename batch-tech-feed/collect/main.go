@@ -9,10 +9,10 @@ import (
 )
 
 // 収集・選定・一次情報検証・台本生成を担う Go 側のエントリポイント。
-// 音声合成から動画化・配信までは Python 側 (main.py) が担当する。
+// 音声合成から動画化・配信までは Python 側/別Job (produce) が担当する。
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "Usage: tech-feed <collect|filter|enrich|compose> [args]\n")
+		fmt.Fprintf(os.Stderr, "Usage: tech-feed <pipeline|collect|filter|enrich|compose> [args]\n")
 		os.Exit(1)
 	}
 
@@ -22,6 +22,8 @@ func main() {
 
 	var err error
 	switch cmdName {
+	case "pipeline":
+		err = cmd.RunPipeline(ctx, subArgs)
 	case "collect":
 		err = cmd.RunCollect(ctx, subArgs)
 	case "filter":
@@ -31,7 +33,7 @@ func main() {
 	case "compose":
 		err = cmd.RunCompose(ctx, subArgs)
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown command: %s\nUsage: tech-feed <collect|filter|enrich|compose> [args]\n", cmdName)
+		fmt.Fprintf(os.Stderr, "Unknown command: %s\nUsage: tech-feed <pipeline|collect|filter|enrich|compose> [args]\n", cmdName)
 		os.Exit(1)
 	}
 

@@ -36,10 +36,22 @@ type Storage struct {
 }
 
 func NewStorageFromEnv(ctx context.Context) (*Storage, error) {
-	minioURL := requireEnv("MINIO_URL")
-	accessKey := requireEnv("MINIO_ACCESS_KEY")
-	secretKey := requireEnv("MINIO_SECRET_KEY")
-	bucket := requireEnv("MINIO_BUCKET")
+	minioURL, err := getRequiredEnv("MINIO_URL")
+	if err != nil {
+		return nil, err
+	}
+	accessKey, err := getRequiredEnv("MINIO_ACCESS_KEY")
+	if err != nil {
+		return nil, err
+	}
+	secretKey, err := getRequiredEnv("MINIO_SECRET_KEY")
+	if err != nil {
+		return nil, err
+	}
+	bucket, err := getRequiredEnv("MINIO_BUCKET")
+	if err != nil {
+		return nil, err
+	}
 
 	useSSL := strings.ToLower(os.Getenv("MINIO_USE_SSL")) == "true"
 	scheme := "http"
@@ -131,10 +143,10 @@ func (s *Storage) PutDir(ctx context.Context, localDir, prefix string) (int, err
 	return count, nil
 }
 
-func requireEnv(name string) string {
+func getRequiredEnv(name string) (string, error) {
 	val := os.Getenv(name)
 	if val == "" {
-		panic(fmt.Sprintf("%s env var is required", name))
+		return "", fmt.Errorf("%s env var is required", name)
 	}
-	return val
+	return val, nil
 }
