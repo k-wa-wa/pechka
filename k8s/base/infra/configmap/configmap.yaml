@@ -13,4 +13,5 @@ data:
   minio-bucket: "pechka"
   allowed-ip-range: "0.0.0.0/0"
   bare-web-proxy-url: "http://bare-web-proxy-service.bare-web-proxy.svc.cluster.local"
-  openai-model: "gpt-oss-120b"
+  openai-model: "gemini-3.5-flash"
+  openai-base-url: "https://generativelanguage.googleapis.com/v1beta/openai/"

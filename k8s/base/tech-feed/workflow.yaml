@@ -96,9 +96,9 @@ spec:
                 optional: true
           - name: OPENAI_BASE_URL
             valueFrom:
-              secretKeyRef:
-                name: openai-secret
-                key: OPENAI_BASE_URL
+              configMapKeyRef:
+                name: pechka-config
+                key: openai-base-url
                 optional: true
           - name: BARE_WEB_PROXY_URL
             valueFrom:
