@@ -22,8 +22,16 @@ func RunCompose(ctx context.Context, osArgs []string) error {
 	outputPath := fs.String("output", "/tmp/script.json", "where to write script.json")
 	topics := fs.Int("topics", 3, "how many topics to cover in the script")
 	digestDate := fs.String("digest-date", "", "YYYY-MM-DD (default: today)")
+	promptPath := fs.String("prompt", "/etc/tech-feed/prompt.txt", "optional path to custom prompt text")
 	if err := fs.Parse(osArgs); err != nil {
 		return err
+	}
+
+	var customPrompt string
+	if *promptPath != "" {
+		if b, err := os.ReadFile(*promptPath); err == nil {
+			customPrompt = strings.TrimSpace(string(b))
+		}
 	}
 
 	if *digestDate == "" {
@@ -60,7 +68,7 @@ func RunCompose(ctx context.Context, osArgs []string) error {
 		return fmt.Errorf("OPENAI_API_KEY must be configured for compose command")
 	}
 
-	basePrompt := buildComposePrompt(candidates, *digestDate, *topics)
+	basePrompt := buildComposePrompt(candidates, *digestDate, *topics, customPrompt)
 
 	var lastError string
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
@@ -101,7 +109,7 @@ func RunCompose(ctx context.Context, osArgs []string) error {
 	return fmt.Errorf("compose failed after %d attempts. last error: %s", maxAttempts, lastError)
 }
 
-func buildComposePrompt(candidates []Candidate, digestDate string, topics int) string {
+func buildComposePrompt(candidates []Candidate, digestDate string, topics int, customPrompt string) string {
 	var sb strings.Builder
 	for i, c := range candidates {
 		primaryURL := c.PrimaryURL
@@ -119,7 +127,12 @@ func buildComposePrompt(candidates []Candidate, digestDate string, topics int) s
 			i+1, c.Title, primaryURL, c.Publisher, content))
 	}
 
-	return fmt.Sprintf(`あなたは技術ダイジェスト動画の構成作家である。以下の検証済み一次情報候補から今日取り上げる%d件を選び、解説動画の台本を JSON で書け。
+	rolePrompt := "あなたは技術ダイジェスト動画の構成作家である。"
+	if customPrompt != "" {
+		rolePrompt = customPrompt
+	}
+
+	return fmt.Sprintf(`%s 以下の検証済み一次情報候補から今日取り上げる%d件を選び、解説動画の台本を JSON で書け。
 
 # 選別の基準
 - 実務に影響するもの、一次情報の確証があるものを優先する
@@ -167,7 +180,7 @@ func buildComposePrompt(candidates []Candidate, digestDate string, topics int) s
 - **JSON のみを出力する。前置き・説明・コードフェンスを付けない**
 
 # 候補記事
-%s`, topics, digestDate, topics, sb.String())
+%s`, rolePrompt, topics, digestDate, topics, sb.String())
 }
 
 func parseAndValidateScript(raw string, allowedURLs map[string]bool) (*shared.Script, error) {

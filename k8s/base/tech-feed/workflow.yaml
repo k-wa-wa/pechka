@@ -7,24 +7,28 @@ spec:
   # Bluray 取り込み（etl-bluray）とは完全に独立している。イメージも DB の同一性キーも
   # 共有しておらず、片方を止めても他方に影響しない。共有するのは配信先だけ
   # （MinIO の resources/hls と PostgreSQL の contents）。
-  entrypoint: daily
+  entrypoint: pipeline
   arguments:
     parameters:
       - name: topics
         value: "3"
       - name: since-days
         value: "2"
+      # 収集ソースの ConfigMap 名 (例: tech-feed-sources-ai, tech-feed-sources-k8s)
+      - name: sources-config
+        value: "tech-feed-sources-ai"
       # AivisSpeech Speaker ID (デフォルト: 888753760 - まお / ノーマル)
       - name: speaker
         value: "888753760"
 
   templates:
-    # 1. daily (Collect/Pipeline -> Produce)
-    - name: daily
+    # 1. pipeline (Collect/Pipeline -> Produce)
+    - name: pipeline
       inputs:
         parameters:
           - name: topics
           - name: since-days
+          - name: sources-config
           - name: speaker
       dag:
         tasks:
@@ -36,6 +40,8 @@ spec:
                   value: "{{inputs.parameters.since-days}}"
                 - name: topics
                   value: "{{inputs.parameters.topics}}"
+                - name: sources-config
+                  value: "{{inputs.parameters.sources-config}}"
           - name: produce
             dependencies: [collect]
             template: produce
@@ -54,6 +60,7 @@ spec:
         parameters:
           - name: since-days
           - name: topics
+          - name: sources-config
       activeDeadlineSeconds: 1800
       container:
         image: ghcr.io/k-wa-wa/pechka/tech-feed-collect:latest
@@ -62,6 +69,8 @@ spec:
           - "pipeline"
           - "-sources"
           - "/etc/tech-feed/sources.json"
+          - "-prompt"
+          - "/etc/tech-feed/prompt.txt"
           - "-since-days"
           - "{{inputs.parameters.since-days}}"
           - "-topics"
@@ -107,7 +116,7 @@ spec:
       volumes:
         - name: sources
           configMap:
-            name: tech-feed-sources
+            name: "{{inputs.parameters.sources-config}}"
 
       outputs:
         parameters:

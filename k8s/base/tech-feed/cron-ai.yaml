@@ -1,0 +1,24 @@
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: tech-feed-daily-ai
+  namespace: pechka
+spec:
+  # 毎日 JST 07:00 (UTC 22:00) 実行予定
+  schedule: "0 22 * * *"
+  timezone: "Asia/Tokyo"
+  # 一旦自動実行しないよう一時停止状態に設定
+  suspend: true
+  concurrencyPolicy: "Forbid"
+  startingDeadlineSeconds: 3600
+  workflowSpec:
+    workflowTemplateRef:
+      name: tech-feed
+    arguments:
+      parameters:
+        - name: sources-config
+          value: "tech-feed-sources-ai"
+        - name: since-days
+          value: "2"
+        - name: topics
+          value: "3"

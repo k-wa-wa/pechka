@@ -17,6 +17,7 @@ func RunPipeline(ctx context.Context, osArgs []string) error {
 	maxEnrich := fs.Int("max-enrich", 10, "max candidates for enrich")
 	topics := fs.Int("topics", 3, "number of topics for script")
 	digestDate := fs.String("digest-date", "", "YYYY-MM-DD (default: today)")
+	promptPath := fs.String("prompt", "/etc/tech-feed/prompt.txt", "optional path to custom prompt text")
 	outputPath := fs.String("output", "/tmp/script.json", "where to write final script.json")
 	workDir := fs.String("work-dir", "/tmp", "working directory for intermediate json files")
 
@@ -64,6 +65,9 @@ func RunPipeline(ctx context.Context, osArgs []string) error {
 		"-input", enriFile,
 		"-output", *outputPath,
 		"-topics", fmt.Sprintf("%d", *topics),
+	}
+	if *promptPath != "" {
+		composeArgs = append(composeArgs, "-prompt", *promptPath)
 	}
 	if *digestDate != "" {
 		composeArgs = append(composeArgs, "-digest-date", *digestDate)

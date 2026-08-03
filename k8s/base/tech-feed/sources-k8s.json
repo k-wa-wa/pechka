@@ -1,0 +1,67 @@
+{
+  "_note": "Kubernetes / クラウドNative関連ニュース収集ソース。",
+  "primary_domain_patterns": [
+    "(?i)github\\.com/[^/]+/[^/]+",
+    "(?i)kubernetes\\.io",
+    "(?i)cncf\\.io",
+    "(?i)aws\\.amazon\\.com",
+    "(?i)blog\\.cloudflare\\.com"
+  ],
+  "rss": [
+    {
+      "name": "Publickey",
+      "url": "https://www.publickey1.jp/atom.xml",
+      "is_primary": false
+    },
+    {
+      "name": "Zenn Trending",
+      "url": "https://zenn.dev/feed",
+      "is_primary": false
+    },
+    {
+      "name": "Kubernetes Blog",
+      "url": "https://kubernetes.io/feed.xml",
+      "is_primary": true
+    },
+    {
+      "name": "CNCF Blog",
+      "url": "https://www.cncf.io/feed/",
+      "is_primary": true
+    },
+    {
+      "name": "AWS News",
+      "url": "https://aws.amazon.com/blogs/aws/feed/",
+      "is_primary": true
+    },
+    {
+      "name": "Cloudflare Blog",
+      "url": "https://blog.cloudflare.com/rss/",
+      "is_primary": true
+    },
+    {
+      "name": "GitHub Changelog",
+      "url": "https://github.blog/changelog/feed/",
+      "is_primary": true
+    }
+  ],
+  "hacker_news": {
+    "enabled": true,
+    "top_n": 60,
+    "min_score": 150,
+    "is_primary": false
+  },
+  "github_releases": [
+    {
+      "repo": "kubernetes/kubernetes",
+      "is_primary": true
+    },
+    {
+      "repo": "argoproj/argo-cd",
+      "is_primary": true
+    },
+    {
+      "repo": "grafana/grafana",
+      "is_primary": true
+    }
+  ]
+}

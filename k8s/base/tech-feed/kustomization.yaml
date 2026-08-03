@@ -1,5 +1,4 @@
-# Bluray 取り込み（etl-bluray）と同じく Argo Workflows の WorkflowTemplate である。
-# argo submit --from workflowtemplate/tech-feed で呼び出す。
+# Bluray 取り込み（etl-bluray）と同じく Argo Workflows の WorkflowTemplate および CronWorkflow である。
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
@@ -8,13 +7,20 @@ namespace: pechka
 resources:
   - workflow.yaml
   - aivisspeech.yaml
+  - cron-ai.yaml
+  - cron-k8s.yaml
 
 configurations:
   - kustomize-config.yaml
 
 configMapGenerator:
-  # 名前にハッシュが付くため、sources.json 等の中身を変更すると WorkflowTemplate の spec も更新・再生成される。
-  - name: tech-feed-sources
+  - name: tech-feed-sources-ai
     namespace: pechka
     files:
-      - sources.json=sources.json
+      - sources.json=sources-ai.json
+      - prompt.txt=prompt-ai.txt
+  - name: tech-feed-sources-k8s
+    namespace: pechka
+    files:
+      - sources.json=sources-k8s.json
+      - prompt.txt=prompt-k8s.txt
