@@ -66,7 +66,12 @@ func RunSynthesize(ctx context.Context, osArgs []string) (*shared.Manifest, erro
 		return nil, fmt.Errorf("failed to build narration concat: %w", err)
 	}
 
-	manifest := shared.ToManifest(&script, entries, *fps, narrationPath)
+	relNarration, relErr := filepath.Rel(*outDir, narrationPath)
+	if relErr != nil {
+		relNarration = filepath.Base(narrationPath)
+	}
+	manifest := shared.ToManifest(&script, entries, *fps, relNarration)
+
 	manifestPath := filepath.Join(*outDir, "manifest.json")
 	if err := shared.SaveManifest(manifest, manifestPath); err != nil {
 		return nil, fmt.Errorf("failed to save manifest: %w", err)
