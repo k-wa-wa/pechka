@@ -79,6 +79,11 @@
       "name": "Intel Newsroom",
       "url": "https://newsroom.intel.com/feed",
       "is_primary": true
+    },
+    {
+      "name": "OpenAI News",
+      "url": "https://openai.com/news/rss.xml",
+      "is_primary": true
     }
   ],
   "hacker_news": {
@@ -126,16 +131,6 @@
     }
   ],
   "html_scrape": [
-    {
-      "name": "OpenAI News",
-      "url": "https://openai.com/news/",
-      "is_dynamic": true,
-      "is_primary": true,
-      "container_selector": "a[href*='/index/']",
-      "title_selector": "h3",
-      "url_attribute": "href",
-      "base_url": "https://openai.com"
-    },
     {
       "name": "Anthropic News",
       "url": "https://www.anthropic.com/news",
