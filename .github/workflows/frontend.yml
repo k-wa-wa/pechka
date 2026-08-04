@@ -37,6 +37,12 @@ jobs:
       - name: Type check
         run: npx tsc --noEmit
 
+      - name: Check Storybook story coverage
+        run: npm run check:stories
+
+      - name: Build Storybook
+        run: npm run build-storybook
+
       - name: Build
         run: npm run build
 
