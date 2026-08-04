@@ -14,6 +14,7 @@ const CONTENTS = [
     thumbnail_key: null,
     published_at: '2024-08-15T00:00:00Z',
     updated_at: '2024-08-20T10:00:00Z',
+    has_subtitles: false,
   },
   {
     short_id: 'vid002',
@@ -28,6 +29,7 @@ const CONTENTS = [
     thumbnail_key: null,
     published_at: '2024-11-03T00:00:00Z',
     updated_at: '2024-11-05T08:00:00Z',
+    has_subtitles: false,
   },
   {
     short_id: 'gal001',
@@ -42,6 +44,7 @@ const CONTENTS = [
     thumbnail_key: null,
     published_at: '2024-04-01T00:00:00Z',
     updated_at: '2024-04-02T09:00:00Z',
+    has_subtitles: false,
   },
   {
     short_id: 'vr001',
@@ -56,6 +59,7 @@ const CONTENTS = [
     thumbnail_key: null,
     published_at: '2024-07-20T00:00:00Z',
     updated_at: '2024-07-21T12:00:00Z',
+    has_subtitles: false,
   },
   {
     short_id: 'vid003',
@@ -70,6 +74,7 @@ const CONTENTS = [
     thumbnail_key: null,
     published_at: '2024-01-10T00:00:00Z',
     updated_at: '2024-01-15T14:00:00Z',
+    has_subtitles: false,
   },
   {
     short_id: 'doc001',
@@ -84,6 +89,7 @@ const CONTENTS = [
     thumbnail_key: null,
     published_at: '2025-01-05T00:00:00Z',
     updated_at: '2025-01-06T09:00:00Z',
+    has_subtitles: false,
   },
   {
     short_id: 'vid004',
@@ -98,6 +104,7 @@ const CONTENTS = [
     thumbnail_key: null,
     published_at: null,
     updated_at: '2025-04-30T10:00:00Z',
+    has_subtitles: false,
   },
 ]
 
@@ -135,14 +142,78 @@ const VARIANTS = {
   ],
 }
 
+// Subtitle fixtures, keyed by the admin content id for vid001 (see ADMIN_CONTENTS above)
+const SUBTITLE_TRACKS = {
+  '00000000-0000-0000-0000-000000000001': [
+    {
+      id: 'track-vid001-ja',
+      content_id: '00000000-0000-0000-0000-000000000001',
+      language: 'ja',
+      status: 'published',
+      model: 'whisper-large-v3',
+      created_at: '2024-08-20T10:00:00Z',
+      updated_at: '2024-08-20T10:05:00Z',
+    },
+  ],
+}
+
+const SUBTITLE_CUES = {
+  'track-vid001-ja': [
+    {
+      id: 'cue-1',
+      track_id: 'track-vid001-ja',
+      seq: 1,
+      start_ms: 0,
+      end_ms: 3200,
+      text: '夏の海辺にやってきました。',
+      original_text: '夏の海辺にやってきました。',
+      flagged: false,
+      updated_at: '2024-08-20T10:05:00Z',
+    },
+    {
+      id: 'cue-2',
+      track_id: 'track-vid001-ja',
+      seq: 2,
+      start_ms: 3200,
+      end_ms: 6800,
+      text: '波の音がとても心地よいですね。',
+      original_text: '波の音がとてもここちよいですね。',
+      flagged: true,
+      updated_at: '2024-08-20T10:05:00Z',
+    },
+  ],
+}
+
 function send(res, status, data) {
   res.writeHead(status, { 'Content-Type': 'application/json' })
   res.end(JSON.stringify(data))
 }
 
-const server = http.createServer((req, res) => {
+function sendNoContent(res) {
+  res.writeHead(204)
+  res.end()
+}
+
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let raw = ''
+    req.on('data', (chunk) => { raw += chunk })
+    req.on('end', () => {
+      if (!raw) { resolve({}); return }
+      try {
+        resolve(JSON.parse(raw))
+      } catch (e) {
+        reject(e)
+      }
+    })
+    req.on('error', reject)
+  })
+}
+
+const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost')
   const path = url.pathname
+  const method = req.method ?? 'GET'
 
   // GET /api/v1/contents
   if (path === '/api/v1/contents') {
@@ -172,9 +243,118 @@ const server = http.createServer((req, res) => {
   }
 
   // GET /api/v1/admin/contents
-  if (path === '/api/v1/admin/contents') {
+  if (path === '/api/v1/admin/contents' && method === 'GET') {
     const limit = parseInt(url.searchParams.get('limit') ?? '200')
-    send(res, 200, ADMIN_CONTENTS.slice(0, limit))
+    let items = ADMIN_CONTENTS
+    const status = url.searchParams.get('status')
+    if (status) items = items.filter((c) => c.status === status)
+    send(res, 200, items.slice(0, limit))
+    return
+  }
+
+  // PUT /api/v1/admin/contents/:id
+  const updateContentMatch = path.match(/^\/api\/v1\/admin\/contents\/([^/]+)$/)
+  if (updateContentMatch && method === 'PUT') {
+    const item = ADMIN_CONTENTS.find((c) => c.id === updateContentMatch[1])
+    if (!item) { send(res, 404, { error: 'not found' }); return }
+    const body = await readJsonBody(req)
+    if (body.title != null) item.title = body.title
+    if (body.description != null) item.description = body.description
+    if (body.tags != null) item.tags = body.tags
+    if (body.status != null) item.status = body.status
+    item.updated_at = new Date().toISOString()
+    send(res, 200, item)
+    return
+  }
+
+  // POST /api/v1/admin/contents/:id/archive
+  const archiveMatch = path.match(/^\/api\/v1\/admin\/contents\/([^/]+)\/archive$/)
+  if (archiveMatch && method === 'POST') {
+    const item = ADMIN_CONTENTS.find((c) => c.id === archiveMatch[1])
+    if (!item) { send(res, 404, { error: 'not found' }); return }
+    item.archived_at = new Date().toISOString()
+    send(res, 200, item)
+    return
+  }
+
+  // POST /api/v1/admin/contents/:id/unarchive
+  const unarchiveMatch = path.match(/^\/api\/v1\/admin\/contents\/([^/]+)\/unarchive$/)
+  if (unarchiveMatch && method === 'POST') {
+    const item = ADMIN_CONTENTS.find((c) => c.id === unarchiveMatch[1])
+    if (!item) { send(res, 404, { error: 'not found' }); return }
+    item.archived_at = null
+    send(res, 200, item)
+    return
+  }
+
+  // GET /api/v1/admin/contents/:contentId/subtitles
+  const subtitleTracksMatch = path.match(/^\/api\/v1\/admin\/contents\/([^/]+)\/subtitles$/)
+  if (subtitleTracksMatch && method === 'GET') {
+    send(res, 200, SUBTITLE_TRACKS[subtitleTracksMatch[1]] ?? [])
+    return
+  }
+
+  // PUT /api/v1/admin/subtitles/:trackId/status
+  const trackStatusMatch = path.match(/^\/api\/v1\/admin\/subtitles\/([^/]+)\/status$/)
+  if (trackStatusMatch && method === 'PUT') {
+    const track = Object.values(SUBTITLE_TRACKS).flat().find((t) => t.id === trackStatusMatch[1])
+    if (!track) { send(res, 404, { error: 'not found' }); return }
+    const body = await readJsonBody(req)
+    track.status = body.status
+    track.updated_at = new Date().toISOString()
+    send(res, 200, track)
+    return
+  }
+
+  // GET /api/v1/admin/subtitles/:trackId/cues
+  const cuesMatch = path.match(/^\/api\/v1\/admin\/subtitles\/([^/]+)\/cues$/)
+  if (cuesMatch && method === 'GET') {
+    send(res, 200, SUBTITLE_CUES[cuesMatch[1]] ?? [])
+    return
+  }
+
+  // POST /api/v1/admin/subtitles/:trackId/cues
+  if (cuesMatch && method === 'POST') {
+    const trackId = cuesMatch[1]
+    const body = await readJsonBody(req)
+    const cue = {
+      id: `cue-${Date.now()}`,
+      track_id: trackId,
+      seq: body.seq,
+      start_ms: body.start_ms,
+      end_ms: body.end_ms,
+      text: body.text,
+      original_text: body.text,
+      flagged: false,
+      updated_at: new Date().toISOString(),
+    }
+    SUBTITLE_CUES[trackId] = [...(SUBTITLE_CUES[trackId] ?? []), cue]
+    send(res, 200, cue)
+    return
+  }
+
+  // PUT /api/v1/admin/subtitles/cues/:cueId
+  const cueUpdateMatch = path.match(/^\/api\/v1\/admin\/subtitles\/cues\/([^/]+)$/)
+  if (cueUpdateMatch && method === 'PUT') {
+    const cue = Object.values(SUBTITLE_CUES).flat().find((c) => c.id === cueUpdateMatch[1])
+    if (!cue) { send(res, 404, { error: 'not found' }); return }
+    const body = await readJsonBody(req)
+    Object.assign(cue, body, { updated_at: new Date().toISOString() })
+    send(res, 200, cue)
+    return
+  }
+
+  // DELETE /api/v1/admin/subtitles/cues/:cueId
+  if (cueUpdateMatch && method === 'DELETE') {
+    const cueId = cueUpdateMatch[1]
+    let found = false
+    for (const trackId of Object.keys(SUBTITLE_CUES)) {
+      const before = SUBTITLE_CUES[trackId].length
+      SUBTITLE_CUES[trackId] = SUBTITLE_CUES[trackId].filter((c) => c.id !== cueId)
+      if (SUBTITLE_CUES[trackId].length !== before) found = true
+    }
+    if (!found) { send(res, 404, { error: 'not found' }); return }
+    sendNoContent(res)
     return
   }
 

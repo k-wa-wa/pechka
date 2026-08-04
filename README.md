@@ -145,6 +145,45 @@ kubectl exec -n pechka elasticsearch-0 -- \
 
 ---
 
+## フロントエンドのみの UI 開発（API・K8s なし）
+
+コンテンツの一覧・表示崩れの調整など UI 中心の変更であれば、上記の Kind/K8s 環境や実 API を
+起動せずに `frontend/` だけで作業できます。
+
+### Storybook でコンポーネント単位に確認する
+
+```bash
+cd frontend
+npm run storybook
+```
+
+[http://localhost:6006](http://localhost:6006) で各コンポーネントを単体表示できます。API 通信は
+[msw-storybook-addon](https://github.com/mswjs/msw-storybook-addon) が `mocks/handlers.ts` の
+ハンドラで自動的にモックするため、バックエンドは不要です。ローディング/空/エラー状態など
+個別のシナリオは各 `*.stories.tsx` の `parameters.msw.handlers` でハンドラを上書きして表現します。
+
+### アプリ全体をモック API 付きで動かす
+
+ページ遷移やアプリ全体の見た目を確認したい場合は、`e2e/mock-server.mjs`（Playwright の VRT
+テストでも使用している Node 製モック API サーバ）を使って `next dev` を起動します。
+
+```bash
+cd frontend
+npm run dev:mock
+```
+
+[http://localhost:3000](http://localhost:3000) にアクセスすると、モックデータでアプリ全体（一覧・
+詳細・管理画面）が動作します。
+
+### 新しいコンポーネント・API を追加したとき
+
+- `components/` に新しいコンポーネントを追加したら、同名の `*.stories.tsx` を追加してください。
+  CI (`npm run check:stories`) が漏れを検知して失敗します。
+- `lib/api.ts` に新しいエンドポイントを追加したら、`mocks/handlers.ts`（Storybook 用）と
+  `e2e/mock-server.mjs`（`dev:mock`・VRT 用）の両方にモックハンドラを追加してください。
+
+---
+
 ## 本番環境（overlays/prod）のデプロイと運用
 
 本番環境向けのマニフェストは `k8s/overlays/prod` に整理されています。現状は検証用として、以下の構成となっています。
