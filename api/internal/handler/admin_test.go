@@ -20,10 +20,11 @@ import (
 )
 
 type mockPgContentRepo struct {
-	listFn   func(ctx context.Context, params pgRepo.ListContentsParams) ([]*domain.Content, error)
-	createFn func(ctx context.Context, params pgRepo.CreateContentParams) (*domain.Content, error)
-	updateFn func(ctx context.Context, params pgRepo.UpdateContentParams) (*domain.Content, error)
-	deleteFn func(ctx context.Context, id string) error
+	listFn        func(ctx context.Context, params pgRepo.ListContentsParams) ([]*domain.Content, error)
+	createFn      func(ctx context.Context, params pgRepo.CreateContentParams) (*domain.Content, error)
+	updateFn      func(ctx context.Context, params pgRepo.UpdateContentParams) (*domain.Content, error)
+	deleteFn      func(ctx context.Context, id string) error
+	setArchivedFn func(ctx context.Context, id string, archived bool) (*domain.Content, error)
 }
 
 func (m *mockPgContentRepo) List(ctx context.Context, params pgRepo.ListContentsParams) ([]*domain.Content, error) {
@@ -37,6 +38,9 @@ func (m *mockPgContentRepo) Update(ctx context.Context, params pgRepo.UpdateCont
 }
 func (m *mockPgContentRepo) Delete(ctx context.Context, id string) error {
 	return m.deleteFn(ctx, id)
+}
+func (m *mockPgContentRepo) SetArchived(ctx context.Context, id string, archived bool) (*domain.Content, error) {
+	return m.setArchivedFn(ctx, id, archived)
 }
 
 type mockPgDiscRepo struct {
@@ -339,6 +343,108 @@ func TestAdminHandler_UpdateSubtitleTrackStatus_Published(t *testing.T) {
 	}
 	if gotStatus != domain.SubtitleTrackStatusPublished {
 		t.Errorf("expected status published, got %q", gotStatus)
+	}
+}
+
+func TestAdminHandler_ListContents_IncludesArchived(t *testing.T) {
+	contentRepo := &mockPgContentRepo{
+		listFn: func(_ context.Context, params pgRepo.ListContentsParams) ([]*domain.Content, error) {
+			if !params.IncludeArchived {
+				t.Errorf("expected IncludeArchived to be true for admin list")
+			}
+			return []*domain.Content{}, nil
+		},
+	}
+
+	h := handler.NewAdminHandler(contentRepo, &mockPgDiscRepo{}, &mockPgSubtitleRepo{}, newSnowflakeNode(t))
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/v1/admin/contents", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	if err := h.ListContents(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAdminHandler_ArchiveContent_Success(t *testing.T) {
+	var gotArchived bool
+	contentRepo := &mockPgContentRepo{
+		setArchivedFn: func(_ context.Context, id string, archived bool) (*domain.Content, error) {
+			gotArchived = archived
+			return &domain.Content{ID: id}, nil
+		},
+	}
+
+	h := handler.NewAdminHandler(contentRepo, &mockPgDiscRepo{}, &mockPgSubtitleRepo{}, newSnowflakeNode(t))
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/v1/admin/contents/123/archive", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetParamNames("id")
+	c.SetParamValues("123")
+
+	if err := h.ArchiveContent(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
+	}
+	if !gotArchived {
+		t.Error("expected archived=true to be passed to repo")
+	}
+}
+
+func TestAdminHandler_ArchiveContent_NotFound(t *testing.T) {
+	contentRepo := &mockPgContentRepo{
+		setArchivedFn: func(_ context.Context, _ string, _ bool) (*domain.Content, error) {
+			return nil, pgx.ErrNoRows
+		},
+	}
+
+	h := handler.NewAdminHandler(contentRepo, &mockPgDiscRepo{}, &mockPgSubtitleRepo{}, newSnowflakeNode(t))
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/v1/admin/contents/999/archive", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetParamNames("id")
+	c.SetParamValues("999")
+
+	err := h.ArchiveContent(c)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	he := err.(*echo.HTTPError)
+	if he.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", he.Code)
+	}
+}
+
+func TestAdminHandler_UnarchiveContent_Success(t *testing.T) {
+	var gotArchived bool
+	contentRepo := &mockPgContentRepo{
+		setArchivedFn: func(_ context.Context, id string, archived bool) (*domain.Content, error) {
+			gotArchived = archived
+			return &domain.Content{ID: id}, nil
+		},
+	}
+
+	h := handler.NewAdminHandler(contentRepo, &mockPgDiscRepo{}, &mockPgSubtitleRepo{}, newSnowflakeNode(t))
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/v1/admin/contents/123/unarchive", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetParamNames("id")
+	c.SetParamValues("123")
+
+	if err := h.UnarchiveContent(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
+	}
+	if gotArchived {
+		t.Error("expected archived=false to be passed to repo")
 	}
 }
 

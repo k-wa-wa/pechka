@@ -25,8 +25,10 @@ type ListParams struct {
 	Offset      int64
 }
 
+// archived_at が未設定/nullのドキュメントのみを対象とすることで、
+// admin画面以外(公開API)からアーカイブ済みコンテンツを見えなくする。
 func (r *ContentRepository) List(ctx context.Context, params ListParams) ([]*domain.MongoContent, error) {
-	filter := bson.M{}
+	filter := bson.M{"archived_at": nil}
 	if params.ContentType != nil {
 		filter["content_type"] = *params.ContentType
 	}
@@ -54,7 +56,7 @@ func (r *ContentRepository) List(ctx context.Context, params ListParams) ([]*dom
 
 func (r *ContentRepository) GetByShortID(ctx context.Context, shortID string) (*domain.MongoContent, error) {
 	var c domain.MongoContent
-	err := r.col.FindOne(ctx, bson.M{"_id": shortID}).Decode(&c)
+	err := r.col.FindOne(ctx, bson.M{"_id": shortID, "archived_at": nil}).Decode(&c)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +66,7 @@ func (r *ContentRepository) GetByShortID(ctx context.Context, shortID string) (*
 func (r *ContentRepository) GetVariantsByShortID(ctx context.Context, shortID string) ([]domain.MongoVariant, error) {
 	var c domain.MongoContent
 	opts := options.FindOne().SetProjection(bson.M{"variants": 1})
-	err := r.col.FindOne(ctx, bson.M{"_id": shortID}, opts).Decode(&c)
+	err := r.col.FindOne(ctx, bson.M{"_id": shortID, "archived_at": nil}, opts).Decode(&c)
 	if err != nil {
 		return nil, err
 	}

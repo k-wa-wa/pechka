@@ -51,6 +51,12 @@ func (r *ContentRepository) Search(ctx context.Context, query string, limit, off
 						},
 					},
 				},
+				// アーカイブ済み(archived_at が値を持つ)コンテンツは検索結果から除外する
+				"must_not": []any{
+					map[string]any{
+						"exists": map[string]any{"field": "archived_at"},
+					},
+				},
 			},
 		},
 		"_source": []string{"short_id", "title", "description", "content_type", "tags", "status"},

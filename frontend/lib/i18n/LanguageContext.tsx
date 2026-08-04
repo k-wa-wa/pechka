@@ -52,6 +52,12 @@ export const dictionaries: Record<Language, Translations> = {
     'admin.table.colUpdatedAt': '更新日時',
     'admin.table.btnEdit': '編集',
     'admin.table.btnSubtitles': '字幕',
+    'admin.table.btnArchive': 'アーカイブ',
+    'admin.table.btnUnarchive': 'アーカイブ解除',
+    'admin.table.badgeArchived': 'アーカイブ済み',
+    'admin.table.confirmArchive': 'このコンテンツをアーカイブしますか？公開画面から見えなくなります。',
+    'admin.table.confirmUnarchive': 'このコンテンツのアーカイブを解除しますか？',
+    'admin.table.archiveError': '処理に失敗しました',
     'admin.table.noContents': 'コンテンツがありません',
 
     // Edit Modal
@@ -109,6 +115,12 @@ export const dictionaries: Record<Language, Translations> = {
     'admin.table.colUpdatedAt': 'Updated At',
     'admin.table.btnEdit': 'Edit',
     'admin.table.btnSubtitles': 'Subtitles',
+    'admin.table.btnArchive': 'Archive',
+    'admin.table.btnUnarchive': 'Unarchive',
+    'admin.table.badgeArchived': 'Archived',
+    'admin.table.confirmArchive': 'Archive this content? It will be hidden from the public site.',
+    'admin.table.confirmUnarchive': 'Unarchive this content?',
+    'admin.table.archiveError': 'Failed to process request',
     'admin.table.noContents': 'No contents found',
 
     // Edit Modal

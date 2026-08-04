@@ -29,6 +29,7 @@ type Content struct {
 	Tags            []string      `json:"tags"`
 	Status          ContentStatus `json:"status"`
 	PublishedAt     *time.Time    `json:"published_at,omitempty"`
+	ArchivedAt      *time.Time    `json:"archived_at,omitempty"`
 	CreatedAt       time.Time     `json:"created_at"`
 	UpdatedAt       time.Time     `json:"updated_at"`
 }
