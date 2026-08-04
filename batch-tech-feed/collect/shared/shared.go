@@ -2,9 +2,11 @@
 package shared
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -16,7 +18,31 @@ const UserAgent = "pechka-tech-feed/1.0 (personal home media; +https://github.co
 const requestTimeout = 20 * time.Second
 
 func NewHTTPClient() *http.Client {
-	return &http.Client{Timeout: requestTimeout}
+	return NewHTTPClientWithTimeout(requestTimeout)
+}
+
+func NewHTTPClientWithTimeout(timeout time.Duration) *http.Client {
+	var tr *http.Transport
+	if http.DefaultTransport != nil {
+		if t, ok := http.DefaultTransport.(*http.Transport); ok {
+			tr = t.Clone()
+		}
+	}
+	if tr == nil {
+		tr = &http.Transport{}
+	}
+
+	if os.Getenv("SKIP_TLS_VERIFY") == "true" || os.Getenv("INSECURE_SKIP_VERIFY") == "true" {
+		if tr.TLSClientConfig == nil {
+			tr.TLSClientConfig = &tls.Config{}
+		}
+		tr.TLSClientConfig.InsecureSkipVerify = true
+	}
+
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: tr,
+	}
 }
 
 // GetJSON は out へ JSON をデコードする。

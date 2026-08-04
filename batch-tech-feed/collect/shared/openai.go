@@ -35,7 +35,7 @@ func NewOpenAIClient() *OpenAIClient {
 		apiKey:  apiKey,
 		baseURL: strings.TrimRight(baseURL, "/"),
 		model:   model,
-		client:  &http.Client{Timeout: 15 * time.Minute},
+		client:  NewHTTPClientWithTimeout(15 * time.Minute),
 	}
 }
 
