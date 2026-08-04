@@ -11,9 +11,6 @@ on:
       - 'api/**'
       - '.github/workflows/api.yml'
   pull_request:
-    paths:
-      - 'api/**'
-      - '.github/workflows/api.yml'
 
 jobs:
   test:
