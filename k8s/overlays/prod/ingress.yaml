@@ -8,6 +8,7 @@ spec:
   tls:
     - hosts:
         - pechka.wpcapp.net
+        - pechka-workflow.wpcapp.net
       secretName: wpcapp-net-wildcard-tls
   rules:
     - host: pechka.wpcapp.net
