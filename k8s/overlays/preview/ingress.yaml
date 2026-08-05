@@ -5,7 +5,7 @@ kind: Ingress
 metadata:
   name: pechka-ingress
   annotations:
-    cert-manager.io/cluster-issuer: "ca-clusterissuer"
+    cert-manager.io/cluster-issuer: "letsencrypt-cloudflare-prod"
 spec:
   ingressClassName: cilium
   tls:
