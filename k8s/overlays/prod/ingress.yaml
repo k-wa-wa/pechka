@@ -1,6 +1,29 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
+  name: pechka-ingress-public
+  namespace: pechka
+spec:
+  ingressClassName: cilium
+  tls:
+    - hosts:
+        - pechka.wpcapp.net
+      secretName: wpcapp-net-wildcard-tls
+  rules:
+    - host: pechka.wpcapp.net
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nginx
+                port:
+                  number: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
   name: pechka-ingress
   namespace: pechka
   annotations:
