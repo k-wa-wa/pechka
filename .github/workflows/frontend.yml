@@ -120,6 +120,7 @@ jobs:
           context: ./frontend
           push: true
           tags: |
+            ghcr.io/${{ github.repository }}-frontend:pr-${{ github.event.pull_request.number }}
             ghcr.io/${{ github.repository }}-frontend:sha-${{ github.event.pull_request.head.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
