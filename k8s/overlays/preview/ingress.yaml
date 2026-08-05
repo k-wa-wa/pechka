@@ -10,10 +10,10 @@ spec:
   ingressClassName: cilium
   tls:
     - hosts:
-        - pechka-preview.cluster.wpc
-      secretName: pechka-preview-tls-secret
+        - DUMMY
+      secretName: wpcapp-net-wildcard-tls
   rules:
-    - host: pechka-preview.cluster.wpc
+    - host: DUMMY
       http:
         paths:
           - path: /

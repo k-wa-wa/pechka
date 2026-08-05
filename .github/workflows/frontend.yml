@@ -132,16 +132,16 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           COMMENT_ID=$(gh api repos/${{ github.repository }}/issues/${PR_NUMBER}/comments --jq '.[] | select(.body | contains("🎭 VRT Report")) | .id' | head -n 1)
-          
+
           COMMENT_BODY=$(cat <<EOF
           ### 🎭 VRT Report (Playwright)
           VRT の実行結果はプレビュー環境で確認できます：
-          🔗 [VRT Report](https://pechka-pr-${PR_NUMBER}.cluster.wpc/vrt-report/index.html)
-          
+          🔗 [VRT Report](https://pechka-pr-${PR_NUMBER}.wpcapp.net/vrt-report/index.html)
+
           ※ UIの更新が意図通りである場合は、GitHub Actions の \`Update VRT Snapshots\` ワークフローを実行してスナップショットを更新してください。
           EOF
           )
-          
+
           if [ -n "$COMMENT_ID" ]; then
             gh api -X PATCH repos/${{ github.repository }}/issues/comments/${COMMENT_ID} -f body="$COMMENT_BODY"
           else
