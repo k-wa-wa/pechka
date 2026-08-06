@@ -4,11 +4,10 @@ metadata:
   name: tech-feed-daily-ai
   namespace: pechka
 spec:
-  # 毎日 JST 07:00 (UTC 22:00) 実行予定
-  schedule: "0 22 * * *"
+  # 毎日 JST 06:00 (UTC 21:00) 実行予定
+  schedule: "0 21 * * *"
   timezone: "Asia/Tokyo"
-  # 一旦自動実行しないよう一時停止状態に設定
-  suspend: true
+  suspend: false
   concurrencyPolicy: "Forbid"
   startingDeadlineSeconds: 3600
   workflowSpec:
