@@ -5,6 +5,7 @@ PR を立てれば生え、close/merge すれば namespace ごと消える。
 
 - URL: `https://pechka-pr-<N>.wpcapp.net`
 - VRT レポート: `https://pechka-pr-<N>.wpcapp.net/vrt-report/index.html`
+- Storybook: `https://pechka-pr-<N>.wpcapp.net/storybook/index.html`
 
 ![prod / preview 比較](./preview-vs-prod.drawio.svg)
 
