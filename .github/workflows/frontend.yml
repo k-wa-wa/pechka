@@ -125,7 +125,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          COMMENT_ID=$(gh api repos/${{ github.repository }}/issues/${PR_NUMBER}/comments --jq '.[] | select(.body | contains("🎭 VRT Report")) | .id' | head -n 1)
+          COMMENT_ID=$(gh api repos/${{ github.repository }}/issues/"${PR_NUMBER}"/comments --jq '.[] | select(.body | contains("🎭 VRT Report")) | .id' | head -n 1)
 
           COMMENT_BODY=$(cat <<EOF
           ### 🎭 VRT Report (Playwright)
@@ -137,7 +137,7 @@ jobs:
           )
 
           if [ -n "$COMMENT_ID" ]; then
-            gh api -X PATCH repos/${{ github.repository }}/issues/comments/${COMMENT_ID} -f body="$COMMENT_BODY"
+            gh api -X PATCH repos/${{ github.repository }}/issues/comments/"${COMMENT_ID}" -f body="$COMMENT_BODY"
           else
             gh pr comment "$PR_NUMBER" --body "$COMMENT_BODY"
           fi
