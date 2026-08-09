@@ -16,6 +16,13 @@ spec:
     - host: DUMMY
       http:
         paths:
+          - path: /vrt-report
+            pathType: Prefix
+            backend:
+              service:
+                name: vrt-report
+                port:
+                  number: 80
           - path: /
             pathType: Prefix
             backend:
