@@ -6,6 +6,11 @@ PR を立てれば生え、close/merge すれば namespace ごと消える。
 - URL: `https://pechka-pr-<N>.wpcapp.net`
 - VRT レポート: `https://pechka-pr-<N>.wpcapp.net/vrt-report/index.html`
 
+`/vrt-report` は ingress レベルで専用の `vrt-report` Service に直接ルーティングしており、
+アプリ本体を配信する nginx は経由しない (`/` 以外のパスとして ingress で振り分け)。
+これにより frontend イメージには VRT の成果物 (テストコードの実行結果) が含まれず、
+preview / prod で同一内容の frontend イメージがビルドされる。
+
 ![prod / preview 比較](./preview-vs-prod.drawio.svg)
 
 ---
@@ -28,6 +33,10 @@ ArgoCD 側の CMP 設定 (`avp-cmp-plugin.yaml`) には手を入れていない�
 | Namespace | `pechka-preview` | `pechka-pr-<N>` |
 | image | `pechka-api` / `pechka-frontend` | `:pr-<N>` |
 | Ingress host / tls | `DUMMY` | `pechka-pr-<N>.wpcapp.net` |
+
+`vrt-report` の image (`pechka-vrt-report:latest`) は現時点ではこの上書き対象に含まれておらず、
+CIが `ghcr.io/k-wa-wa/pechka-vrt-report:pr-<N>` を push しても overlay 側は追従しない
+(`nuage-cluster` の ApplicationSet 側の対応が別途必要。親Issue #43 参照)。
 
 ---
 
