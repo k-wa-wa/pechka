@@ -1,6 +1,6 @@
 # PRのpreview環境。
-# - api/frontend/vrt-report: このPRのイメージ (frontendとvrt-reportはCIが別々のイメージとしてbuild/push)
-# - nginx: prodと同一のイメージ (アプリ本体の配信のみ担当。/vrt-reportはingressでvrt-reportに直接ルーティングし、nginxを経由しない)
+# - api/frontend/vrt-report/storybook-report: このPRのイメージ (frontend/vrt-report/storybook-reportはCIが別々のイメージとしてbuild/push)
+# - nginx: prodと同一のイメージ (アプリ本体の配信のみ担当。/vrt-report・/storybookはingressでそれぞれ直接ルーティングし、nginxを経由しない)
 # - postgres/mongodb/elasticsearch/benthos: local overlay同様、preview専用の自前コンテナ
 #   (postgresのみ起動時にprodの実データを一度コピーしてくる)
 # - minio: prodの実体をshimで直接参照 (データ量が大きいため複製しない)
@@ -31,6 +31,7 @@ resources:
   - postgres-prod-shim.yaml
   - seed-from-prod-job.yaml
   - vrt-report.yaml
+  - storybook-report.yaml
   - ingress.yaml
 
 patches:

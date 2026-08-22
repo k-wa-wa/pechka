@@ -43,6 +43,13 @@ jobs:
       - name: Build Storybook
         run: npm run build-storybook
 
+      - name: Upload Storybook build
+        uses: actions/upload-artifact@v4
+        with:
+          name: storybook-static
+          path: frontend/storybook-static/
+          retention-days: 14
+
       - name: Build
         run: npm run build
 
@@ -133,6 +140,9 @@ jobs:
           🔗 [VRT Report](https://pechka-pr-${PR_NUMBER}.wpcapp.net/vrt-report/index.html)
 
           ※ UIの更新が意図通りである場合は、GitHub Actions の \`Update VRT Snapshots\` ワークフローを実行してスナップショットを更新してください。
+
+          ### 📚 Storybook
+          🔗 [Storybook](https://pechka-pr-${PR_NUMBER}.wpcapp.net/storybook/)
           EOF
           )
 
@@ -174,6 +184,41 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ github.repository }}-vrt-report:pr-${{ github.event.pull_request.number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  push-storybook-report-image:
+    name: Push Storybook Report Image
+    needs: [test-frontend]
+    if: needs.test-frontend.result == 'success' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Storybook build
+        uses: actions/download-artifact@v4
+        with:
+          name: storybook-static
+          path: storybook-report/storybook-static
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Storybook report Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./storybook-report
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}-storybook-report:pr-${{ github.event.pull_request.number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

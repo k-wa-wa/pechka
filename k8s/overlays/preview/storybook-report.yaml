@@ -1,0 +1,46 @@
+# Storybook のビルド成果物だけを配信する軽量な静的配信コンテナ。preview専用。
+# イメージタグ (pr-<N>) の自動差し替えはこのoverlay単体では行われない
+# (nuage-cluster側のArgoCD ApplicationSetの対応が別途必要)。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: storybook-report
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: storybook-report
+  template:
+    metadata:
+      labels:
+        app: storybook-report
+    spec:
+      containers:
+        - name: storybook-report
+          image: ghcr.io/k-wa-wa/pechka-storybook-report:latest
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /storybook/
+              port: 80
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: storybook-report
+spec:
+  selector:
+    app: storybook-report
+  ports:
+    - port: 80
+      targetPort: 80
