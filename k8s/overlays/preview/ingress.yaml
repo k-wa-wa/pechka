@@ -23,6 +23,13 @@ spec:
                 name: vrt-report
                 port:
                   number: 80
+          - path: /storybook
+            pathType: Prefix
+            backend:
+              service:
+                name: storybook-report
+                port:
+                  number: 80
           - path: /
             pathType: Prefix
             backend:
