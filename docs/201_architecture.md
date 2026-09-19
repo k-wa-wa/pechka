@@ -331,53 +331,25 @@ original.m3u8
 
 ## 8. 実装フェーズ計画
 
-### Phase 0: クリーンアップ + ドキュメント整備（完了）
-- [x] 旧コードの全削除
-- [x] 新要件・アーキテクチャ設計書の作成（MongoDB + Benthos + Elasticsearch 維持版）
+Phase 0〜4（クリーンアップ、インフラ・DB 基盤、API Service、フロントエンド、Bluray ETL パイプライン）は実装済み。以下は本番環境（`k8s/overlays/prod`）における検証中・暫定運用の TODO（詳細は `README.md` の「本番環境（overlays/prod）のデプロイと運用」を参照）。
 
-### Phase 1: インフラ・DB 基盤（実装済み）
-- [x] PostgreSQL, MongoDB, Elasticsearch, MinIO の K8s マニフェスト作成（`k8s/base/infra/{postgres,mongodb,elasticsearch,minio}`）
-- [x] Benthos CDC パイプライン設定（`k8s/base/infra/benthos`）
-- [x] PostgreSQL スキーマ（マイグレーション）実装（`k8s/base/infra/postgres/migrations`）
-
-### Phase 2: API Service 実装（Go）（実装済み）
-- [x] CRUD エンドポイント実装（PostgreSQL 書き込み）
-- [x] 読み取りエンドポイント実装（MongoDB 経由）
-- [x] 検索エンドポイント実装（Elasticsearch）
-- インメモリキャッシュは 1 章・7 章の方針どおり不採用（MongoDB の読み取り最適化で代替するため対象外）
-
-### Phase 3: フロントエンド実装（Next.js）（実装済み）
-- [x] コンテンツ一覧・詳細画面
-- [x] `hls.js` ABR プレーヤー
-- [x] 管理画面（CMS）（`frontend/app/admin`）
-
-### Phase 4: Bluray ETL パイプライン実装（実装済み）
-- [x] MakeMKV K8s Job（Phase 1: Extract）
-- [x] ffmpeg ABR トランスコード K8s Job（Phase 2: Transform）
-- [x] NFS Importer（Phase 3: Load）
-- [x] Thumbnail Analyzer
-- [x] 字幕生成パイプライン（`k8s/base/etl/subtitle-workflow.yaml`、詳細は `docs/406_subtitle_generation_pipeline.md`）— 当初計画外の追加実装
-
-Phase 1〜4 は k8s マニフェスト・Go 実装として一通り揃っているが、本番環境（`k8s/overlays/prod`）では以下が検証中・暫定運用である（詳細は `README.md` の「本番環境（overlays/prod）のデプロイと運用」を参照）。
-
-- NFS 自動 Bluray 変換の CronWorkflow（`etl-bluray-cron`）は安全のため一時停止（`suspend: true`）。手動実行バッチ（`etl-bluray` の `manual` エントリーポイント）のみ運用中
-- PostgreSQL・MinIO は検証用の一時コンテナとして同一クラスタ内で起動しており、外部 DB・AWS S3 等への切り替えは未実施
-- Secrets は検証用のハードコード値であり、SOPS による本番運用向け暗号化は未実施
+- [ ] NFS 自動 Bluray 変換の CronWorkflow（`etl-bluray-cron`）の自動実行再開（現在は安全のため `suspend: true`。手動実行バッチ（`etl-bluray` の `manual` エントリーポイント）のみ運用中）
+- [ ] PostgreSQL・MinIO の外部 DB・AWS S3 等への切り替え（現状は検証用の一時コンテナとして同一クラスタ内で起動）
+- [ ] Secrets の SOPS による本番運用向け暗号化（現状は検証用のハードコード値）
 
 ### 技術ダイジェスト自動生成（batch-tech-feed、Phase 4 とは独立）
 
-Bluray ETL とは独立したパイプラインとして `batch-tech-feed/` に実装済み。詳細設計・進捗は `docs/407_tech_digest_pipeline.md` §5、ユーザーストーリーは `docs/102_tech_digest_user_stories.md` を参照（フェーズ ID は同ドキュメントの D0〜D6 に対応）。
+Bluray ETL とは独立したパイプラインとして `batch-tech-feed/` に実装済み。詳細設計・進捗は `docs/407_tech_digest_pipeline.md` §5、ユーザーストーリーは `docs/102_tech_digest_user_stories.md` を参照（フェーズ ID は同ドキュメントの D0〜D6 に対応）。D0・D2・D3 は実装済み。
 
-- [x] D0: 台本形式の確定、手書き台本からの動画生成（Remotion によるスライド + 音声レンダリング）
-- [x] D2: 既存 ETL への配信経路接続（HLS 化・カタログ登録。既存コンテンツと同一の配信基盤に載る）
-- [x] D3: RSS・Hacker News API・GitHub Releases API からの自動収集 + LLM 台本生成
 - [ ] D1: TTS 常駐化（AivisSpeech の常駐運用）
 - [ ] D4: 記事化（`content_type: article` の追加。DB マイグレーション未実施）
 - [ ] D5: 動画/記事の切替 UI・日次無人運転化（現状 `tech-feed-weekly-k8s` CronWorkflow は週次かつ `suspend: true` で自動実行停止中）
 - [ ] D6: 品質管理（`flagged`、admin からの再生成）
 
-### Phase 5: 最適化・運用整備（一部実装）
-- [x] Nginx HLS キャッシュ設定（`k8s/base/infra/nginx`）
+### Phase 5: 最適化・運用整備
+
+Nginx HLS キャッシュ設定（`k8s/base/infra/nginx`）は実装済み。
+
 - [ ] キャッシュチューニング・監視・ログ整備は未着手
 
 ### Phase 6: ドキュメント・多様コンテンツ取り込み
