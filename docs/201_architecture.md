@@ -44,7 +44,14 @@
 
 [Batch: ETL Pipeline (K8s Job / Argo Workflow)]
     ├─ Phase 1: Bluray Drive → MakeMKV → NFS (mkv/)
-    └─ Phase 2: NFS (mkv/) → ffmpeg ABR → MinIO (hls/) + PostgreSQL
+    ├─ Phase 2: NFS (mkv/) → ffmpeg ABR → MinIO (hls/) + PostgreSQL
+    └─ 字幕生成パイプライン（`docs/406_subtitle_generation_pipeline.md` 参照）
+
+[Batch: 技術ダイジェスト自動生成 (batch-tech-feed, Bluray ETL とは独立)]
+    ├─ collect: RSS / Hacker News API / GitHub Releases API → 台本生成
+    ├─ produce: TTS 音声合成 → Remotion スライド映像レンダリング → digest.mp4
+    └─ publish: 既存 ETL と同じ経路で MinIO (HLS) + PostgreSQL へ登録
+       （詳細は `docs/102_tech_digest_user_stories.md` / `docs/407_tech_digest_pipeline.md` 参照）
 ```
 
 ## 3. サービス設計
@@ -176,6 +183,12 @@ output:
 ### 3.6 Thumbnail Analyzer (Python バッチ)
 
 MKV または HLS から複数フレームをサンプリングし、輝度スコアで最適なサムネイルを選択。
+
+### 3.7 技術ダイジェスト自動生成バッチ (batch-tech-feed)
+
+Bluray ETL とは独立した Argo WorkflowTemplate（`tech-feed`）として実装。RSS・Hacker News API・GitHub Releases API から収集した技術トピックを LLM で台本化し、TTS 音声合成 + Remotion によるスライド映像レンダリングで解説動画を生成、既存 ETL と同じ経路（ffmpeg ABR → HLS → MinIO → PostgreSQL）でカタログに登録する。`short_id` を `tech-feed:{date}` から決定的に導出するため、DB スキーマ変更なしで冪等な再実行が成立する。
+
+詳細設計は `docs/407_tech_digest_pipeline.md`、ユーザーストーリーは `docs/102_tech_digest_user_stories.md` を参照。
 
 ## 4. データベース設計（PostgreSQL）
 
@@ -318,35 +331,26 @@ original.m3u8
 
 ## 8. 実装フェーズ計画
 
-### Phase 0（現在）: クリーンアップ + ドキュメント整備
-- [x] 旧コードの全削除
-- [x] 新要件・アーキテクチャ設計書の作成（MongoDB + Benthos + Elasticsearch 維持版）
+Phase 0〜4（クリーンアップ、インフラ・DB 基盤、API Service、フロントエンド、Bluray ETL パイプライン）は実装済み。本番環境（`k8s/overlays/prod`）については以下の通り。
 
-### Phase 1: インフラ・DB 基盤
-- PostgreSQL, MongoDB, Elasticsearch, MinIO の K8s マニフェスト作成
-- Benthos CDC パイプライン設定
-- PostgreSQL スキーマ（マイグレーション）実装
+- PostgreSQL・MinIO は外部 DB（`external-service` namespace 上の実体）への `ExternalName` Service 参照に切り替え済み（`k8s/overlays/prod/external-postgres.yaml` / `external-minio.yaml`）。同一クラスタ内の検証用一時コンテナ運用ではない。
+- Secrets は SOPS（age 鍵）による暗号化運用済み（`k8s/overlays/prod/secrets/prod-secrets.yaml`）。`secrets.yaml` からは `<path:secrets/prod-secrets.yaml#...>` 参照でプレースホルダー展開する構成。
+- NFS 自動 Bluray 変換の CronWorkflow（旧 `etl-bluray-cron`）は削除済みで、現状は自動実行の仕組み自体が存在しない（`etl-bluray` の手動実行バッチのみ運用中）。
 
-### Phase 2: API Service 実装（Go）
-- CRUD エンドポイント実装（PostgreSQL 書き込み）
-- 読み取りエンドポイント実装（MongoDB 経由）
-- 検索エンドポイント実装（Elasticsearch）
-- インメモリキャッシュ実装
+### 技術ダイジェスト自動生成（batch-tech-feed、Phase 4 とは独立）
 
-### Phase 3: フロントエンド実装（Next.js）
-- コンテンツ一覧・詳細画面
-- `hls.js` ABR プレーヤー
-- 管理画面（CMS）
+Bluray ETL とは独立したパイプラインとして `batch-tech-feed/` に実装済み。詳細設計・進捗は `docs/407_tech_digest_pipeline.md` §5、ユーザーストーリーは `docs/102_tech_digest_user_stories.md` を参照（フェーズ ID は同ドキュメントの D0〜D6 に対応）。D0・D2・D3 は実装済み。
 
-### Phase 4: Bluray ETL パイプライン実装
-- MakeMKV K8s Job（Phase 1: Extract）
-- ffmpeg ABR トランスコード K8s Job（Phase 2: Transform）
-- NFS Importer（Phase 3: Load）
-- Thumbnail Analyzer
+- [ ] D1: TTS 常駐化（AivisSpeech の常駐運用）
+- [ ] D4: 記事化（`content_type: article` の追加。DB マイグレーション未実施）
+- [ ] D5: 動画/記事の切替 UI・日次無人運転化（現状 `tech-feed-weekly-k8s` CronWorkflow は週次かつ `suspend: true` で自動実行停止中）
+- [ ] D6: 品質管理（`flagged`、admin からの再生成）
 
 ### Phase 5: 最適化・運用整備
-- Nginx HLS キャッシュチューニング
-- 監視・ログ整備
+
+Nginx HLS キャッシュ設定（`k8s/base/infra/nginx`）は実装済み。
+
+- [ ] キャッシュチューニング・監視・ログ整備は未着手
 
 ### Phase 6: ドキュメント・多様コンテンツ取り込み
 - NAS・ファイルサーバ上の PDF・テキスト等取り込みパイプライン
