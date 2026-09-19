@@ -59,6 +59,10 @@ export const dictionaries: Record<Language, Translations> = {
     'admin.table.confirmUnarchive': 'このコンテンツのアーカイブを解除しますか？',
     'admin.table.archiveError': '処理に失敗しました',
     'admin.table.noContents': 'コンテンツがありません',
+    'admin.pagination.prev': '前へ',
+    'admin.pagination.next': '次へ',
+    'admin.pagination.pageLabel': 'ページ',
+    'admin.pagination.loadError': 'ページの読み込みに失敗しました',
 
     // Edit Modal
     'editModal.title': 'コンテンツを編集',
@@ -122,6 +126,10 @@ export const dictionaries: Record<Language, Translations> = {
     'admin.table.confirmUnarchive': 'Unarchive this content?',
     'admin.table.archiveError': 'Failed to process request',
     'admin.table.noContents': 'No contents found',
+    'admin.pagination.prev': 'Previous',
+    'admin.pagination.next': 'Next',
+    'admin.pagination.pageLabel': 'Page',
+    'admin.pagination.loadError': 'Failed to load page',
 
     // Edit Modal
     'editModal.title': 'Edit Content',

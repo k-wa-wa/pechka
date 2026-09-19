@@ -51,6 +51,13 @@ export interface Content {
   updated_at: string
 }
 
+export interface AdminContentsResponse {
+  contents: Content[]
+  total: number
+  limit: number
+  offset: number
+}
+
 export interface UpdateContentRequest {
   title?: string | null
   description?: string | null

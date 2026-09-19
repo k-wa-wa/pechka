@@ -8,8 +8,22 @@ export const metadata: Metadata = {
   title: 'Admin — pechka',
 }
 
-export default async function AdminPage() {
-  const contents = await getAdminContents({ limit: 200 }).catch(() => [])
+const PAGE_SIZE = 20
 
-  return <AdminView contents={contents} />
+export default async function AdminPage() {
+  const data = await getAdminContents({ limit: PAGE_SIZE, offset: 0 }).catch(() => ({
+    contents: [],
+    total: 0,
+    limit: PAGE_SIZE,
+    offset: 0,
+  }))
+
+  return (
+    <AdminView
+      contents={data.contents}
+      total={data.total}
+      limit={data.limit}
+      offset={data.offset}
+    />
+  )
 }

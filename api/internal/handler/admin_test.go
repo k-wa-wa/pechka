@@ -21,6 +21,7 @@ import (
 
 type mockPgContentRepo struct {
 	listFn        func(ctx context.Context, params pgRepo.ListContentsParams) ([]*domain.Content, error)
+	countFn       func(ctx context.Context, params pgRepo.ListContentsParams) (int, error)
 	createFn      func(ctx context.Context, params pgRepo.CreateContentParams) (*domain.Content, error)
 	updateFn      func(ctx context.Context, params pgRepo.UpdateContentParams) (*domain.Content, error)
 	deleteFn      func(ctx context.Context, id string) error
@@ -29,6 +30,12 @@ type mockPgContentRepo struct {
 
 func (m *mockPgContentRepo) List(ctx context.Context, params pgRepo.ListContentsParams) ([]*domain.Content, error) {
 	return m.listFn(ctx, params)
+}
+func (m *mockPgContentRepo) Count(ctx context.Context, params pgRepo.ListContentsParams) (int, error) {
+	if m.countFn == nil {
+		return 0, nil
+	}
+	return m.countFn(ctx, params)
 }
 func (m *mockPgContentRepo) Create(ctx context.Context, params pgRepo.CreateContentParams) (*domain.Content, error) {
 	return m.createFn(ctx, params)
@@ -272,6 +279,9 @@ func TestAdminHandler_ListContents_EmptyReturnsArray(t *testing.T) {
 		listFn: func(_ context.Context, _ pgRepo.ListContentsParams) ([]*domain.Content, error) {
 			return nil, nil
 		},
+		countFn: func(_ context.Context, _ pgRepo.ListContentsParams) (int, error) {
+			return 0, nil
+		},
 	}
 
 	h := handler.NewAdminHandler(contentRepo, &mockPgDiscRepo{}, &mockPgSubtitleRepo{}, newSnowflakeNode(t))
@@ -284,12 +294,83 @@ func TestAdminHandler_ListContents_EmptyReturnsArray(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	var result []any
+	var result struct {
+		Contents []any `json:"contents"`
+		Total    int   `json:"total"`
+		Limit    int   `json:"limit"`
+		Offset   int   `json:"offset"`
+	}
 	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
 		t.Fatalf("decode error: %v", err)
 	}
-	if result == nil {
+	if result.Contents == nil {
 		t.Error("expected empty array, got null")
+	}
+}
+
+func TestAdminHandler_ListContents_ReturnsTotal(t *testing.T) {
+	contentRepo := &mockPgContentRepo{
+		listFn: func(_ context.Context, _ pgRepo.ListContentsParams) ([]*domain.Content, error) {
+			return []*domain.Content{{ID: "1"}}, nil
+		},
+		countFn: func(_ context.Context, _ pgRepo.ListContentsParams) (int, error) {
+			return 42, nil
+		},
+	}
+
+	h := handler.NewAdminHandler(contentRepo, &mockPgDiscRepo{}, &mockPgSubtitleRepo{}, newSnowflakeNode(t))
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/v1/admin/contents?limit=10&offset=20", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	if err := h.ListContents(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result struct {
+		Contents []any `json:"contents"`
+		Total    int   `json:"total"`
+		Limit    int   `json:"limit"`
+		Offset   int   `json:"offset"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if result.Total != 42 {
+		t.Errorf("expected total 42, got %d", result.Total)
+	}
+	if result.Limit != 10 {
+		t.Errorf("expected limit 10, got %d", result.Limit)
+	}
+	if result.Offset != 20 {
+		t.Errorf("expected offset 20, got %d", result.Offset)
+	}
+}
+
+func TestAdminHandler_ListContents_CountError(t *testing.T) {
+	contentRepo := &mockPgContentRepo{
+		listFn: func(_ context.Context, _ pgRepo.ListContentsParams) ([]*domain.Content, error) {
+			return []*domain.Content{}, nil
+		},
+		countFn: func(_ context.Context, _ pgRepo.ListContentsParams) (int, error) {
+			return 0, errors.New("db error")
+		},
+	}
+
+	h := handler.NewAdminHandler(contentRepo, &mockPgDiscRepo{}, &mockPgSubtitleRepo{}, newSnowflakeNode(t))
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/v1/admin/contents", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.ListContents(c)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	he := err.(*echo.HTTPError)
+	if he.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", he.Code)
 	}
 }
 

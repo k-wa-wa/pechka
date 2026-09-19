@@ -11,6 +11,7 @@ import type {
   SubtitleCue,
   UpdateSubtitleCueRequest,
   InsertSubtitleCueRequest,
+  AdminContentsResponse,
 } from './types'
 
 // Server components use API_URL (internal k8s service); browser uses relative URL via nginx
@@ -68,15 +69,16 @@ export async function getAdminContents(params?: {
   status?: ContentStatus
   limit?: number
   offset?: number
-}): Promise<Content[]> {
+}): Promise<AdminContentsResponse> {
   const query = new URLSearchParams()
   if (params?.status) query.set('status', params.status)
   if (params?.limit != null) query.set('limit', String(params.limit))
   if (params?.offset != null) query.set('offset', String(params.offset))
   const qs = query.toString()
-  return fetchJson<Content[]>(`${API_BASE}/api/v1/admin/contents${qs ? `?${qs}` : ''}`, {
-    cache: 'no-store',
-  })
+  return fetchJson<AdminContentsResponse>(
+    `${API_BASE}/api/v1/admin/contents${qs ? `?${qs}` : ''}`,
+    { cache: 'no-store' }
+  )
 }
 
 export async function updateContent(
