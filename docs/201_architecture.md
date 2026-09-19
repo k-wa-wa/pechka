@@ -331,11 +331,11 @@ original.m3u8
 
 ## 8. 実装フェーズ計画
 
-Phase 0〜4（クリーンアップ、インフラ・DB 基盤、API Service、フロントエンド、Bluray ETL パイプライン）は実装済み。以下は本番環境（`k8s/overlays/prod`）における検証中・暫定運用の TODO（詳細は `README.md` の「本番環境（overlays/prod）のデプロイと運用」を参照）。
+Phase 0〜4（クリーンアップ、インフラ・DB 基盤、API Service、フロントエンド、Bluray ETL パイプライン）は実装済み。本番環境（`k8s/overlays/prod`）については以下の通り。
 
-- [ ] NFS 自動 Bluray 変換の CronWorkflow（`etl-bluray-cron`）の自動実行再開（現在は安全のため `suspend: true`。手動実行バッチ（`etl-bluray` の `manual` エントリーポイント）のみ運用中）
-- [ ] PostgreSQL・MinIO の外部 DB・AWS S3 等への切り替え（現状は検証用の一時コンテナとして同一クラスタ内で起動）
-- [ ] Secrets の SOPS による本番運用向け暗号化（現状は検証用のハードコード値）
+- PostgreSQL・MinIO は外部 DB（`external-service` namespace 上の実体）への `ExternalName` Service 参照に切り替え済み（`k8s/overlays/prod/external-postgres.yaml` / `external-minio.yaml`）。同一クラスタ内の検証用一時コンテナ運用ではない。
+- Secrets は SOPS（age 鍵）による暗号化運用済み（`k8s/overlays/prod/secrets/prod-secrets.yaml`）。`secrets.yaml` からは `<path:secrets/prod-secrets.yaml#...>` 参照でプレースホルダー展開する構成。
+- NFS 自動 Bluray 変換の CronWorkflow（旧 `etl-bluray-cron`）は削除済みで、現状は自動実行の仕組み自体が存在しない（`etl-bluray` の手動実行バッチのみ運用中）。
 
 ### 技術ダイジェスト自動生成（batch-tech-feed、Phase 4 とは独立）
 
