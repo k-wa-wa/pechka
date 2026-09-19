@@ -10,17 +10,24 @@
 ## ドキュメント
 
 - [101_requirements.md](docs/101_requirements.md) — 要件定義書
+- [102_tech_digest_user_stories.md](docs/102_tech_digest_user_stories.md) — 技術ダイジェスト機能 ユーザーストーリー
 - [201_architecture.md](docs/201_architecture.md) — アーキテクチャ設計書
 - [405_bluray_ingestion_pipeline.md](docs/405_bluray_ingestion_pipeline.md) — Bluray ETL パイプライン設計
+- [406_subtitle_generation_pipeline.md](docs/406_subtitle_generation_pipeline.md) — ライブ字幕自動生成パイプライン設計
+- [407_tech_digest_pipeline.md](docs/407_tech_digest_pipeline.md) — 技術ダイジェスト自動生成パイプライン 技術調査・構成検討
 
 ## 現在のステータス
 
-- **Phase 0: クリーンアップ + ドキュメント整備** (進行中 - PR #3)
-- **Phase 1: インフラ・DB 基盤** (準備中)
-- **Phase 2: API Service 実装 (Go)** (準備中)
-- **Phase 3: フロントエンド実装 (Next.js)** (準備中)
-- **Phase 4: Bluray ETL パイプライン実装** (準備中)
-- **Phase 5: 最適化・運用整備** (準備中)
+主要コンポーネントは実装済みで、`k8s/overlays/prod` 上で稼働している。
+
+- **インフラ・DB 基盤**: PostgreSQL（書き込み） / MongoDB（読み取り最適化） / Elasticsearch（全文検索） / Benthos（PostgreSQL → MongoDB・Elasticsearch への CDC 同期）— 実装済み
+- **API Service（Go）**: 実装済み（`api/`）
+- **フロントエンド（Next.js）**: 実装済み（`frontend/`）
+- **Bluray ETL パイプライン**: 実装済み（`batch/etl/`）。現状は NFS 上の MKV を対象とした手動実行（Argo Workflows `etl-bluray` の `manual` エントリーポイント）のみで、物理ドライブの自動監視ジョブは未整備
+- **字幕自動生成パイプライン**: 実装済み（`batch/subtitle/`、Argo Workflows `subtitle-gen`）
+- **技術ダイジェスト自動生成パイプライン（tech-feed）**: 実装済み（`batch-tech-feed/`）。詳細は後述
+
+今後の計画（ドキュメント等の多様コンテンツ取り込み、AI インプット活用等）は [201_architecture.md](docs/201_architecture.md) の実装フェーズ計画を参照。
 
 ## フロントエンドのみの UI 開発（API・K8s なし）
 
@@ -59,25 +66,51 @@ npm run dev:mock
 - `lib/api.ts` に新しいエンドポイントを追加したら、`mocks/handlers.ts`（Storybook 用）と
   `e2e/mock-server.mjs`（`dev:mock`・VRT 用）の両方にモックハンドラを追加してください。
 
+### PR プレビュー環境
+
+各 PR には ArgoCD により専用の preview 環境（`k8s/overlays/preview`）がデプロイされ、アプリ本体に加えて
+Storybook のビルド成果物・VRT（Playwright）レポートもあわせて配信されます。
+
+- アプリ本体: `/`
+- Storybook 静的ビルド: `/storybook`（`storybook-report/`。CI が `storybook-static` アーティファクトを配信用コンテナイメージ化）
+- VRT レポート: `/vrt-report`（`vrt-report/`。CI が `playwright-report` アーティファクトを配信用コンテナイメージ化）
+
+---
+
+## 技術ダイジェスト自動生成パイプライン（batch-tech-feed）
+
+`batch-tech-feed/` は、技術に関する最新情報を収集し、同一台本から解説動画と記事を自動生成して
+pechka 上のコンテンツとして配信するパイプラインです。
+
+- `collect/`（Go）: 情報源からの収集・選定・一次情報検証・台本生成
+- `produce/`（Go）: 台本からの音声合成・動画レンダリング・記事生成・pechka への配信
+
+Argo CronWorkflow（`k8s/base/tech-feed/`）により定期実行されます。AI 分野向け（日次、稼働中）と
+k8s 分野向け（週次、現状一時停止中）の 2 系統があります。詳細は
+[102_tech_digest_user_stories.md](docs/102_tech_digest_user_stories.md)（ユーザーストーリー）・
+[407_tech_digest_pipeline.md](docs/407_tech_digest_pipeline.md)（技術調査・構成検討、未レビュー）を参照してください。
+
 ---
 
 ## 本番環境（overlays/prod）のデプロイと運用
 
-本番環境向けのマニフェストは `k8s/overlays/prod` に整理されています。現状は検証用として、以下の構成となっています。
+本番環境向けのマニフェストは `k8s/overlays/prod` に整理されています。
 
-### 1. NFS 接続
-NFS サーバー（`10.20.1.30`）の各ディレクトリをマウントします。
-- 一旦自動 Bluray ディスク変換を行わない期間中は、安全のため NFS PV および PVC の接続モードはすべて `ReadOnlyMany`（読み取り専用）に制限されています。
+### 1. データベースおよびオブジェクトストレージ
+- PostgreSQL・MinIO は nuage-cluster リポジトリが管理する外部インスタンスを使用します。`external-postgres.yaml` /
+  `external-minio.yaml` が `ExternalName` Service として同名ホストへ転送するだけで、実 IP はこのリポジトリ側では持ちません。
+- MongoDB・Elasticsearch は `k8s/overlays/prod` 内で稼働するコンテナです（PVC は `local-path` storageClass、
+  `pvc-local-path-patch.yaml` で上書き）。
 
 ### 2. ETL バッチ処理の実行
-- 物理ドライブを監視して自動で Bluray 変換を行うスケジュールバッチ（CronWorkflow `etl-bluray-cron`）は、本番パッチ（`workflow-patch.yaml`）によって `suspend: true`（一時停止）に設定されています。
-- すでにディスクから抽出済みの MKV ファイルを NFS 上からスキャンして処理する手動実行バッチ（WorkflowTemplate `etl-bluray` の `manual` エントリーポイント）は、Argo Web UI や CLI から手動実行が可能です。
+- NFS 上の MKV ファイルを対象とした Bluray ETL は、WorkflowTemplate `etl-bluray` の `manual` エントリーポイントから
+  Argo Web UI や CLI で手動実行します。物理ドライブを監視して自動変換を行うスケジュールバッチは現状未整備です。
+- 字幕自動生成（`subtitle-gen`）も同様に手動実行の WorkflowTemplate です。
+- 技術ダイジェスト自動生成（tech-feed、前述）のみ Argo CronWorkflow による定期自動実行です。
 
-### 3. データベースおよびオブジェクトストレージ
-- 現状の NFS データで手軽に動作検証が行えるよう、検証中は PostgreSQL と MinIO も一時的なコンテナとして同一クラスター内に起動するように設定されています（`tmp/` 配下に定義）。
-- 将来的に外部の PostgreSQL や AWS S3 などの外部オブジェクトストレージに切り替える際は、 `k8s/overlays/prod/kustomization.yaml` から `tmp/postgres` および `tmp/minio` のリソース参照を削除するだけで切り替えが可能です。
-
-### 4. 秘密情報の管理（SOPS）
-- 現在は一時的な検証用として、 `k8s/overlays/prod/secrets.yaml` 内に一時コンテナ向けのテスト用 ID/PW がハードコードされています。
-- 本番の外部DB接続へ移行する際は、 `k8s/overlays/prod/secrets/prod-secrets.yaml` に実際の接続情報を定義し、 `sops` コマンド等で暗号化した上で、 `secrets.yaml` のプレースホルダー参照を本番用の実定義に差し替えて運用してください。
+### 3. 秘密情報の管理（SOPS）
+- `k8s/overlays/prod/secrets/prod-secrets.yaml` に本番の接続情報（DB / MinIO / MongoDB / 各種 API キー等）を定義し、
+  `sops` で age 鍵暗号化した上でリポジトリにコミットしています。
+- `k8s/overlays/prod/secrets/secrets.yaml` が `<path:secrets/prod-secrets.yaml#KEY>` というプレースホルダー参照で
+  各 Secret リソースを組み立て、ArgoCD 側の `argocd-vault-plugin` が Sync 時に実値へ復号します。
 
