@@ -80,7 +80,7 @@ func ExtractPrimaryURL(client *http.Client, pageURL string) (string, error) {
 	proxyBase := os.Getenv("BARE_WEB_PROXY_URL")
 	fetchURL := pageURL
 	if proxyBase != "" {
-		fetchURL = fmt.Sprintf("%s/?url=%s", strings.TrimRight(proxyBase, "/"), url.QueryEscape(pageURL))
+		fetchURL = fmt.Sprintf("%s/proxy?url=%s", strings.TrimRight(proxyBase, "/"), url.QueryEscape(pageURL))
 	}
 
 	res, err := Get(client, fetchURL)
@@ -135,7 +135,7 @@ func FetchTextContent(client *http.Client, targetURL string) (string, error) {
 	proxyBase := os.Getenv("BARE_WEB_PROXY_URL")
 	fetchURL := targetURL
 	if proxyBase != "" {
-		fetchURL = fmt.Sprintf("%s/?url=%s", strings.TrimRight(proxyBase, "/"), url.QueryEscape(targetURL))
+		fetchURL = fmt.Sprintf("%s/proxy?url=%s", strings.TrimRight(proxyBase, "/"), url.QueryEscape(targetURL))
 	}
 
 	res, err := Get(client, fetchURL)
