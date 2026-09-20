@@ -57,11 +57,19 @@ func GetJSON(client *http.Client, url string, out any) error {
 
 // Get は UA を付けて GET し、2xx 以外はエラーにする。
 func Get(client *http.Client, url string) (*http.Response, error) {
+	return GetWithHeaders(client, url, nil)
+}
+
+// GetWithHeaders は UA に加えて headers を付けて GET し、2xx 以外はエラーにする。
+func GetWithHeaders(client *http.Client, url string, headers map[string]string) (*http.Response, error) {
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", UserAgent)
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 
 	res, err := client.Do(req)
 	if err != nil {

@@ -79,11 +79,15 @@ func IsPrimaryDomain(rawURL string) bool {
 func ExtractPrimaryURL(client *http.Client, pageURL string) (string, error) {
 	proxyBase := os.Getenv("BARE_WEB_PROXY_URL")
 	fetchURL := pageURL
+	var headers map[string]string
 	if proxyBase != "" {
 		fetchURL = fmt.Sprintf("%s/proxy?url=%s", strings.TrimRight(proxyBase, "/"), url.QueryEscape(pageURL))
+		// bare-web-proxy に rewriteLinks (href を /proxy?url=... へ書き換える処理) をスキップさせる。
+		// スキップしないとリンク先ドメインが判定できず一次情報URLが抽出できない。
+		headers = map[string]string{"X-Program-Mode": "true"}
 	}
 
-	res, err := Get(client, fetchURL)
+	res, err := GetWithHeaders(client, fetchURL, headers)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch secondary page: %w", err)
 	}
@@ -134,11 +138,13 @@ func ExtractPrimaryURL(client *http.Client, pageURL string) (string, error) {
 func FetchTextContent(client *http.Client, targetURL string) (string, error) {
 	proxyBase := os.Getenv("BARE_WEB_PROXY_URL")
 	fetchURL := targetURL
+	var headers map[string]string
 	if proxyBase != "" {
 		fetchURL = fmt.Sprintf("%s/proxy?url=%s", strings.TrimRight(proxyBase, "/"), url.QueryEscape(targetURL))
+		headers = map[string]string{"X-Program-Mode": "true"}
 	}
 
-	res, err := Get(client, fetchURL)
+	res, err := GetWithHeaders(client, fetchURL, headers)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch content: %w", err)
 	}
