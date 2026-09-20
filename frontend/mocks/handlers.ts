@@ -51,10 +51,16 @@ export const handlers = [
   http.get('/api/v1/admin/contents', ({ request }) => {
     const url = new URL(request.url)
     const status = url.searchParams.get('status')
-    const limit = Number(url.searchParams.get('limit') ?? '200')
+    const limit = Number(url.searchParams.get('limit') ?? '20')
+    const offset = Number(url.searchParams.get('offset') ?? '0')
     let items = adminContents
     if (status) items = items.filter((c) => c.status === status)
-    return HttpResponse.json(items.slice(0, limit))
+    return HttpResponse.json({
+      contents: items.slice(offset, offset + limit),
+      total: items.length,
+      limit,
+      offset,
+    })
   }),
 
   http.put('/api/v1/admin/contents/:id', async ({ params, request }) => {

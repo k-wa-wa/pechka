@@ -15,6 +15,7 @@ import (
 
 type pgContentRepository interface {
 	List(ctx context.Context, params pgRepo.ListContentsParams) ([]*domain.Content, error)
+	Count(ctx context.Context, params pgRepo.ListContentsParams) (int, error)
 	Create(ctx context.Context, params pgRepo.CreateContentParams) (*domain.Content, error)
 	Update(ctx context.Context, params pgRepo.UpdateContentParams) (*domain.Content, error)
 	Delete(ctx context.Context, id string) error
@@ -154,6 +155,13 @@ func (h *AdminHandler) UnarchiveContent(c echo.Context) error {
 	return c.JSON(http.StatusOK, content)
 }
 
+type listContentsResponse struct {
+	Contents []*domain.Content `json:"contents"`
+	Total    int               `json:"total"`
+	Limit    int               `json:"limit"`
+	Offset   int               `json:"offset"`
+}
+
 func (h *AdminHandler) ListContents(c echo.Context) error {
 	limit, _ := strconv.Atoi(c.QueryParam("limit"))
 	if limit <= 0 || limit > 100 {
@@ -167,13 +175,19 @@ func (h *AdminHandler) ListContents(c echo.Context) error {
 		status = &v
 	}
 
-	contents, err := h.contentRepo.List(c.Request().Context(), pgRepo.ListContentsParams{
+	listParams := pgRepo.ListContentsParams{
 		Status: status,
 		// admin画面ではアーカイブ済みコンテンツも一覧・管理できるようにする。
 		IncludeArchived: true,
 		Limit:           limit,
 		Offset:          offset,
-	})
+	}
+
+	contents, err := h.contentRepo.List(c.Request().Context(), listParams)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	total, err := h.contentRepo.Count(c.Request().Context(), listParams)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
@@ -181,7 +195,12 @@ func (h *AdminHandler) ListContents(c echo.Context) error {
 	if contents == nil {
 		contents = []*domain.Content{}
 	}
-	return c.JSON(http.StatusOK, contents)
+	return c.JSON(http.StatusOK, listContentsResponse{
+		Contents: contents,
+		Total:    total,
+		Limit:    limit,
+		Offset:   offset,
+	})
 }
 
 func (h *AdminHandler) ListDiscs(c echo.Context) error {

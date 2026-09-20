@@ -132,22 +132,8 @@ type ListContentsParams struct {
 }
 
 func (r *ContentRepository) List(ctx context.Context, params ListContentsParams) ([]*domain.Content, error) {
-	query := `SELECT id, short_id, content_type, disc_id, title, description, duration_seconds, is_360, tags, status, published_at, archived_at, created_at, updated_at FROM contents`
-	conditions := []string{}
-	args := []any{}
-	argIdx := 1
-
-	if params.Status != nil {
-		conditions = append(conditions, fmt.Sprintf("status = $%d", argIdx))
-		args = append(args, *params.Status)
-		argIdx++
-	}
-	if !params.IncludeArchived {
-		conditions = append(conditions, "archived_at IS NULL")
-	}
-	if len(conditions) > 0 {
-		query += " WHERE " + strings.Join(conditions, " AND ")
-	}
+	whereClause, args, argIdx := buildListContentsWhere(params)
+	query := `SELECT id, short_id, content_type, disc_id, title, description, duration_seconds, is_360, tags, status, published_at, archived_at, created_at, updated_at FROM contents` + whereClause
 
 	query += fmt.Sprintf(" ORDER BY updated_at DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
 	args = append(args, params.Limit, params.Offset)
@@ -167,6 +153,39 @@ func (r *ContentRepository) List(ctx context.Context, params ListContentsParams)
 		contents = append(contents, c)
 	}
 	return contents, rows.Err()
+}
+
+// Count は List と同じ絞り込み条件(Status/IncludeArchived)に一致する件数を返す。
+// Limit/Offset は無視される。
+func (r *ContentRepository) Count(ctx context.Context, params ListContentsParams) (int, error) {
+	whereClause, args, _ := buildListContentsWhere(params)
+	query := "SELECT COUNT(*) FROM contents" + whereClause
+
+	var total int
+	if err := r.pool.QueryRow(ctx, query, args...).Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
+func buildListContentsWhere(params ListContentsParams) (string, []any, int) {
+	conditions := []string{}
+	args := []any{}
+	argIdx := 1
+
+	if params.Status != nil {
+		conditions = append(conditions, fmt.Sprintf("status = $%d", argIdx))
+		args = append(args, *params.Status)
+		argIdx++
+	}
+	if !params.IncludeArchived {
+		conditions = append(conditions, "archived_at IS NULL")
+	}
+
+	if len(conditions) == 0 {
+		return "", args, argIdx
+	}
+	return " WHERE " + strings.Join(conditions, " AND "), args, argIdx
 }
 
 type scanner interface {

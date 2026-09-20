@@ -10,7 +10,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:vrt": "playwright test",
-    "test:vrt:update": "playwright test --update-snapshots",
+    "test:vrt:update": "playwright test --update-snapshots=all",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "check:stories": "node scripts/check-stories.mjs"

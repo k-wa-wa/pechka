@@ -244,11 +244,17 @@ const server = http.createServer(async (req, res) => {
 
   // GET /api/v1/admin/contents
   if (path === '/api/v1/admin/contents' && method === 'GET') {
-    const limit = parseInt(url.searchParams.get('limit') ?? '200')
+    const limit = parseInt(url.searchParams.get('limit') ?? '20')
+    const offset = parseInt(url.searchParams.get('offset') ?? '0')
     let items = ADMIN_CONTENTS
     const status = url.searchParams.get('status')
     if (status) items = items.filter((c) => c.status === status)
-    send(res, 200, items.slice(0, limit))
+    send(res, 200, {
+      contents: items.slice(offset, offset + limit),
+      total: items.length,
+      limit,
+      offset,
+    })
     return
   }
 
