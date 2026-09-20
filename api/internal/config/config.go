@@ -12,6 +12,11 @@ type Config struct {
 	ElasticsearchURL string
 	Port             string
 	AllowedIPRange   string
+	MinioURL         string
+	MinioBucket      string
+	MinioAccessKey   string
+	MinioSecretKey   string
+	MinioUseSSL      bool
 }
 
 func Load() *Config {
@@ -22,6 +27,11 @@ func Load() *Config {
 		ElasticsearchURL: mustEnv("ELASTICSEARCH_URL"),
 		Port:             mustEnv("PORT"),
 		AllowedIPRange:   os.Getenv("ALLOWED_IP_RANGE"),
+		MinioURL:         mustEnv("MINIO_URL"),
+		MinioBucket:      mustEnv("MINIO_BUCKET"),
+		MinioAccessKey:   mustEnv("MINIO_ACCESS_KEY"),
+		MinioSecretKey:   mustEnv("MINIO_SECRET_KEY"),
+		MinioUseSSL:      os.Getenv("MINIO_USE_SSL") == "true",
 	}
 }
 
