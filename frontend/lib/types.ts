@@ -65,6 +65,17 @@ export interface UpdateContentRequest {
   status?: ContentStatus
 }
 
+export interface UploadContentRequest {
+  title: string
+  description?: string
+  tags?: string[]
+}
+
+export interface UploadContentResponse {
+  content: Content
+  workflow_name: string
+}
+
 export type SubtitleTrackStatus = 'draft' | 'published'
 
 export interface SubtitleTrack {

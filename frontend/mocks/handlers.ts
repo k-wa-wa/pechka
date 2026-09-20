@@ -78,6 +78,36 @@ export const handlers = [
     return HttpResponse.json(adminContents[idx])
   }),
 
+  http.post('/api/v1/admin/contents/upload', async ({ request }) => {
+    const formData = await request.formData()
+    const title = formData.get('title')
+    const file = formData.get('file')
+    if (!file || typeof title !== 'string' || title.trim() === '') {
+      return HttpResponse.json({ error: 'file and title are required' }, { status: 400 })
+    }
+    const description = formData.get('description')
+    const tags = formData.getAll('tags').filter((t): t is string => typeof t === 'string')
+    const now = new Date().toISOString()
+    const content: Content = {
+      id: `upload-${Date.now()}`,
+      short_id: `up${Date.now()}`,
+      content_type: 'video',
+      disc_id: null,
+      title,
+      description: typeof description === 'string' ? description : '',
+      duration_seconds: null,
+      is_360: false,
+      tags,
+      status: 'pending',
+      published_at: null,
+      archived_at: null,
+      created_at: now,
+      updated_at: now,
+    }
+    adminContents.unshift(content)
+    return HttpResponse.json({ content, workflow_name: 'video-upload-mock' }, { status: 201 })
+  }),
+
   http.post('/api/v1/admin/contents/:id/archive', ({ params }) => {
     const idx = adminContents.findIndex((c) => c.id === params.id)
     if (idx === -1) return HttpResponse.json({ error: 'not found' }, { status: 404 })
