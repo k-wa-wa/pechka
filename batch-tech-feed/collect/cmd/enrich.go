@@ -54,6 +54,11 @@ func RunEnrich(ctx context.Context, osArgs []string) error {
 			if err != nil {
 				log.Printf("    WARN: failed to fetch content for %s: %v", c.URL, err)
 				content = c.Summary
+			} else if verr := shared.ValidateContent(content); verr != nil {
+				// ハルシネーション防止のため、妥当性を欠くコンテンツはそのまま使わず、
+				// 元々信頼できる情報源である要約にフォールバックする（無言では通さない）。
+				log.Printf("    WARN: fetched content failed validation for %s: %v", c.URL, verr)
+				content = c.Summary
 			}
 			c.PrimaryURL = c.URL
 			c.Content = content
@@ -71,6 +76,12 @@ func RunEnrich(ctx context.Context, osArgs []string) error {
 			content, err := shared.FetchTextContent(httpClient, primaryURL)
 			if err != nil {
 				log.Printf("    WARN: failed to fetch content for primary URL (%s): %v", primaryURL, err)
+				continue
+			}
+			if verr := shared.ValidateContent(content); verr != nil {
+				// 二次情報経由で辿った一次情報の内容が妥当性を欠く場合、要約への
+				// フォールバック先が無いため候補ごと落とす。
+				log.Printf("    WARN: fetched content failed validation for primary URL (%s): %v", primaryURL, verr)
 				continue
 			}
 
