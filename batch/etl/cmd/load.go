@@ -21,12 +21,12 @@ type LoadConfig struct {
 
 func loadConfigFromEnv() LoadConfig {
 	discLabel := os.Getenv("DISC_LABEL")
-	if discLabel == "" {
-		log.Fatalf("DISC_LABEL env var is required")
-	}
 	contentTitle := os.Getenv("CONTENT_TITLE")
 	if contentTitle == "" {
 		contentTitle = discLabel
+	}
+	if contentTitle == "" {
+		log.Fatalf("CONTENT_TITLE env var is required when DISC_LABEL is not set")
 	}
 	return LoadConfig{
 		DiscLabel:    discLabel,
@@ -45,7 +45,7 @@ func ensureDisc(ctx context.Context, db *pgxpool.Pool, label string) (string, er
 	return id, err
 }
 
-func upsertContent(ctx context.Context, db *pgxpool.Pool, proposedShortID, discID string, cfg LoadConfig) (contentID string, finalShortID string, err error) {
+func upsertContent(ctx context.Context, db *pgxpool.Pool, proposedShortID string, discID *string, cfg LoadConfig) (contentID string, finalShortID string, err error) {
 	err = db.QueryRow(ctx,
 		`INSERT INTO contents (short_id, content_type, disc_id, title, status, is_360)
 		 VALUES ($1, $2, $3, $4, 'processing', $5)
@@ -57,10 +57,14 @@ func upsertContent(ctx context.Context, db *pgxpool.Pool, proposedShortID, discI
 	if err != nil {
 		return "", "", fmt.Errorf("failed to upsert content: %w", err)
 	}
+	discIDLog := "NULL"
+	if discID != nil {
+		discIDLog = *discID
+	}
 	if finalShortID != proposedShortID {
-		log.Printf("Existing content found for disc_id=%s title=%q. Reusing existing short_id=%s id=%s", discID, cfg.ContentTitle, finalShortID, contentID)
+		log.Printf("Existing content found for disc_id=%s title=%q. Reusing existing short_id=%s id=%s", discIDLog, cfg.ContentTitle, finalShortID, contentID)
 	} else {
-		log.Printf("New content created for disc_id=%s title=%q: short_id=%s id=%s", discID, cfg.ContentTitle, finalShortID, contentID)
+		log.Printf("New content created for disc_id=%s title=%q: short_id=%s id=%s", discIDLog, cfg.ContentTitle, finalShortID, contentID)
 	}
 	return contentID, finalShortID, nil
 }
@@ -110,9 +114,13 @@ func RunLoad(ctx context.Context, osArgs []string) error {
 	var contentID string
 
 	if *phase == "init" || *phase == "all" {
-		discID, err := ensureDisc(ctx, db, cfg.DiscLabel)
-		if err != nil {
-			return fmt.Errorf("failed to ensure disc: %w", err)
+		var discID *string
+		if cfg.DiscLabel != "" {
+			id, err := ensureDisc(ctx, db, cfg.DiscLabel)
+			if err != nil {
+				return fmt.Errorf("failed to ensure disc: %w", err)
+			}
+			discID = &id
 		}
 
 		var finalShortID string
