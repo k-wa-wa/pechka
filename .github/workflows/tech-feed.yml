@@ -3,6 +3,7 @@ name: Tech Feed
 permissions:
   contents: read
   packages: write
+  pull-requests: write
 
 on:
   push:
@@ -77,44 +78,17 @@ jobs:
           npm ci
 
   push-image:
-    name: Push Image
+    name: Push Image (${{ matrix.name }})
     needs: [test-collect, test-produce]
-    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
           - name: tech-feed-collect
             context: ./batch-tech-feed/collect
-            file: ./batch-tech-feed/collect/Dockerfile
-            image: ghcr.io/${{ github.repository }}/tech-feed-collect
           - name: tech-feed-produce
             context: ./batch-tech-feed/produce
-            file: ./batch-tech-feed/produce/Dockerfile
-            image: ghcr.io/${{ github.repository }}/tech-feed-produce
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.file }}
-          push: true
-          tags: |
-            ${{ matrix.image }}:latest
-            ${{ matrix.image }}:sha-${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+    uses: k-wa-wa/nuage-workspace/.github/workflows/docker-build-push.yml@master
+    with:
+      context: ${{ matrix.context }}
+      image: ghcr.io/${{ github.repository }}/${{ matrix.name }}
