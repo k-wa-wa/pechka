@@ -111,7 +111,7 @@ output:
                   document_map: 'root = {"$set": this}'
                   write_concern:
                     w: "1"
-              - elasticsearch:
+              - elasticsearch_v8:
                   urls:
                     - "${ELASTICSEARCH_URL}"
                   index: pechka_contents

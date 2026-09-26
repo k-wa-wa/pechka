@@ -23,7 +23,10 @@ spec:
           command: ['sh', '-c', 'until nc -z mongodb 27017; do echo "waiting for mongodb..."; sleep 2; done']
       containers:
         - name: benthos
-          image: ghcr.io/redpanda-data/connect:latest
+          # ghcr.io/redpanda-data/connect は匿名取得できなくなったため、Docker Hub の公式イメージを使う。
+          # 旧 elasticsearch output は 4.55.0 で削除済みのため、バージョンを固定して挙動を変えない。
+          image: redpandadata/connect:4.111.0
+          imagePullPolicy: IfNotPresent
           args:
             - streams
             - /streams/contents.yaml
