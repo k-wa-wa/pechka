@@ -1,3 +1,9 @@
+# S3 互換ストレージ (実体は nuage-cluster の swfs-cluster) の初期構築を残した Job。
+# 何度実行しても同じ結果になるよう、存在を確認してから作成する (冪等)。
+#
+# 匿名読み取り (resources/hls/ と thumbnails/) はこの Job では設定できない。
+# nuage-cluster の nix/hosts/swfs-cluster/swfs.nix (s3.json の anonymous identity) で宣言している。
+# 以前の MinIO では `mc anonymous set download` で設定していた。
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -12,18 +18,20 @@ spec:
       restartPolicy: OnFailure
       initContainers:
         - name: wait-for-minio
-          image: busybox
+          image: curlimages/curl:latest
           command:
             - sh
             - -c
             - |
-              until wget -q -O- http://minio:9000/minio/health/live; do
-                echo "Waiting for MinIO..."
+              # 実装ごとにヘルスチェックのパスが異なる (MinIO: /minio/health/live, SeaweedFS: /healthz) ため、
+              # パスに依存せず、HTTP の応答が返る (接続できる) ことだけを待つ。
+              until curl -s -o /dev/null -m 5 http://minio:9000/; do
+                echo "Waiting for S3..."
                 sleep 5
               done
       containers:
-        - name: mc
-          image: quay.io/minio/mc:latest
+        - name: s3-setup
+          image: curlimages/curl:latest
           env:
             - name: MINIO_ROOT_USER
               valueFrom:
@@ -39,8 +47,18 @@ spec:
             - sh
             - -c
             - |
-              mc alias set pechka http://minio:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD
-              mc mb --ignore-existing pechka/pechka
-              mc anonymous set download pechka/pechka/resources/hls
-              mc anonymous set download pechka/pechka/thumbnails
-              echo "MinIO setup complete"
+              set -eu
+              req() {
+                curl -s -o /dev/null -w '%{http_code}' -m 20 \
+                  --aws-sigv4 'aws:amz:us-east-1:s3' \
+                  --user "$MINIO_ROOT_USER:$MINIO_ROOT_PASSWORD" "$@"
+              }
+              bucket=pechka
+              if [ "$(req -I http://minio:9000/$bucket)" = "200" ]; then
+                echo "bucket $bucket: already exists"
+              else
+                code=$(req -X PUT http://minio:9000/$bucket)
+                [ "$code" = "200" ] || { echo "bucket $bucket: create failed (HTTP $code)"; exit 1; }
+                echo "bucket $bucket: created"
+              fi
+              echo "S3 setup complete"
