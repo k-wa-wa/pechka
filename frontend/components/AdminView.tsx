@@ -74,7 +74,11 @@ export default function AdminView({ contents, total, limit, offset }: Props) {
         </span>
       </div>
 
-      <AdminTable key={currentOffset} initialContents={items} />
+      <AdminTable
+        key={currentOffset}
+        initialContents={items}
+        onUploaded={() => setCurrentTotal((t) => t + 1)}
+      />
 
       <div
         style={{

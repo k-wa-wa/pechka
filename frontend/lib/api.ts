@@ -12,6 +12,8 @@ import type {
   UpdateSubtitleCueRequest,
   InsertSubtitleCueRequest,
   AdminContentsResponse,
+  UploadContentRequest,
+  UploadContentResponse,
 } from './types'
 
 // Server components use API_URL (internal k8s service); browser uses relative URL via nginx
@@ -89,6 +91,42 @@ export async function updateContent(
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+  })
+}
+
+// Uses XMLHttpRequest (not fetch) because upload progress needs xhr.upload.onprogress.
+export function uploadContent(
+  file: File,
+  metadata: UploadContentRequest,
+  onProgress?: (percent: number) => void
+): Promise<UploadContentResponse> {
+  return new Promise((resolve, reject) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('title', metadata.title)
+    if (metadata.description) formData.append('description', metadata.description)
+    for (const tag of metadata.tags ?? []) formData.append('tags', tag)
+
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `${API_BASE}/api/v1/admin/contents/upload`)
+    xhr.upload.onprogress = (e) => {
+      if (onProgress && e.lengthComputable) {
+        onProgress(Math.round((e.loaded / e.total) * 100))
+      }
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText) as UploadContentResponse)
+        } catch {
+          reject(new Error('Invalid response from server'))
+        }
+      } else {
+        reject(new Error(`API error ${xhr.status}: ${xhr.statusText}`))
+      }
+    }
+    xhr.onerror = () => reject(new Error('Network error'))
+    xhr.send(formData)
   })
 }
 

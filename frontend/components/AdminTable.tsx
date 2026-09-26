@@ -1,15 +1,20 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Content, ContentStatus } from '@/lib/types'
-import { archiveContent, unarchiveContent } from '@/lib/api'
+import { archiveContent, getAdminContents, unarchiveContent } from '@/lib/api'
 import EditModal from './EditModal'
 import SubtitleEditorModal from './SubtitleEditorModal'
+import UploadModal from './UploadModal'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
 
 interface Props {
   initialContents: Content[]
+  onUploaded?: () => void
 }
+
+const POLL_INTERVAL_MS = 5000
+const IN_PROGRESS_STATUSES: ContentStatus[] = ['pending', 'processing']
 
 const STATUS_COLORS: Record<ContentStatus, { bg: string; text: string }> = {
   pending: { bg: '#d29922', text: '#fff' },
@@ -32,18 +37,43 @@ const CONTENT_TYPE_LABEL: Record<string, string> = {
   document: 'Document',
 }
 
-export default function AdminTable({ initialContents }: Props) {
+export default function AdminTable({ initialContents, onUploaded }: Props) {
   const [contents, setContents] = useState<Content[]>(initialContents)
   const [editingContent, setEditingContent] = useState<Content | null>(null)
   const [subtitleContent, setSubtitleContent] = useState<Content | null>(null)
   const [archivingId, setArchivingId] = useState<string | null>(null)
+  const [uploadOpen, setUploadOpen] = useState(false)
   const { t, language } = useLanguage()
+
+  // Poll while any row is still converting so pending/processing rows flip to
+  // ready (or error) without requiring a manual page reload.
+  useEffect(() => {
+    if (!contents.some((c) => IN_PROGRESS_STATUSES.includes(c.status))) return
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await getAdminContents({ limit: 100, offset: 0 })
+        const byId = new Map(res.contents.map((c) => [c.id, c]))
+        setContents((prev) => prev.map((c) => byId.get(c.id) ?? c))
+      } catch {
+        // Ignore transient poll failures; the next tick will retry.
+      }
+    }, POLL_INTERVAL_MS)
+
+    return () => clearTimeout(timer)
+  }, [contents])
 
   function handleSave(updated: Content) {
     setContents((prev) =>
       prev.map((c) => (c.id === updated.id ? updated : c))
     )
     setEditingContent(null)
+  }
+
+  function handleUploaded(content: Content) {
+    setContents((prev) => [content, ...prev])
+    setUploadOpen(false)
+    onUploaded?.()
   }
 
   async function handleToggleArchive(content: Content) {
@@ -77,6 +107,30 @@ export default function AdminTable({ initialContents }: Props) {
 
   return (
     <>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'flex-end',
+          marginBottom: 12,
+        }}
+      >
+        <button
+          onClick={() => setUploadOpen(true)}
+          style={{
+            padding: '6px 14px',
+            borderRadius: 6,
+            border: 'none',
+            backgroundColor: '#1f6feb',
+            color: '#e6edf3',
+            cursor: 'pointer',
+            fontSize: 13,
+            fontWeight: 600,
+          }}
+        >
+          {t('admin.table.btnUpload')}
+        </button>
+      </div>
+
       <div
         style={{
           overflowX: 'auto',
@@ -344,6 +398,10 @@ export default function AdminTable({ initialContents }: Props) {
           content={subtitleContent}
           onClose={() => setSubtitleContent(null)}
         />
+      )}
+
+      {uploadOpen && (
+        <UploadModal onClose={() => setUploadOpen(false)} onUploaded={handleUploaded} />
       )}
     </>
   )
