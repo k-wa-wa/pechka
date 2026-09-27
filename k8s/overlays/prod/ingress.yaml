@@ -3,13 +3,15 @@ kind: Ingress
 metadata:
   name: pechka-ingress-public
   namespace: pechka
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-cloudflare-prod"
 spec:
   ingressClassName: cilium
   tls:
     - hosts:
         - pechka.wpcapp.net
         - pechka-workflow.wpcapp.net
-      secretName: wpcapp-net-wildcard-tls
+      secretName: pechka-tls-secret
   rules:
     - host: pechka.wpcapp.net
       http:
