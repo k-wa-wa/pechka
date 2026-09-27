@@ -167,6 +167,45 @@ paths:
         "400":
           description: Bad Request
 
+  /v1/admin/contents/upload:
+    post:
+      summary: 動画ファイルのアップロード
+      description: >
+        動画ファイルを multipart/form-data で受け取り、MinIO の一時領域
+        (`uploads/{short_id}/{filename}`) に保存した上で、content_type=video の
+        コンテンツを作成し、ETL の HLS 変換パイプライン(Argo Workflow)を起動する。
+        作成されるコンテンツは disc_id=null、status=pending となる。
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, title]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: アップロードする動画ファイル(mp4 等)
+                title:
+                  type: string
+                description:
+                  type: string
+                tags:
+                  type: string
+                  description: 'カンマ区切りのタグ一覧(例: "action,drama")'
+      responses:
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadVideoResponse"
+        "400":
+          description: Bad Request (file または title が未指定)
+        "500":
+          description: Internal Server Error (MinIO 接続失敗、Workflow 起動失敗等)
+
   /v1/admin/contents/{id}:
     put:
       summary: コンテンツ更新
@@ -461,3 +500,13 @@ components:
         disc_name:
           type: string
           nullable: true
+
+    UploadVideoResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        workflow_name:
+          type: string
+        content:
+          $ref: "#/components/schemas/Content"

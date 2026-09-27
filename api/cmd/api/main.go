@@ -12,6 +12,8 @@ import (
 	"github.com/labstack/echo-contrib/echoprometheus"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"k8s.io/client-go/dynamic"
@@ -74,6 +76,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	minioClient, err := minio.New(cfg.MinioURL, &minio.Options{
+		Creds:  credentials.NewStaticV4(cfg.MinioAccessKey, cfg.MinioSecretKey, ""),
+		Secure: cfg.MinioUseSSL,
+	})
+	if err != nil {
+		slog.Error("failed to create minio client", "error", err)
+		os.Exit(1)
+	}
+
 	sfNode, err := snowflake.NewNode(1)
 	if err != nil {
 		slog.Error("snowflake node init failed", "error", err)
@@ -92,6 +103,7 @@ func main() {
 	searchH := handler.NewSearchHandler(esContent)
 	adminH := handler.NewAdminHandler(pgContent, pgDisc, pgSubtitle, sfNode)
 	ingestH := handler.NewIngestHandler(dynClient)
+	uploadH := handler.NewUploadHandler(pgContent, minioClient, cfg.MinioBucket, dynClient, sfNode)
 
 	e := echo.New()
 	e.HideBanner = true
@@ -150,6 +162,7 @@ func main() {
 	admin.Use(apiMiddleware.IPFilter(cfg.AllowedIPRange))
 	admin.GET("/contents", adminH.ListContents)
 	admin.POST("/contents", adminH.CreateContent)
+	admin.POST("/contents/upload", uploadH.UploadVideo)
 	admin.PUT("/contents/:id", adminH.UpdateContent)
 	admin.DELETE("/contents/:id", adminH.DeleteContent)
 	admin.POST("/contents/:id/archive", adminH.ArchiveContent)
