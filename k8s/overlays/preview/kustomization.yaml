@@ -27,6 +27,7 @@ resources:
   - ../../base/infra/elasticsearch
   - ../../base/infra/benthos
   - ../../base/infra/postgres
+  - ../../base/etl
   - postgres
   - local-secrets.yaml
   - minio-local.yaml
