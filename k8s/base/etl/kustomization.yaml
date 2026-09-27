@@ -6,3 +6,7 @@ namespace: pechka
 resources:
   - workflow.yaml
   - subtitle-workflow.yaml
+  - rbac.yaml
+
+configurations:
+  - kustomize-config.yaml
