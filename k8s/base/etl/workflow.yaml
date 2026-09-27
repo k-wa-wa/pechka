@@ -146,6 +146,7 @@ spec:
           - name: label
       container:
         image: ghcr.io/k-wa-wa/pechka/etl-extract:latest
+        imagePullPolicy: Always
         command: ["/usr/local/bin/pechka-etl"]
         args:
           - "extract"
@@ -274,6 +275,7 @@ spec:
           - name: content-id
       container:
         image: ghcr.io/k-wa-wa/pechka/etl-transform:latest
+        imagePullPolicy: Always
         command: ["/usr/local/bin/pechka-etl"]
         args:
           - "transform"
@@ -325,6 +327,7 @@ spec:
             value: ""
       container:
         image: ghcr.io/k-wa-wa/pechka/etl-load:latest
+        imagePullPolicy: Always
         command: ["/usr/local/bin/pechka-etl"]
         args:
           - "load"
@@ -377,6 +380,7 @@ spec:
           - name: short-id
       container:
         image: ghcr.io/k-wa-wa/pechka/etl-generate-thumbnail:latest
+        imagePullPolicy: Always
         command: ["python", "analyze.py"]
         args:
           - "--input"
@@ -410,6 +414,7 @@ spec:
     - name: refresh-playlist
       container:
         image: ghcr.io/k-wa-wa/pechka/etl-refresh-latest-playlist:latest
+        imagePullPolicy: Always
         command: ["/usr/local/bin/refresh-latest-playlist"]
         resources:
           requests:
