@@ -34,6 +34,28 @@ spec:
                 - name: short-id
                   value: "{{tasks.scan-mkv.outputs.parameters.short-id}}"
 
+    # --- Entrypoint: Upload Ingestion (from a video file already uploaded to MinIO) ---
+    - name: upload
+      inputs:
+        parameters:
+          - name: content-title
+          - name: short-id
+          - name: object-key
+      dag:
+        tasks:
+          - name: ingest
+            template: ingest-flow
+            arguments:
+              parameters:
+                - name: disc-label
+                  value: ""
+                - name: mkv-files-json
+                  value: "[{\"mkv-path\":\"{{inputs.parameters.object-key}}\",\"label\":\"\",\"title\":\"{{inputs.parameters.content-title}}\"}]"
+                - name: content-title
+                  value: "{{inputs.parameters.content-title}}"
+                - name: short-id
+                  value: "{{inputs.parameters.short-id}}"
+
     # --- Shared Ingestion Flow (Transcode -> Load -> Thumbnail/Refresh) ---
     - name: ingest-flow
       inputs:

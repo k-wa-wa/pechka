@@ -230,7 +230,7 @@ spec:
 ## 5. オーケストレーション（Argo Workflows）
 
 パイプラインの実行管理および並列トランスコード処理は **Argo Workflows** を使用して行います。
-定義ファイルは [workflow.yaml](file:///home/nixos/ghq/github.com/k-wa-wa/pechka/k8s/base/etl/workflow.yaml) に配置されており、単一の `WorkflowTemplate` (`etl-bluray`) 内で処理テンプレートを共通化しつつ、自動実行と手動実行の2つのエントリーポイントを提供します。
+定義ファイルは [workflow.yaml](file:///home/nixos/ghq/github.com/k-wa-wa/pechka/k8s/base/etl/workflow.yaml) に配置されており、単一の `WorkflowTemplate` (`etl-bluray`) 内で処理テンプレートを共通化しつつ、自動実行・手動実行・アップロード実行の3つのエントリーポイントを提供します。
 
 ```
 [自動実行 (auto)]
@@ -238,6 +238,9 @@ spec:
 
 [手動実行 (manual)]
   scan-mkv (既存のNFS内MKVスキャン) ---------------> ingest-flow (共通取り込みフロー)
+
+[アップロード実行 (upload)]
+  (MinIO上の動画オブジェクトキーを直接指定) ------> ingest-flow (共通取り込みフロー)
 
 [共通取り込みフロー (ingest-flow)]
   transcode (並列トランスコード) -> load (MinIOアップロード&DB登録) -> thumbnail & refresh
@@ -264,6 +267,20 @@ CronWorkflow (`etl-bluray-cron`) を使用して定期的に物理ディスク�
 - **動作フロー**:
   1. `scan-mkv` タスクが起動し、指定された `disc-label` ディレクトリ内の既存 `.mkv` ファイルをスキャン。
   2. 抽出された MKV ファイルのリストに基づき、共通の `ingest-flow` を起動して並列トランスコードやアップロードなどを実行します（ディスクからの物理抽出処理は完全にスキップされます）。
+
+### 5.3 アップロード実行モード
+
+MinIO に事前アップロード済みの動画ファイル（mp4 等、Bluray 由来でないもの）を入力に、直接パイプラインを起動できます。ディスクスキャンに相当する処理は不要なため、`ingest-flow` を直接起動します。
+
+- **エントリーポイント**: `upload`
+- **入力引数**:
+  - `content-title` (必須): コンテンツのタイトル名。
+  - `short-id` (必須): コンテンツの short ID。
+  - `object-key` (必須): MinIO 上の入力動画ファイルのオブジェクトキー。
+- **動作フロー**:
+  1. 指定された `object-key` を単一要素とする `mkv-files-json` を組み立て、`disc-label` を空文字列にして共通の `ingest-flow` を起動します。
+  2. `load-hls` (`batch/etl/cmd/load.go`) は `DISC_LABEL` が空の場合、`discs` テーブルへの登録をスキップし `contents.disc_id = NULL` でレコードを作成します。
+  3. ffmpeg/ffprobe はコンテナ形式を自動判定するため、mp4 等 MKV 以外の入力でもトランスコード処理は変更不要で動作します。
 
 ## 6. 課題・将来対応
 
