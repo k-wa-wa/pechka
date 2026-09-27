@@ -1,10 +1,17 @@
 # nuage-cluster リポジトリの external-service namespace が実IPを一元管理する。
 # ここでは同名serviceでDNS転送するだけなので、IPをこのリポジトリ側で持つ必要はない。
+# postgres-migrate / minio-setup (PreSyncフック) が待機先としてこのServiceを参照するため、通常Syncフェーズ
+# （PreSyncの後）任せだと、namespaceが作り直された場合にServiceが未作成のままフックが終わらず
+# デッドロックする。secrets/secrets.yaml の postgres-secret と同じ理由でPreSyncフック化し、
+# Jobより小さいsync-waveを与える。
 apiVersion: v1
 kind: Service
 metadata:
   name: minio
   namespace: pechka
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
   type: ExternalName
   externalName: minio.external-service.svc.cluster.local
