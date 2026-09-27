@@ -1,10 +1,19 @@
-# previewの書き込み先(アップロード・HLS生成物)はPRごとに使い捨てのローカルMinIOコンテナにする。
+# previewの書き込み先(アップロード・HLS生成物)はPRごとに使い捨てのローカルS3互換コンテナにする。
 # postgresと違い起動時にprodのデータをコピーしてこない(=最初は空)。読み取りは
 # k8s/base/infra/nginx/nginx.yaml の @minio_prod_fallback が、ローカルに無い既存コンテンツ
 # (404)だけをprod実体(minio-prod, minio-shim.yaml)へ中継する。
-# 資格情報は local-secrets.yaml の minio-secret (pechka/changeme_minio) を流用する
-# (api/etl はすでにこの Secret 名を参照する前提で書かれているため、ローカル/prod切り替えで
-# アプリ側の変更は不要)。
+#
+# 実装には adobe/s3mock を使う(本物のMinIOではない)。理由:
+# - MinIO本体のDockerイメージはライセンス方針変更により Docker Hub / quay.io とも
+#   匿名pullできなくなっている(2026-09時点で確認: どちらもanonymous pullが401)。
+# - s3mockは認証・認可を一切検証しない(テスト専用ツール)ため、api/etlは既存の
+#   minio-secret (pechka/changeme_minio, ダミー値でよい) をそのまま使い回せる。
+# - COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS で起動時にバケットが自動作成されるため、
+#   MinIOのような別途バケット作成/匿名ポリシー設定Jobが不要になる(s3mockは全リクエストを
+#   無条件に許可するため、匿名DL許可の設定自体が要らない)。
+# - デフォルトポートは 9090(HTTP)/9191(HTTPS)。Service側で 9000 にマップし、
+#   configmap(minio-url: minio:9000)やnginx.confの `minio.pechka.svc.cluster.local:9000`
+#   参照は変更不要にしている。
 #
 # データはemptyDir(preview環境の破棄と同時に消える想定。PRごとに複製が要る規模ではない)。
 apiVersion: apps/v1
@@ -23,26 +32,22 @@ spec:
     spec:
       containers:
         - name: minio
-          image: minio/minio:RELEASE.2025-04-08T15-41-24Z
-          args: ["server", "/data", "--console-address", ":9001"]
-          envFrom:
-            - secretRef:
-                name: minio-secret
+          image: adobe/s3mock:latest
+          env:
+            - name: COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS
+              value: pechka
           ports:
             - name: api
-              containerPort: 9000
-            - name: console
-              containerPort: 9001
+              containerPort: 9090
           readinessProbe:
-            httpGet:
-              path: /minio/health/live
-              port: 9000
+            tcpSocket:
+              port: 9090
             initialDelaySeconds: 3
             periodSeconds: 5
           resources:
             requests:
               cpu: 50m
-              memory: 128Mi
+              memory: 256Mi
             limits:
               cpu: 500m
               memory: 512Mi
@@ -63,41 +68,4 @@ spec:
   ports:
     - name: api
       port: 9000
-      targetPort: 9000
-    - name: console
-      port: 9001
-      targetPort: 9001
----
-# バケット作成 + 匿名ダウンロード許可 (resources/, thumbnails/)。
-# prodではこの匿名設定を nuage-cluster の swfs.nix (external, 手動管理) 側で行っているが、
-# previewのローカルMinIOは起動の都度まっさらなので、ここで明示的に mc で設定する。
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: minio-local-setup
-  annotations:
-    argocd.argoproj.io/hook: PostSync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
-spec:
-  template:
-    spec:
-      restartPolicy: OnFailure
-      containers:
-        - name: mc
-          image: minio/mc:RELEASE.2025-04-08T15-39-49Z
-          envFrom:
-            - secretRef:
-                name: minio-secret
-          command:
-            - sh
-            - -c
-            - |
-              set -eu
-              until mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do
-                echo "Waiting for MinIO..."
-                sleep 5
-              done
-              mc mb --ignore-existing local/pechka
-              mc anonymous set download local/pechka/resources
-              mc anonymous set download local/pechka/thumbnails
-              echo "MinIO local setup complete"
+      targetPort: 9090
