@@ -87,7 +87,7 @@ func newMultipartUploadRequest(t *testing.T, fields map[string]string, fileField
 }
 
 func TestUploadHandler_UploadVideo_MissingFile(t *testing.T) {
-	h := handler.NewUploadHandler(&mockContentCreator{}, &mockMinioPutObjecter{}, "pechka", newFakeDynamicClient(), newSnowflakeNode(t))
+	h := handler.NewUploadHandler(&mockContentCreator{}, &mockMinioPutObjecter{}, "pechka", newFakeDynamicClient(), newSnowflakeNode(t), "pechka")
 	e := echo.New()
 
 	req, _ := newMultipartUploadRequest(t, map[string]string{"title": "Test Video"}, false)
@@ -105,7 +105,7 @@ func TestUploadHandler_UploadVideo_MissingFile(t *testing.T) {
 }
 
 func TestUploadHandler_UploadVideo_MissingTitle(t *testing.T) {
-	h := handler.NewUploadHandler(&mockContentCreator{}, &mockMinioPutObjecter{}, "pechka", newFakeDynamicClient(), newSnowflakeNode(t))
+	h := handler.NewUploadHandler(&mockContentCreator{}, &mockMinioPutObjecter{}, "pechka", newFakeDynamicClient(), newSnowflakeNode(t), "pechka")
 	e := echo.New()
 
 	req, _ := newMultipartUploadRequest(t, map[string]string{}, true)
@@ -134,7 +134,7 @@ func TestUploadHandler_UploadVideo_MinioFailure(t *testing.T) {
 			return minio.UploadInfo{}, errors.New("connection refused")
 		},
 	}
-	h := handler.NewUploadHandler(contentRepo, minioClient, "pechka", newFakeDynamicClient(), newSnowflakeNode(t))
+	h := handler.NewUploadHandler(contentRepo, minioClient, "pechka", newFakeDynamicClient(), newSnowflakeNode(t), "pechka")
 	e := echo.New()
 
 	req, _ := newMultipartUploadRequest(t, map[string]string{"title": "Test Video"}, true)
@@ -179,7 +179,7 @@ func TestUploadHandler_UploadVideo_Success(t *testing.T) {
 		},
 	}
 
-	h := handler.NewUploadHandler(contentRepo, minioClient, "pechka", newFakeDynamicClient(), newSnowflakeNode(t))
+	h := handler.NewUploadHandler(contentRepo, minioClient, "pechka", newFakeDynamicClient(), newSnowflakeNode(t), "pechka")
 	e := echo.New()
 
 	req, _ := newMultipartUploadRequest(t, map[string]string{
@@ -243,7 +243,7 @@ func TestUploadHandler_UploadVideo_WorkflowTriggerFailure(t *testing.T) {
 		return true, nil, errors.New("workflow controller unavailable")
 	})
 
-	h := handler.NewUploadHandler(contentRepo, minioClient, "pechka", dynClient, newSnowflakeNode(t))
+	h := handler.NewUploadHandler(contentRepo, minioClient, "pechka", dynClient, newSnowflakeNode(t), "pechka")
 	e := echo.New()
 
 	req, _ := newMultipartUploadRequest(t, map[string]string{"title": "Test Video"}, true)

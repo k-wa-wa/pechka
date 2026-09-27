@@ -36,15 +36,17 @@ type UploadHandler struct {
 	bucket      string
 	dynClient   dynamic.Interface
 	snowflake   *snowflake.Node
+	namespace   string
 }
 
-func NewUploadHandler(contentRepo contentCreator, minioClient minioPutObjecter, bucket string, dynClient dynamic.Interface, node *snowflake.Node) *UploadHandler {
+func NewUploadHandler(contentRepo contentCreator, minioClient minioPutObjecter, bucket string, dynClient dynamic.Interface, node *snowflake.Node, namespace string) *UploadHandler {
 	return &UploadHandler{
 		contentRepo: contentRepo,
 		minioClient: minioClient,
 		bucket:      bucket,
 		dynClient:   dynClient,
 		snowflake:   node,
+		namespace:   namespace,
 	}
 }
 
@@ -122,7 +124,7 @@ func (h *UploadHandler) UploadVideo(c echo.Context) error {
 			"kind":       "Workflow",
 			"metadata": map[string]interface{}{
 				"generateName": "etl-upload-manual-",
-				"namespace":    "pechka",
+				"namespace":    h.namespace,
 			},
 			"spec": map[string]interface{}{
 				"workflowTemplateRef": map[string]interface{}{
@@ -153,7 +155,7 @@ func (h *UploadHandler) UploadVideo(c echo.Context) error {
 		},
 	}
 
-	created, err := h.dynClient.Resource(workflowGVR).Namespace("pechka").Create(ctx, wf, metav1.CreateOptions{})
+	created, err := h.dynClient.Resource(workflowGVR).Namespace(h.namespace).Create(ctx, wf, metav1.CreateOptions{})
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("failed to trigger ETL workflow: %v", err))
 	}

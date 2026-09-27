@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/bwmarrin/snowflake"
 	"github.com/elastic/go-elasticsearch/v8"
@@ -102,8 +103,9 @@ func main() {
 	subtitlesH := handler.NewSubtitlesHandler(mgSubtitle)
 	searchH := handler.NewSearchHandler(esContent)
 	adminH := handler.NewAdminHandler(pgContent, pgDisc, pgSubtitle, sfNode)
-	ingestH := handler.NewIngestHandler(dynClient)
-	uploadH := handler.NewUploadHandler(pgContent, minioClient, cfg.MinioBucket, dynClient, sfNode)
+	k8sNamespace := currentNamespace()
+	ingestH := handler.NewIngestHandler(dynClient, k8sNamespace)
+	uploadH := handler.NewUploadHandler(pgContent, minioClient, cfg.MinioBucket, dynClient, sfNode, k8sNamespace)
 
 	e := echo.New()
 	e.HideBanner = true
@@ -181,4 +183,18 @@ func main() {
 		slog.Error("server stopped", "error", err)
 		os.Exit(1)
 	}
+}
+
+// currentNamespace は Argo Workflow を起動する先の namespace を返す。
+// prod/previewでnamespace名が異なる(pechka / pechka-pr-<N>)ため、この値を
+// ハードコードすると一方の環境でRBAC上作成が拒否される。in-cluster実行時は
+// kubeletがServiceAccountごとに自動マウントするnamespaceファイルから読む。
+func currentNamespace() string {
+	const nsFile = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
+	if data, err := os.ReadFile(nsFile); err == nil {
+		if ns := strings.TrimSpace(string(data)); ns != "" {
+			return ns
+		}
+	}
+	return "pechka"
 }

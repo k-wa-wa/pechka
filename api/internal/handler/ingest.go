@@ -12,11 +12,13 @@ import (
 
 type IngestHandler struct {
 	dynClient dynamic.Interface
+	namespace string
 }
 
-func NewIngestHandler(dynClient dynamic.Interface) *IngestHandler {
+func NewIngestHandler(dynClient dynamic.Interface, namespace string) *IngestHandler {
 	return &IngestHandler{
 		dynClient: dynClient,
+		namespace: namespace,
 	}
 }
 
@@ -53,7 +55,7 @@ func (h *IngestHandler) TriggerIngest(c echo.Context) error {
 			"kind":       "Workflow",
 			"metadata": map[string]interface{}{
 				"generateName": "etl-bluray-manual-",
-				"namespace":    "pechka",
+				"namespace":    h.namespace,
 			},
 			"spec": map[string]interface{}{
 				"workflowTemplateRef": map[string]interface{}{
@@ -76,7 +78,7 @@ func (h *IngestHandler) TriggerIngest(c echo.Context) error {
 		},
 	}
 
-	created, err := h.dynClient.Resource(workflowGVR).Namespace("pechka").Create(ctx, wf, metav1.CreateOptions{})
+	created, err := h.dynClient.Resource(workflowGVR).Namespace(h.namespace).Create(ctx, wf, metav1.CreateOptions{})
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
