@@ -1,0 +1,28 @@
+images:
+  - path: spec/templates/container/image
+    kind: WorkflowTemplate
+    group: argoproj.io
+  - path: spec/templates/initContainers/image
+    kind: WorkflowTemplate
+    group: argoproj.io
+  - path: spec/templates/script/image
+    kind: WorkflowTemplate
+    group: argoproj.io
+  - path: spec/templates/container/image
+    kind: Workflow
+    group: argoproj.io
+  - path: spec/templates/initContainers/image
+    kind: Workflow
+    group: argoproj.io
+  - path: spec/templates/script/image
+    kind: Workflow
+    group: argoproj.io
+  - path: spec/workflowSpec/templates/container/image
+    kind: CronWorkflow
+    group: argoproj.io
+  - path: spec/workflowSpec/templates/initContainers/image
+    kind: CronWorkflow
+    group: argoproj.io
+  - path: spec/workflowSpec/templates/script/image
+    kind: CronWorkflow
+    group: argoproj.io

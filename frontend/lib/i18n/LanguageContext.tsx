@@ -52,6 +52,7 @@ export const dictionaries: Record<Language, Translations> = {
     'admin.table.colUpdatedAt': '更新日時',
     'admin.table.btnEdit': '編集',
     'admin.table.btnSubtitles': '字幕',
+    'admin.table.btnUpload': '動画をアップロード',
     'admin.table.btnArchive': 'アーカイブ',
     'admin.table.btnUnarchive': 'アーカイブ解除',
     'admin.table.badgeArchived': 'アーカイブ済み',
@@ -73,6 +74,17 @@ export const dictionaries: Record<Language, Translations> = {
     'editModal.btnSave': '保存',
     'editModal.btnCancel': 'キャンセル',
     'editModal.saving': '保存中...',
+
+    // Upload Modal
+    'uploadModal.title': '動画をアップロード',
+    'uploadModal.fieldFile': '動画ファイル',
+    'uploadModal.fieldTitle': 'タイトル',
+    'uploadModal.fieldDescription': '説明',
+    'uploadModal.fieldTags': 'タグ (カンマ区切り)',
+    'uploadModal.btnUpload': 'アップロード',
+    'uploadModal.btnCancel': 'キャンセル',
+    'uploadModal.uploading': 'アップロード中...',
+    'uploadModal.uploadFailed': 'アップロードに失敗しました',
   },
   en: {
     // Header & Nav
@@ -119,6 +131,7 @@ export const dictionaries: Record<Language, Translations> = {
     'admin.table.colUpdatedAt': 'Updated At',
     'admin.table.btnEdit': 'Edit',
     'admin.table.btnSubtitles': 'Subtitles',
+    'admin.table.btnUpload': 'Upload Video',
     'admin.table.btnArchive': 'Archive',
     'admin.table.btnUnarchive': 'Unarchive',
     'admin.table.badgeArchived': 'Archived',
@@ -140,6 +153,17 @@ export const dictionaries: Record<Language, Translations> = {
     'editModal.btnSave': 'Save',
     'editModal.btnCancel': 'Cancel',
     'editModal.saving': 'Saving...',
+
+    // Upload Modal
+    'uploadModal.title': 'Upload Video',
+    'uploadModal.fieldFile': 'Video File',
+    'uploadModal.fieldTitle': 'Title',
+    'uploadModal.fieldDescription': 'Description',
+    'uploadModal.fieldTags': 'Tags (comma separated)',
+    'uploadModal.btnUpload': 'Upload',
+    'uploadModal.btnCancel': 'Cancel',
+    'uploadModal.uploading': 'Uploading...',
+    'uploadModal.uploadFailed': 'Upload failed',
   },
 }
 

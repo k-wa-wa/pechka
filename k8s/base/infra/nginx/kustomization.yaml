@@ -2,3 +2,18 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - nginx.yaml
+
+# nginx.confを直接埋め込んだ静的ConfigMapは、内容を変更してもリソース名が変わらないため
+# 既存のnginx Podに新しい設定が反映されない(k8sがマウント済みファイルを更新しても、
+# nginxプロセス自身はreload/restartされるまで古い設定を読み続ける)。
+# api/frontendはPRごとにイメージタグが変わり自然にPodが作り直されるため気付きにくいが、
+# nginxのイメージは固定タグ(nginx:1.27-alpine)で変わらないため、この問題の影響を直接受ける
+# (413がclient_max_body_size修正後も再現していた実際の原因)。
+# configMapGeneratorでハッシュ付きリソース名にすると、内容が変わるたびに新しいConfigMap名
+# になり、Deploymentのvolumes[].configMap.nameもkustomizeが自動で追従書き換えるため、
+# 新しいConfigMap名を見て必ずPodが作り直される(標準的なkustomizeの流儀)。
+configMapGenerator:
+  - name: nginx-config
+    namespace: pechka
+    files:
+      - nginx.conf

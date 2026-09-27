@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/bwmarrin/snowflake"
 	"github.com/elastic/go-elasticsearch/v8"
@@ -12,6 +13,8 @@ import (
 	"github.com/labstack/echo-contrib/echoprometheus"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"k8s.io/client-go/dynamic"
@@ -74,6 +77,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	minioClient, err := minio.New(cfg.MinioURL, &minio.Options{
+		Creds:  credentials.NewStaticV4(cfg.MinioAccessKey, cfg.MinioSecretKey, ""),
+		Secure: cfg.MinioUseSSL,
+	})
+	if err != nil {
+		slog.Error("failed to create minio client", "error", err)
+		os.Exit(1)
+	}
+
 	sfNode, err := snowflake.NewNode(1)
 	if err != nil {
 		slog.Error("snowflake node init failed", "error", err)
@@ -91,7 +103,10 @@ func main() {
 	subtitlesH := handler.NewSubtitlesHandler(mgSubtitle)
 	searchH := handler.NewSearchHandler(esContent)
 	adminH := handler.NewAdminHandler(pgContent, pgDisc, pgSubtitle, sfNode)
-	ingestH := handler.NewIngestHandler(dynClient)
+	k8sNamespace := currentNamespace()
+	slog.Info("resolved k8s namespace for workflow triggers", "namespace", k8sNamespace)
+	ingestH := handler.NewIngestHandler(dynClient, k8sNamespace)
+	uploadH := handler.NewUploadHandler(pgContent, minioClient, cfg.MinioBucket, dynClient, sfNode, k8sNamespace)
 
 	e := echo.New()
 	e.HideBanner = true
@@ -150,6 +165,7 @@ func main() {
 	admin.Use(apiMiddleware.IPFilter(cfg.AllowedIPRange))
 	admin.GET("/contents", adminH.ListContents)
 	admin.POST("/contents", adminH.CreateContent)
+	admin.POST("/contents/upload", uploadH.UploadVideo)
 	admin.PUT("/contents/:id", adminH.UpdateContent)
 	admin.DELETE("/contents/:id", adminH.DeleteContent)
 	admin.POST("/contents/:id/archive", adminH.ArchiveContent)
@@ -168,4 +184,18 @@ func main() {
 		slog.Error("server stopped", "error", err)
 		os.Exit(1)
 	}
+}
+
+// currentNamespace は Argo Workflow を起動する先の namespace を返す。
+// prod/previewでnamespace名が異なる(pechka / pechka-pr-<N>)ため、この値を
+// ハードコードすると一方の環境でRBAC上作成が拒否される。in-cluster実行時は
+// kubeletがServiceAccountごとに自動マウントするnamespaceファイルから読む。
+func currentNamespace() string {
+	const nsFile = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
+	if data, err := os.ReadFile(nsFile); err == nil {
+		if ns := strings.TrimSpace(string(data)); ns != "" {
+			return ns
+		}
+	}
+	return "pechka"
 }

@@ -44,6 +44,13 @@ spec:
             - -c
             - |
               set -e
+              # すでにローカルDBにデータが存在する場合は、再Sync時のデータ上書きを防ぐためseedをスキップする
+              if PGPASSWORD="$LOCAL_DB_PASSWORD" psql -h postgres -U "$LOCAL_DB_USER" -d "$LOCAL_DB_NAME" -tAc "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'contents'" | grep -q 1; then
+                echo "Database already seeded/initialized. Skipping seed from prod."
+                exit 0
+              fi
+
+              echo "Seeding database from prod..."
               PGPASSWORD="$SEED_DB_PASSWORD" pg_dump \
                 -h postgres-prod -p "$SEED_DB_PORT" -U "$SEED_DB_USER" -d "$SEED_DB_NAME" \
                 --clean --if-exists --no-owner --no-privileges \

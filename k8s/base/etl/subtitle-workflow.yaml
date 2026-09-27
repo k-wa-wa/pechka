@@ -19,6 +19,7 @@ spec:
       activeDeadlineSeconds: 10800
       container:
         image: ghcr.io/k-wa-wa/pechka/etl-subtitle:latest
+        imagePullPolicy: Always
         command: ["python", "generate.py"]
         args:
           - "--input"

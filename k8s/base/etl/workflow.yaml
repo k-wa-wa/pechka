@@ -34,6 +34,32 @@ spec:
                 - name: short-id
                   value: "{{tasks.scan-mkv.outputs.parameters.short-id}}"
 
+    # --- Entrypoint: Upload Ingestion (from a video file already uploaded to MinIO) ---
+    - name: upload
+      inputs:
+        parameters:
+          - name: content-title
+          - name: short-id
+          - name: object-key
+          - name: content-id
+            value: ""
+      dag:
+        tasks:
+          - name: ingest
+            template: ingest-flow
+            arguments:
+              parameters:
+                - name: disc-label
+                  value: ""
+                - name: mkv-files-json
+                  value: "[{\"mkv-path\":\"{{inputs.parameters.object-key}}\",\"label\":\"\",\"title\":\"{{inputs.parameters.content-title}}\"}]"
+                - name: content-title
+                  value: "{{inputs.parameters.content-title}}"
+                - name: short-id
+                  value: "{{inputs.parameters.short-id}}"
+                - name: content-id
+                  value: "{{inputs.parameters.content-id}}"
+
     # --- Shared Ingestion Flow (Transcode -> Load -> Thumbnail/Refresh) ---
     - name: ingest-flow
       inputs:
@@ -43,6 +69,8 @@ spec:
           - name: content-title
             value: ""
           - name: short-id
+          - name: content-id
+            value: ""
       dag:
         tasks:
           - name: init-db
@@ -58,6 +86,8 @@ spec:
                   value: "{{inputs.parameters.short-id}}"
                 - name: phase
                   value: "init"
+                - name: content-id
+                  value: "{{inputs.parameters.content-id}}"
           - name: transcode
             dependencies: [init-db]
             when: "{{inputs.parameters.mkv-files-json}} != '[]'"
@@ -116,6 +146,7 @@ spec:
           - name: label
       container:
         image: ghcr.io/k-wa-wa/pechka/etl-extract:latest
+        imagePullPolicy: Always
         command: ["/usr/local/bin/pechka-etl"]
         args:
           - "extract"
@@ -244,6 +275,7 @@ spec:
           - name: content-id
       container:
         image: ghcr.io/k-wa-wa/pechka/etl-transform:latest
+        imagePullPolicy: Always
         command: ["/usr/local/bin/pechka-etl"]
         args:
           - "transform"
@@ -295,6 +327,7 @@ spec:
             value: ""
       container:
         image: ghcr.io/k-wa-wa/pechka/etl-load:latest
+        imagePullPolicy: Always
         command: ["/usr/local/bin/pechka-etl"]
         args:
           - "load"
@@ -347,6 +380,7 @@ spec:
           - name: short-id
       container:
         image: ghcr.io/k-wa-wa/pechka/etl-generate-thumbnail:latest
+        imagePullPolicy: Always
         command: ["python", "analyze.py"]
         args:
           - "--input"
@@ -380,6 +414,7 @@ spec:
     - name: refresh-playlist
       container:
         image: ghcr.io/k-wa-wa/pechka/etl-refresh-latest-playlist:latest
+        imagePullPolicy: Always
         command: ["/usr/local/bin/refresh-latest-playlist"]
         resources:
           requests:
