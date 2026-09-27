@@ -40,6 +40,7 @@ resources:
 patches:
   - path: pvc-local-path-patch.yaml
   - path: postgres/migrate-job-patch.yaml
+  - path: restart-trigger-patch.yaml
 
 generatorOptions:
   disableNameSuffixHash: true
