@@ -86,7 +86,14 @@ export const handlers = [
       return HttpResponse.json({ error: 'file and title are required' }, { status: 400 })
     }
     const description = formData.get('description')
-    const tags = formData.getAll('tags').filter((t): t is string => typeof t === 'string')
+    const tagsParam = formData.get('tags')
+    const tags =
+      typeof tagsParam === 'string'
+        ? tagsParam
+            .split(',')
+            .map((t) => t.trim())
+            .filter((t) => t !== '')
+        : []
     const now = new Date().toISOString()
     const content: Content = {
       id: `upload-${Date.now()}`,

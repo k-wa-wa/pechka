@@ -105,7 +105,8 @@ export function uploadContent(
     formData.append('file', file)
     formData.append('title', metadata.title)
     if (metadata.description) formData.append('description', metadata.description)
-    for (const tag of metadata.tags ?? []) formData.append('tags', tag)
+    // API は tags を単一フィールドのカンマ区切り文字列として受け取る(api/internal/handler/upload.go)
+    if (metadata.tags && metadata.tags.length > 0) formData.append('tags', metadata.tags.join(','))
 
     const xhr = new XMLHttpRequest()
     xhr.open('POST', `${API_BASE}/api/v1/admin/contents/upload`)

@@ -69,6 +69,22 @@ func upsertContent(ctx context.Context, db *pgxpool.Pool, proposedShortID string
 	return contentID, finalShortID, nil
 }
 
+// reuseContent は、呼び出し元(API)が既に contents に登録済みのレコード(disc_id=NULL)を
+// status='processing' に更新して再利用する。アップロードフローでは API 側が short_id を
+// 予約した状態で contents に INSERT 済みのため、upsertContent で再度 INSERT すると
+// short_id の UNIQUE 制約に違反する。
+func reuseContent(ctx context.Context, db *pgxpool.Pool, contentID string) (finalContentID string, shortID string, err error) {
+	err = db.QueryRow(ctx,
+		`UPDATE contents SET status = 'processing', updated_at = NOW() WHERE id = $1 RETURNING id, short_id`,
+		contentID,
+	).Scan(&finalContentID, &shortID)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to reuse content id=%s: %w", contentID, err)
+	}
+	log.Printf("Existing content reused: id=%s short_id=%s", finalContentID, shortID)
+	return finalContentID, shortID, nil
+}
+
 func markContentReady(ctx context.Context, db *pgxpool.Pool, contentID string) error {
 	_, err := db.Exec(ctx,
 		"UPDATE contents SET status = 'ready', published_at = NOW() WHERE id = $1",
@@ -114,21 +130,30 @@ func RunLoad(ctx context.Context, osArgs []string) error {
 	var contentID string
 
 	if *phase == "init" || *phase == "all" {
-		var discID *string
-		if cfg.DiscLabel != "" {
-			id, err := ensureDisc(ctx, db, cfg.DiscLabel)
+		if existingContentID := os.Getenv("CONTENT_ID"); existingContentID != "" {
+			var finalShortID string
+			contentID, finalShortID, err = reuseContent(ctx, db, existingContentID)
 			if err != nil {
-				return fmt.Errorf("failed to ensure disc: %w", err)
+				return err
 			}
-			discID = &id
-		}
+			shortID = finalShortID
+		} else {
+			var discID *string
+			if cfg.DiscLabel != "" {
+				id, err := ensureDisc(ctx, db, cfg.DiscLabel)
+				if err != nil {
+					return fmt.Errorf("failed to ensure disc: %w", err)
+				}
+				discID = &id
+			}
 
-		var finalShortID string
-		contentID, finalShortID, err = upsertContent(ctx, db, shortID, discID, cfg)
-		if err != nil {
-			return fmt.Errorf("failed to upsert content: %w", err)
+			var finalShortID string
+			contentID, finalShortID, err = upsertContent(ctx, db, shortID, discID, cfg)
+			if err != nil {
+				return fmt.Errorf("failed to upsert content: %w", err)
+			}
+			shortID = finalShortID
 		}
-		shortID = finalShortID
 		log.Printf("Content initialized: id=%s short_id=%s", contentID, shortID)
 
 		if err := os.WriteFile("/tmp/content-id", []byte(contentID), 0644); err != nil {

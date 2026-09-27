@@ -41,6 +41,8 @@ spec:
           - name: content-title
           - name: short-id
           - name: object-key
+          - name: content-id
+            value: ""
       dag:
         tasks:
           - name: ingest
@@ -55,6 +57,8 @@ spec:
                   value: "{{inputs.parameters.content-title}}"
                 - name: short-id
                   value: "{{inputs.parameters.short-id}}"
+                - name: content-id
+                  value: "{{inputs.parameters.content-id}}"
 
     # --- Shared Ingestion Flow (Transcode -> Load -> Thumbnail/Refresh) ---
     - name: ingest-flow
@@ -65,6 +69,8 @@ spec:
           - name: content-title
             value: ""
           - name: short-id
+          - name: content-id
+            value: ""
       dag:
         tasks:
           - name: init-db
@@ -80,6 +86,8 @@ spec:
                   value: "{{inputs.parameters.short-id}}"
                 - name: phase
                   value: "init"
+                - name: content-id
+                  value: "{{inputs.parameters.content-id}}"
           - name: transcode
             dependencies: [init-db]
             when: "{{inputs.parameters.mkv-files-json}} != '[]'"
