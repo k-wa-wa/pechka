@@ -104,6 +104,7 @@ data:
 
         # API (/api/ prefix はそのままバックエンドに転送)
         location /api/ {
+          client_max_body_size 5g;
           proxy_pass         http://api:8080;
           proxy_set_header   Host $host;
           proxy_set_header   X-Real-IP $remote_addr;
