@@ -23,6 +23,7 @@ spec:
       containers:
         - name: api
           image: ghcr.io/k-wa-wa/pechka-api:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 8080
           env:
