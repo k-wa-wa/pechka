@@ -104,6 +104,7 @@ func main() {
 	searchH := handler.NewSearchHandler(esContent)
 	adminH := handler.NewAdminHandler(pgContent, pgDisc, pgSubtitle, sfNode)
 	k8sNamespace := currentNamespace()
+	slog.Info("resolved k8s namespace for workflow triggers", "namespace", k8sNamespace)
 	ingestH := handler.NewIngestHandler(dynClient, k8sNamespace)
 	uploadH := handler.NewUploadHandler(pgContent, minioClient, cfg.MinioBucket, dynClient, sfNode, k8sNamespace)
 

@@ -17,4 +17,4 @@ spec:
   template:
     metadata:
       annotations:
-        pechka.dev/restartedAt: "2026-09-27T09:10:00Z"
+        pechka.dev/restartedAt: "2026-09-27T09:35:00Z"

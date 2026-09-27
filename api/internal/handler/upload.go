@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -155,6 +156,7 @@ func (h *UploadHandler) UploadVideo(c echo.Context) error {
 		},
 	}
 
+	slog.Info("triggering ETL workflow", "namespace", h.namespace)
 	created, err := h.dynClient.Resource(workflowGVR).Namespace(h.namespace).Create(ctx, wf, metav1.CreateOptions{})
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("failed to trigger ETL workflow: %v", err))
