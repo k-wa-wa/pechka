@@ -273,6 +273,36 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
+  // POST /api/v1/admin/contents/upload
+  if (path === '/api/v1/admin/contents/upload' && method === 'POST') {
+    const chunks = []
+    for await (const chunk of req) chunks.push(chunk)
+    const body = Buffer.concat(chunks).toString('utf8')
+    const titleMatch = body.match(/name="title"\r\n\r\n(.*)\r\n/)
+    const title = titleMatch ? titleMatch[1] : null
+    if (!title) { send(res, 400, { error: 'file and title are required' }); return }
+    const now = new Date().toISOString()
+    const content = {
+      id: `upload-${Date.now()}`,
+      short_id: `up${Date.now()}`,
+      content_type: 'video',
+      disc_id: null,
+      title,
+      description: '',
+      duration_seconds: null,
+      is_360: false,
+      tags: [],
+      status: 'pending',
+      published_at: null,
+      archived_at: null,
+      created_at: now,
+      updated_at: now,
+    }
+    ADMIN_CONTENTS.unshift(content)
+    send(res, 201, { content, workflow_name: 'video-upload-mock' })
+    return
+  }
+
   // POST /api/v1/admin/contents/:id/archive
   const archiveMatch = path.match(/^\/api\/v1\/admin\/contents\/([^/]+)\/archive$/)
   if (archiveMatch && method === 'POST') {
