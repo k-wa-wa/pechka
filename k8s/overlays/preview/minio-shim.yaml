@@ -1,11 +1,14 @@
-# minioだけはprodの実体を共有する(画像/動画データが大きく、PRごとに複製しないため)。
-# nginx.conf / api は "minio" という短縮名前提のため、同名Serviceで実体に届ける。
+# prodの実体（本文は k8s/overlays/prod/external-minio.yaml 参照）への別名Service。
+# "minio" 自体は minio-local.yaml のPRごとローカルコンテナが占有するため、
+# ここでは "minio-prod" という別名でのみ本番実体を参照する。
+# k8s/base/infra/nginx/nginx.yaml の @minio_prod_fallback (ローカルに無い既存コンテンツをGETしたときの
+# 404フォールバック) だけがこのServiceを使う。書き込み(PUT)経路には一切登場しない。
 # 実体は nuage-cluster リポジトリの external-service namespace が一元管理しているので、
 # ここでは同名serviceでDNS転送するだけでよい(IPの手動同期は不要)。
 apiVersion: v1
 kind: Service
 metadata:
-  name: minio
+  name: minio-prod
 spec:
   type: ExternalName
   externalName: minio.external-service.svc.cluster.local

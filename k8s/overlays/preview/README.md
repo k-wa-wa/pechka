@@ -45,4 +45,4 @@ CIが `ghcr.io/k-wa-wa/pechka-vrt-report:pr-<N>` を push しても overlay 側�
 - 環境が立たないときは、まず `pechka-pr-<N>` と `pechka-pr-<N>-secret` の**両方**の Application があるか見る。Secret 側が無いと seed Job が PreSync で止まる。
 - PR 検知は最大180秒間隔。イメージのビルドが終わるまで api/frontend は ImagePullBackOff になるが、CI 完走後に解消する。
 - DB を prod の最新に取り直したいときは、該当 Application を Sync し直せばよい（seed Job は `BeforeHookCreation` で作り直される）。
-- minio は prod と共有なので、**preview からの書き込みは prod のバケットに入る**。破壊的な変更を載せる PR では注意する。
+- minio は PR ごとのローカルコンテナ (空スタート)。書き込み(アップロード等)はここに閉じ、prod のバケットは汚れない。読み取りだけ、ローカルに無い既存コンテンツを prod へ透過フォールバックする(nginx `@minio_prod_fallback`)。

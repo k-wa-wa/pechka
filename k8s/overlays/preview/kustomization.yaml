@@ -3,7 +3,9 @@
 # - nginx: prodと同一のイメージ (アプリ本体の配信のみ担当。/vrt-report・/storybookはingressでそれぞれ直接ルーティングし、nginxを経由しない)
 # - postgres/mongodb/elasticsearch/benthos: local overlay同様、preview専用の自前コンテナ
 #   (postgresのみ起動時にprodの実データを一度コピーしてくる)
-# - minio: prodの実体をshimで直接参照 (データ量が大きいため複製しない)
+# - minio: PRごとの使い捨てローカルコンテナ (minio-local.yaml)。書き込みはここだけに閉じる。
+#   読み取りだけ、ローカルに無い既存コンテンツを prod 実体 (minio-shim.yaml) へ透過フォールバックする
+#   (k8s/base/infra/nginx/nginx.yaml の @minio_prod_fallback)。
 #
 # postgres-seed-from-prod Job が読む postgres-seed-secret は、このoverlayではなく
 # 同じnamespaceにデプロイされる k8s/overlays/preview-secret (別Application) が用意する。
@@ -27,6 +29,7 @@ resources:
   - ../../base/infra/postgres
   - postgres
   - local-secrets.yaml
+  - minio-local.yaml
   - minio-shim.yaml
   - postgres-prod-shim.yaml
   - seed-from-prod-job.yaml

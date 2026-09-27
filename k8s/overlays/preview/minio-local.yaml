@@ -1,0 +1,103 @@
+# previewの書き込み先(アップロード・HLS生成物)はPRごとに使い捨てのローカルMinIOコンテナにする。
+# postgresと違い起動時にprodのデータをコピーしてこない(=最初は空)。読み取りは
+# k8s/base/infra/nginx/nginx.yaml の @minio_prod_fallback が、ローカルに無い既存コンテンツ
+# (404)だけをprod実体(minio-prod, minio-shim.yaml)へ中継する。
+# 資格情報は local-secrets.yaml の minio-secret (pechka/changeme_minio) を流用する
+# (api/etl はすでにこの Secret 名を参照する前提で書かれているため、ローカル/prod切り替えで
+# アプリ側の変更は不要)。
+#
+# データはemptyDir(preview環境の破棄と同時に消える想定。PRごとに複製が要る規模ではない)。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      containers:
+        - name: minio
+          image: minio/minio:RELEASE.2025-04-08T15-41-24Z
+          args: ["server", "/data", "--console-address", ":9001"]
+          envFrom:
+            - secretRef:
+                name: minio-secret
+          ports:
+            - name: api
+              containerPort: 9000
+            - name: console
+              containerPort: 9001
+          readinessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: 9000
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+spec:
+  selector:
+    app: minio
+  ports:
+    - name: api
+      port: 9000
+      targetPort: 9000
+    - name: console
+      port: 9001
+      targetPort: 9001
+---
+# バケット作成 + 匿名ダウンロード許可 (resources/, thumbnails/)。
+# prodではこの匿名設定を nuage-cluster の swfs.nix (external, 手動管理) 側で行っているが、
+# previewのローカルMinIOは起動の都度まっさらなので、ここで明示的に mc で設定する。
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-local-setup
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mc
+          image: minio/mc:RELEASE.2025-04-08T15-39-49Z
+          envFrom:
+            - secretRef:
+                name: minio-secret
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              until mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do
+                echo "Waiting for MinIO..."
+                sleep 5
+              done
+              mc mb --ignore-existing local/pechka
+              mc anonymous set download local/pechka/resources
+              mc anonymous set download local/pechka/thumbnails
+              echo "MinIO local setup complete"

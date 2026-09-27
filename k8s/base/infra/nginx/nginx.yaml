@@ -64,6 +64,10 @@ data:
           proxy_cache_background_update on;
           add_header Cache-Control "public, max-age=31536000, immutable";
           add_header X-Cache-Status $upstream_cache_status;
+          # ローカルminioに無いコンテンツ(preview環境でprod由来の既存動画を再生する場合など)は
+          # prod実体へ透過フォールバックする。prodではminio=minio-prodの実体なので無害。
+          proxy_intercept_errors on;
+          error_page 404 = @minio_prod_fallback;
         }
 
         # HLS マニフェスト
@@ -77,6 +81,8 @@ data:
           proxy_cache_use_stale error timeout;
           add_header Cache-Control "public, max-age=30";
           add_header X-Cache-Status $upstream_cache_status;
+          proxy_intercept_errors on;
+          error_page 404 = @minio_prod_fallback;
         }
 
         # サムネイル
@@ -91,6 +97,8 @@ data:
           proxy_cache_background_update on;
           add_header Cache-Control "public, max-age=604800";
           add_header X-Cache-Status $upstream_cache_status;
+          proxy_intercept_errors on;
+          error_page 404 = @minio_prod_fallback;
         }
 
         # MinIO resources (HLS 等の直接配信パス、その他拡張子)
@@ -100,6 +108,20 @@ data:
           proxy_pass         $minio_upstream;
           proxy_set_header   Host minio:9000;
           proxy_set_header   X-Real-IP $remote_addr;
+          proxy_intercept_errors on;
+          error_page 404 = @minio_prod_fallback;
+        }
+
+        # ローカルminio(このnamespace内)が404を返したときだけ呼ばれる内部フォールバック。
+        # preview: ローカル未書き込みの既存prodコンテンツをここ経由で読む。
+        # prod: minio-prod は minio 自身と同じ実体を指すため、素通しで同じ404が返るだけ(実害なし)。
+        location @minio_prod_fallback {
+          internal;
+          set $minio_prod_upstream http://minio-prod.pechka.svc.cluster.local:9000;
+          rewrite ^/resources/(.*)$ /pechka/resources/$1 break;
+          rewrite ^/thumbnails/(.*)$ /pechka/thumbnails/$1 break;
+          proxy_pass         $minio_prod_upstream;
+          proxy_set_header   Host minio-prod:9000;
         }
 
         # API (/api/ prefix はそのままバックエンドに転送)
