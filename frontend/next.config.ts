@@ -2,6 +2,7 @@ import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
   output: 'standalone',
+  allowedDevOrigins: ['192.168.1.151', '192.168.*', '10.*', '172.*', 'localhost:*'],
   images: {
     remotePatterns: [
       { protocol: 'http', hostname: '*' },
