@@ -51,3 +51,35 @@ a {
   background: var(--border);
   border-radius: 3px;
 }
+
+@keyframes indicator-progress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.carousel-slide-box {
+  aspect-ratio: 21 / 9;
+}
+
+.carousel-content-info {
+  padding: 24px 32px;
+}
+
+@media (max-width: 640px) {
+  .carousel-arrow {
+    display: none !important;
+  }
+  .carousel-slide-box {
+    aspect-ratio: 16 / 10 !important;
+    min-height: 210px;
+  }
+  .carousel-content-info {
+    padding: 16px 16px !important;
+  }
+}
+
+

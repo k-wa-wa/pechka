@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import type { MongoContent, ContentType } from '@/lib/types'
 
@@ -29,6 +29,9 @@ export default function Carousel({ items }: Props) {
   const [current, setCurrent] = useState(0)
   const [isPlaying, setIsPlaying] = useState(true)
   const [isHovered, setIsHovered] = useState(false)
+  const touchStartX = useRef<number | null>(null)
+  const touchStartY = useRef<number | null>(null)
+  const isSwiping = useRef(false)
 
   const next = useCallback(() => {
     if (items.length <= 1) return
@@ -39,6 +42,44 @@ export default function Carousel({ items }: Props) {
     if (items.length <= 1) return
     setCurrent((c) => (c - 1 + items.length) % items.length)
   }, [items.length])
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX
+    touchStartY.current = e.touches[0].clientY
+    isSwiping.current = false
+  }
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (touchStartX.current === null || touchStartY.current === null) return
+    const diffX = e.touches[0].clientX - touchStartX.current
+    const diffY = e.touches[0].clientY - touchStartY.current
+    if (Math.abs(diffX) > 10 && Math.abs(diffX) > Math.abs(diffY)) {
+      isSwiping.current = true
+    }
+  }
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX.current === null) return
+    const diffX = e.changedTouches[0].clientX - touchStartX.current
+    if (Math.abs(diffX) > 35) {
+      if (diffX > 0) {
+        prev()
+      } else {
+        next()
+      }
+    }
+    touchStartX.current = null
+    touchStartY.current = null
+    setTimeout(() => {
+      isSwiping.current = false
+    }, 120)
+  }
+
+  const handleLinkClick = (e: React.MouseEvent) => {
+    if (isSwiping.current) {
+      e.preventDefault()
+    }
+  }
 
   useEffect(() => {
     if (!isPlaying || isHovered || items.length <= 1) return
@@ -56,19 +97,27 @@ export default function Carousel({ items }: Props) {
 
   return (
     <div
-      onMouseEnter={() => setIsHovered(true)}
+      onMouseEnter={() => {
+        if (typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches) {
+          setIsHovered(true)
+        }
+      }}
       onMouseLeave={() => setIsHovered(false)}
-      style={{ position: 'relative', width: '100%', overflow: 'hidden' }}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      style={{ position: 'relative', width: '100%', overflow: 'hidden', touchAction: 'pan-y' }}
     >
       {/* Main slide */}
       <Link
         href={`/contents/${item.short_id}`}
+        onClick={handleLinkClick}
         style={{ display: 'block', position: 'relative' }}
       >
         <div
+          className="carousel-slide-box"
           style={{
             width: '100%',
-            aspectRatio: '21/9',
             backgroundColor: '#0d1117',
             display: 'flex',
             alignItems: 'center',
@@ -92,29 +141,22 @@ export default function Carousel({ items }: Props) {
                   height: '100%',
                 }}
               >
-                {slideItem.thumbnail_key ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={`/thumbnails/${slideItem.thumbnail_key}`}
-                    alt={slideItem.title}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  />
-                ) : (
-                  <div
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      background: 'linear-gradient(135deg, #161b22 0%, #0d1117 100%)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#30363d" strokeWidth="1">
-                      <polygon points="5 3 19 12 5 21 5 3" />
-                    </svg>
-                  </div>
-                )}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={
+                    slideItem.thumbnail_key
+                      ? `/thumbnails/${slideItem.thumbnail_key}`
+                      : `/images/placeholder-${slideItem.content_type}.svg`
+                  }
+                  alt={slideItem.title}
+                  onError={(e) => {
+                    const fallback = `/images/placeholder-${slideItem.content_type}.svg`
+                    if (!e.currentTarget.src.endsWith(fallback)) {
+                      e.currentTarget.src = fallback
+                    }
+                  }}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
               </div>
             )
           })}
@@ -130,32 +172,14 @@ export default function Carousel({ items }: Props) {
             }}
           />
 
-          {/* Progress bar at the top of carousel */}
-          {items.length > 1 && isPlaying && !isHovered && (
-            <div
-              key={current}
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                height: 3,
-                backgroundColor: '#58a6ff',
-                width: '100%',
-                animation: `carousel-progress ${AUTO_SLIDE_INTERVAL}ms linear`,
-                transformOrigin: 'left',
-                zIndex: 10,
-              }}
-            />
-          )}
-
           {/* Content info overlay */}
           <div
+            className="carousel-content-info"
             style={{
               position: 'absolute',
               bottom: 0,
               left: 0,
               right: 0,
-              padding: '24px 32px',
               zIndex: 2,
             }}
           >
@@ -216,6 +240,7 @@ export default function Carousel({ items }: Props) {
       {items.length > 1 && (
         <>
           <button
+            className="carousel-arrow"
             onClick={(e) => {
               e.preventDefault()
               prev()
@@ -244,6 +269,7 @@ export default function Carousel({ items }: Props) {
             </svg>
           </button>
           <button
+            className="carousel-arrow"
             onClick={(e) => {
               e.preventDefault()
               next()
@@ -315,41 +341,50 @@ export default function Carousel({ items }: Props) {
             </button>
 
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              {items.map((_, i) => (
-                <button
-                  key={i}
-                  onClick={(e) => {
-                    e.preventDefault()
-                    setCurrent(i)
-                  }}
-                  style={{
-                    width: i === current ? 20 : 6,
-                    height: 6,
-                    borderRadius: 3,
-                    backgroundColor: i === current ? '#58a6ff' : '#30363d',
-                    border: 'none',
-                    cursor: 'pointer',
-                    padding: 0,
-                    transition: 'width 0.2s, background 0.2s',
-                  }}
-                  aria-label={`Slide ${i + 1}`}
-                />
-              ))}
+              {items.map((_, i) => {
+                const isActive = i === current
+                return (
+                  <button
+                    key={i}
+                    onClick={(e) => {
+                      e.preventDefault()
+                      setCurrent(i)
+                    }}
+                    style={{
+                      position: 'relative',
+                      width: isActive ? 28 : 6,
+                      height: 6,
+                      borderRadius: 3,
+                      backgroundColor: '#30363d',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: 0,
+                      overflow: 'hidden',
+                      transition: 'width 0.25s ease',
+                    }}
+                    aria-label={`Slide ${i + 1}`}
+                  >
+                    {isActive && (
+                      <div
+                        key={`prog-${current}`}
+                        style={{
+                          position: 'absolute',
+                          inset: 0,
+                          backgroundColor: '#58a6ff',
+                          borderRadius: 3,
+                          transformOrigin: 'left',
+                          animation: `indicator-progress ${AUTO_SLIDE_INTERVAL}ms linear`,
+                          animationPlayState: isPlaying && !isHovered ? 'running' : 'paused',
+                        }}
+                      />
+                    )}
+                  </button>
+                )
+              })}
             </div>
           </div>
         </>
       )}
-
-      <style jsx global>{`
-        @keyframes carousel-progress {
-          from {
-            transform: scaleX(0);
-          }
-          to {
-            transform: scaleX(1);
-          }
-        }
-      `}</style>
     </div>
   )
 }
