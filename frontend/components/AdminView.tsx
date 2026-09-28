@@ -64,12 +64,12 @@ export default function AdminView({ contents, total, limit, offset }: Props) {
             margin: 0,
             fontSize: 22,
             fontWeight: 700,
-            color: '#e6edf3',
+            color: 'var(--fg)',
           }}
         >
           {t('admin.title')}
         </h1>
-        <span style={{ fontSize: 14, color: '#8b949e' }}>
+        <span style={{ fontSize: 14, color: 'var(--muted)' }}>
           {currentTotal} {t('admin.itemsCount')}
         </span>
       </div>
@@ -94,18 +94,19 @@ export default function AdminView({ contents, total, limit, offset }: Props) {
           disabled={loading || currentPage <= 1}
           style={{
             padding: '6px 14px',
-            borderRadius: 6,
-            border: '1px solid #30363d',
+            borderRadius: 'var(--radius-md)',
+            border: '1px solid var(--line)',
             backgroundColor: 'transparent',
-            color: currentPage <= 1 ? '#8b949e88' : '#e6edf3',
+            color: currentPage <= 1 ? 'var(--muted-border)' : 'var(--fg)',
             cursor: loading || currentPage <= 1 ? 'not-allowed' : 'pointer',
             fontSize: 13,
+            transition: 'all 0.15s',
           }}
         >
           {t('admin.pagination.prev')}
         </button>
 
-        <span style={{ fontSize: 13, color: '#8b949e' }}>
+        <span style={{ fontSize: 13, color: 'var(--muted)' }}>
           {t('admin.pagination.pageLabel')} {currentPage} / {totalPages}
         </span>
 
@@ -114,12 +115,13 @@ export default function AdminView({ contents, total, limit, offset }: Props) {
           disabled={loading || currentPage >= totalPages}
           style={{
             padding: '6px 14px',
-            borderRadius: 6,
-            border: '1px solid #30363d',
+            borderRadius: 'var(--radius-md)',
+            border: '1px solid var(--line)',
             backgroundColor: 'transparent',
-            color: currentPage >= totalPages ? '#8b949e88' : '#e6edf3',
+            color: currentPage >= totalPages ? 'var(--muted-border)' : 'var(--fg)',
             cursor: loading || currentPage >= totalPages ? 'not-allowed' : 'pointer',
             fontSize: 13,
+            transition: 'all 0.15s',
           }}
         >
           {t('admin.pagination.next')}
@@ -132,7 +134,7 @@ export default function AdminView({ contents, total, limit, offset }: Props) {
             textAlign: 'center',
             marginTop: 12,
             fontSize: 13,
-            color: '#da3633',
+            color: 'var(--warn)',
           }}
         >
           {t('admin.pagination.loadError')}

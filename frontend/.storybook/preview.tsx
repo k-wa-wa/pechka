@@ -15,7 +15,7 @@ const preview: Preview = {
     msw: { handlers },
     backgrounds: {
       default: 'pechka-dark',
-      values: [{ name: 'pechka-dark', value: '#0d1117' }],
+      values: [{ name: 'pechka-dark', value: '#191816' }],
     },
   },
   loaders: [mswLoader()],

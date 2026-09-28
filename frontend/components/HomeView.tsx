@@ -52,7 +52,7 @@ export default function HomeView({ carouselReady, gridItems, currentType }: Prop
               margin: 0,
               fontSize: 20,
               fontWeight: 700,
-              color: '#e6edf3',
+              color: 'var(--fg)',
             }}
           >
             {t('home.title')}
@@ -65,7 +65,7 @@ export default function HomeView({ carouselReady, gridItems, currentType }: Prop
             style={{
               textAlign: 'center',
               padding: '64px 0',
-              color: '#8b949e',
+              color: 'var(--muted)',
             }}
           >
             {t('home.noContents')}

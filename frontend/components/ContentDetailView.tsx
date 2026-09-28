@@ -43,10 +43,10 @@ export default function ContentDetailView({ content, variants }: Props) {
                 style={{
                   fontSize: 12,
                   padding: '3px 8px',
-                  borderRadius: 4,
-                  backgroundColor: '#1f6feb22',
-                  color: '#58a6ff',
-                  border: '1px solid #1f6feb44',
+                  borderRadius: 'var(--radius-sm)',
+                  backgroundColor: 'var(--accent-subtle)',
+                  color: 'var(--accent)',
+                  border: '1px solid var(--accent-border)',
                 }}
               >
                 {tag}
@@ -61,7 +61,7 @@ export default function ContentDetailView({ content, variants }: Props) {
             margin: '0 0 12px',
             fontSize: 'clamp(20px, 4vw, 28px)',
             fontWeight: 700,
-            color: '#e6edf3',
+            color: 'var(--fg)',
             lineHeight: 1.3,
           }}
         >
@@ -76,7 +76,7 @@ export default function ContentDetailView({ content, variants }: Props) {
             marginBottom: 16,
             flexWrap: 'wrap',
             fontSize: 13,
-            color: '#8b949e',
+            color: 'var(--muted)',
           }}
         >
           {content.duration_seconds != null && (
@@ -102,7 +102,7 @@ export default function ContentDetailView({ content, variants }: Props) {
             style={{
               margin: 0,
               fontSize: 15,
-              color: '#8b949e',
+              color: 'var(--muted)',
               lineHeight: 1.7,
               whiteSpace: 'pre-wrap',
             }}

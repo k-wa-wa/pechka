@@ -66,9 +66,9 @@ export default function UploadModal({ onClose, onUploaded }: Props) {
         style={{
           width: '100%',
           maxWidth: 560,
-          backgroundColor: '#161b22',
-          border: '1px solid #30363d',
-          borderRadius: 12,
+          backgroundColor: 'var(--card)',
+          border: '1px solid var(--line)',
+          borderRadius: 'var(--radius-lg)',
           overflow: 'hidden',
           boxShadow: '0 24px 48px rgba(0,0,0,0.5)',
         }}
@@ -81,21 +81,27 @@ export default function UploadModal({ onClose, onUploaded }: Props) {
             alignItems: 'center',
             justifyContent: 'space-between',
             padding: '16px 20px',
-            borderBottom: '1px solid #30363d',
+            borderBottom: '1px solid var(--line)',
           }}
         >
-          <h2 style={{ margin: 0, fontSize: 16, color: '#e6edf3' }}>
+          <h2 style={{ margin: 0, fontSize: 16, color: 'var(--fg)' }}>
             {t('uploadModal.title')}
           </h2>
           <button
             onClick={onClose}
             disabled={uploading}
+            className="upload-modal-close"
             style={{
               background: 'none',
               border: 'none',
-              color: '#8b949e',
+              color: 'var(--muted)',
               cursor: uploading ? 'not-allowed' : 'pointer',
               padding: 4,
+              borderRadius: 'var(--radius-sm)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'color 0.15s, transform var(--duration-release) var(--ease-spring)',
             }}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -107,17 +113,18 @@ export default function UploadModal({ onClose, onUploaded }: Props) {
         {/* Form */}
         <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 13, color: '#8b949e' }}>{t('uploadModal.fieldFile')}</span>
+            <span style={{ fontSize: 13, color: 'var(--muted)' }}>{t('uploadModal.fieldFile')}</span>
             <input
               type="file"
               accept="video/*"
               disabled={uploading}
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              className="upload-form-input"
               style={{
-                backgroundColor: '#0d1117',
-                border: '1px solid #30363d',
-                borderRadius: 6,
-                color: '#e6edf3',
+                backgroundColor: 'var(--bg)',
+                border: '1px solid var(--line)',
+                borderRadius: 'var(--radius-md)',
+                color: 'var(--fg)',
                 padding: '8px 12px',
                 fontSize: 14,
                 outline: 'none',
@@ -126,27 +133,26 @@ export default function UploadModal({ onClose, onUploaded }: Props) {
           </label>
 
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 13, color: '#8b949e' }}>{t('uploadModal.fieldTitle')}</span>
+            <span style={{ fontSize: 13, color: 'var(--muted)' }}>{t('uploadModal.fieldTitle')}</span>
             <input
               value={title}
               disabled={uploading}
               onChange={(e) => setTitle(e.target.value)}
+              className="upload-form-input"
               style={{
-                backgroundColor: '#0d1117',
-                border: '1px solid #30363d',
-                borderRadius: 6,
-                color: '#e6edf3',
+                backgroundColor: 'var(--bg)',
+                border: '1px solid var(--line)',
+                borderRadius: 'var(--radius-md)',
+                color: 'var(--fg)',
                 padding: '8px 12px',
                 fontSize: 14,
                 outline: 'none',
               }}
-              onFocus={(e) => (e.target.style.borderColor = '#58a6ff')}
-              onBlur={(e) => (e.target.style.borderColor = '#30363d')}
             />
           </label>
 
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 13, color: '#8b949e' }}>
+            <span style={{ fontSize: 13, color: 'var(--muted)' }}>
               {t('uploadModal.fieldDescription')}
             </span>
             <textarea
@@ -154,24 +160,23 @@ export default function UploadModal({ onClose, onUploaded }: Props) {
               disabled={uploading}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
+              className="upload-form-input"
               style={{
-                backgroundColor: '#0d1117',
-                border: '1px solid #30363d',
-                borderRadius: 6,
-                color: '#e6edf3',
+                backgroundColor: 'var(--bg)',
+                border: '1px solid var(--line)',
+                borderRadius: 'var(--radius-md)',
+                color: 'var(--fg)',
                 padding: '8px 12px',
                 fontSize: 14,
                 outline: 'none',
                 resize: 'vertical',
                 fontFamily: 'inherit',
               }}
-              onFocus={(e) => (e.target.style.borderColor = '#58a6ff')}
-              onBlur={(e) => (e.target.style.borderColor = '#30363d')}
             />
           </label>
 
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 13, color: '#8b949e' }}>
+            <span style={{ fontSize: 13, color: 'var(--muted)' }}>
               {t('uploadModal.fieldTags')}
             </span>
             <input
@@ -179,17 +184,16 @@ export default function UploadModal({ onClose, onUploaded }: Props) {
               disabled={uploading}
               onChange={(e) => setTags(e.target.value)}
               placeholder="tag1, tag2, tag3"
+              className="upload-form-input"
               style={{
-                backgroundColor: '#0d1117',
-                border: '1px solid #30363d',
-                borderRadius: 6,
-                color: '#e6edf3',
+                backgroundColor: 'var(--bg)',
+                border: '1px solid var(--line)',
+                borderRadius: 'var(--radius-md)',
+                color: 'var(--fg)',
                 padding: '8px 12px',
                 fontSize: 14,
                 outline: 'none',
               }}
-              onFocus={(e) => (e.target.style.borderColor = '#58a6ff')}
-              onBlur={(e) => (e.target.style.borderColor = '#30363d')}
             />
           </label>
 
@@ -199,7 +203,7 @@ export default function UploadModal({ onClose, onUploaded }: Props) {
                 style={{
                   height: 6,
                   borderRadius: 3,
-                  backgroundColor: '#30363d',
+                  backgroundColor: 'var(--line)',
                   overflow: 'hidden',
                 }}
               >
@@ -207,12 +211,12 @@ export default function UploadModal({ onClose, onUploaded }: Props) {
                   style={{
                     height: '100%',
                     width: `${progress}%`,
-                    backgroundColor: '#1f6feb',
+                    backgroundColor: 'var(--accent)',
                     transition: 'width 0.2s',
                   }}
                 />
               </div>
-              <span style={{ fontSize: 12, color: '#8b949e' }}>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>
                 {t('uploadModal.uploading')} {progress}%
               </span>
             </div>
@@ -221,11 +225,11 @@ export default function UploadModal({ onClose, onUploaded }: Props) {
           {error && (
             <div
               style={{
-                backgroundColor: '#ff7b7222',
-                border: '1px solid #ff7b7244',
-                borderRadius: 6,
+                backgroundColor: 'var(--warn-subtle)',
+                border: '1px solid var(--warn-border)',
+                borderRadius: 'var(--radius-md)',
                 padding: '8px 12px',
-                color: '#ff7b72',
+                color: 'var(--warn)',
                 fontSize: 13,
               }}
             >
@@ -241,20 +245,22 @@ export default function UploadModal({ onClose, onUploaded }: Props) {
             justifyContent: 'flex-end',
             gap: 8,
             padding: '12px 20px',
-            borderTop: '1px solid #30363d',
+            borderTop: '1px solid var(--line)',
           }}
         >
           <button
             onClick={onClose}
             disabled={uploading}
+            className="upload-cancel-btn"
             style={{
               padding: '8px 16px',
-              borderRadius: 6,
-              border: '1px solid #30363d',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--line)',
               backgroundColor: 'transparent',
-              color: '#8b949e',
+              color: 'var(--muted)',
               cursor: uploading ? 'not-allowed' : 'pointer',
               fontSize: 14,
+              transition: 'border-color 0.15s, color 0.15s, transform var(--duration-release) var(--ease-spring)',
             }}
           >
             {t('uploadModal.btnCancel')}
@@ -262,21 +268,45 @@ export default function UploadModal({ onClose, onUploaded }: Props) {
           <button
             onClick={handleUpload}
             disabled={!canUpload}
+            className="upload-submit-btn"
             style={{
               padding: '8px 16px',
-              borderRadius: 6,
+              borderRadius: 'var(--radius-md)',
               border: 'none',
-              backgroundColor: canUpload ? '#1f6feb' : '#1f6feb88',
-              color: '#e6edf3',
+              backgroundColor: canUpload ? 'var(--accent)' : 'var(--accent-emphasis)',
+              color: canUpload ? '#191816' : 'var(--muted)',
               cursor: canUpload ? 'pointer' : 'not-allowed',
               fontSize: 14,
               fontWeight: 600,
+              transition: 'opacity 0.15s, transform var(--duration-release) var(--ease-spring)',
             }}
           >
             {uploading ? t('uploadModal.uploading') : t('uploadModal.btnUpload')}
           </button>
         </div>
       </div>
+
+      <style>{`
+        .upload-form-input:focus {
+          border-color: var(--accent) !important;
+        }
+        .upload-modal-close:active, .upload-cancel-btn:active, .upload-submit-btn:active {
+          transform: scale(var(--scale-button-active));
+          transition: transform var(--duration-press) var(--ease-snappy);
+        }
+        @media (hover: hover) {
+          .upload-modal-close:hover {
+            color: var(--fg);
+          }
+          .upload-cancel-btn:hover {
+            border-color: var(--fg);
+            color: var(--fg);
+          }
+          .upload-submit-btn:hover:not(:disabled) {
+            opacity: 0.9;
+          }
+        }
+      `}</style>
     </div>
   )
 }

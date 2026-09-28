@@ -36,22 +36,35 @@ export default function FilterBar({ types, currentType }: Props) {
           <button
             key={tOpt.value}
             onClick={() => handleChange(tOpt.value)}
+            className="filter-chip"
             style={{
               padding: '5px 12px',
-              borderRadius: 20,
+              borderRadius: 'var(--radius-full)',
               border: '1px solid',
-              borderColor: active ? '#58a6ff' : '#30363d',
-              backgroundColor: active ? '#1f6feb33' : 'transparent',
-              color: active ? '#58a6ff' : '#8b949e',
+              borderColor: active ? 'var(--accent)' : 'var(--line)',
+              backgroundColor: active ? 'var(--accent-emphasis)' : 'transparent',
+              color: active ? 'var(--accent)' : 'var(--muted)',
               cursor: 'pointer',
               fontSize: 13,
-              transition: 'all 0.15s',
+              transition: 'all 0.15s, transform var(--duration-release) var(--ease-spring)',
             }}
           >
             {label}
           </button>
         )
       })}
+      <style>{`
+        .filter-chip:active {
+          transform: scale(var(--scale-button-active));
+          transition: transform var(--duration-press) var(--ease-snappy);
+        }
+        @media (hover: hover) {
+          .filter-chip:not(:active):hover {
+            border-color: var(--accent);
+            color: var(--fg);
+          }
+        }
+      `}</style>
     </div>
   )
 }

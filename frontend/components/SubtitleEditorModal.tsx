@@ -127,11 +127,11 @@ export default function SubtitleEditorModal({ content, onClose }: Props) {
           maxHeight: '85vh',
           display: 'flex',
           flexDirection: 'column',
-          backgroundColor: '#161b22',
-          border: '1px solid #30363d',
-          borderRadius: 12,
+          backgroundColor: 'var(--card)',
+          border: '1px solid var(--line)',
+          borderRadius: 'var(--radius)',
           overflow: 'hidden',
-          boxShadow: '0 24px 48px rgba(0,0,0,0.5)',
+          boxShadow: 'var(--shadow-card)',
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -141,15 +141,15 @@ export default function SubtitleEditorModal({ content, onClose }: Props) {
             alignItems: 'center',
             justifyContent: 'space-between',
             padding: '16px 20px',
-            borderBottom: '1px solid #30363d',
+            borderBottom: '1px solid var(--line)',
           }}
         >
-          <h2 style={{ margin: 0, fontSize: 16, color: '#e6edf3' }}>
+          <h2 style={{ margin: 0, fontSize: 16, color: 'var(--fg)' }}>
             字幕編集 — {content.title}
           </h2>
           <button
             onClick={onClose}
-            style={{ background: 'none', border: 'none', color: '#8b949e', cursor: 'pointer', padding: 4 }}
+            style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: 4 }}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M18 6 6 18M6 6l12 12" />
@@ -158,10 +158,10 @@ export default function SubtitleEditorModal({ content, onClose }: Props) {
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
-          {loading && <p style={{ color: '#8b949e' }}>読み込み中...</p>}
+          {loading && <p style={{ color: 'var(--muted)' }}>読み込み中...</p>}
 
           {!loading && tracks.length === 0 && (
-            <p style={{ color: '#8b949e' }}>
+            <p style={{ color: 'var(--muted)' }}>
               このコンテンツには字幕がありません
             </p>
           )}
@@ -184,17 +184,17 @@ export default function SubtitleEditorModal({ content, onClose }: Props) {
                       fontSize: 12,
                       fontWeight: 600,
                       padding: '2px 8px',
-                      borderRadius: 4,
-                      backgroundColor: selectedTrack.status === 'published' ? '#23863622' : '#8b949e22',
-                      color: selectedTrack.status === 'published' ? '#3fb950' : '#8b949e',
+                      borderRadius: 'var(--radius-xs)',
+                      backgroundColor: selectedTrack.status === 'published' ? 'var(--success-subtle)' : 'var(--muted-subtle)',
+                      color: selectedTrack.status === 'published' ? 'var(--success)' : 'var(--muted)',
                     }}
                   >
                     {selectedTrack.status === 'published' ? '公開中' : '下書き'}
                   </span>
-                  <span style={{ fontSize: 12, color: '#8b949e' }}>
+                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>
                     {selectedTrack.language} / {selectedTrack.model} / {cues.length}行
                     {flaggedCount > 0 && (
-                      <span style={{ color: '#d29922' }}> ・要確認 {flaggedCount}件</span>
+                      <span style={{ color: 'var(--blocked)' }}> ・要確認 {flaggedCount}件</span>
                     )}
                   </span>
                 </div>
@@ -202,13 +202,14 @@ export default function SubtitleEditorModal({ content, onClose }: Props) {
                   onClick={handleTogglePublish}
                   style={{
                     padding: '6px 14px',
-                    borderRadius: 6,
+                    borderRadius: 'var(--radius-sm)',
                     border: 'none',
-                    backgroundColor: selectedTrack.status === 'published' ? '#30363d' : '#238636',
-                    color: '#e6edf3',
+                    backgroundColor: selectedTrack.status === 'published' ? 'var(--line)' : 'var(--success)',
+                    color: 'var(--fg)',
                     cursor: 'pointer',
                     fontSize: 13,
                     fontWeight: 600,
+                    transition: 'opacity 0.15s ease, transform 0.1s ease',
                   }}
                 >
                   {selectedTrack.status === 'published' ? '非公開に戻す' : '公開する'}
@@ -224,15 +225,15 @@ export default function SubtitleEditorModal({ content, onClose }: Props) {
                       gap: 10,
                       alignItems: 'flex-start',
                       padding: 10,
-                      borderRadius: 6,
-                      backgroundColor: cue.flagged ? '#d2992218' : '#0d1117',
-                      border: cue.flagged ? '1px solid #d2992255' : '1px solid #21262d',
+                      borderRadius: 'var(--radius-sm)',
+                      backgroundColor: cue.flagged ? 'var(--blocked-subtle)' : 'var(--bg)',
+                      border: cue.flagged ? '1px solid var(--blocked)' : '1px solid var(--line)',
                     }}
                   >
                     <span
                       style={{
                         fontSize: 11,
-                        color: '#8b949e',
+                        color: 'var(--muted)',
                         whiteSpace: 'nowrap',
                         paddingTop: 6,
                         minWidth: 96,
@@ -251,7 +252,7 @@ export default function SubtitleEditorModal({ content, onClose }: Props) {
                         flex: 1,
                         backgroundColor: 'transparent',
                         border: 'none',
-                        color: '#e6edf3',
+                        color: 'var(--fg)',
                         fontSize: 14,
                         outline: 'none',
                         resize: 'vertical',
@@ -265,9 +266,9 @@ export default function SubtitleEditorModal({ content, onClose }: Props) {
                         title="この行の後に挿入"
                         style={{
                           background: 'none',
-                          border: '1px solid #30363d',
-                          borderRadius: 4,
-                          color: '#8b949e',
+                          border: '1px solid var(--line)',
+                          borderRadius: 'var(--radius-xs)',
+                          color: 'var(--muted)',
                           cursor: 'pointer',
                           fontSize: 12,
                           padding: '2px 6px',
@@ -280,9 +281,9 @@ export default function SubtitleEditorModal({ content, onClose }: Props) {
                         title="削除"
                         style={{
                           background: 'none',
-                          border: '1px solid #30363d',
-                          borderRadius: 4,
-                          color: '#ff7b72',
+                          border: '1px solid var(--line)',
+                          borderRadius: 'var(--radius-xs)',
+                          color: 'var(--warn)',
                           cursor: 'pointer',
                           fontSize: 12,
                           padding: '2px 6px',
@@ -301,11 +302,11 @@ export default function SubtitleEditorModal({ content, onClose }: Props) {
             <div
               style={{
                 marginTop: 12,
-                backgroundColor: '#ff7b7222',
-                border: '1px solid #ff7b7244',
-                borderRadius: 6,
+                backgroundColor: 'var(--warn-subtle)',
+                border: '1px solid var(--warn)',
+                borderRadius: 'var(--radius-sm)',
                 padding: '8px 12px',
-                color: '#ff7b72',
+                color: 'var(--warn)',
                 fontSize: 13,
               }}
             >

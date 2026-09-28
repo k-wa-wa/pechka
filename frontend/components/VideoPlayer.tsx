@@ -148,12 +148,12 @@ export default function VideoPlayer({ variants, shortId, hasSubtitles }: Props) 
       <div
         style={{
           aspectRatio: '16/9',
-          backgroundColor: '#0d1117',
+          backgroundColor: 'var(--bg)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          color: '#8b949e',
-          borderRadius: 8,
+          color: 'var(--muted)',
+          borderRadius: 'var(--radius-md)',
         }}
       >
         {t('player.notFound')}
@@ -169,7 +169,7 @@ export default function VideoPlayer({ variants, shortId, hasSubtitles }: Props) 
           width: '100%',
           aspectRatio: '16/9',
           backgroundColor: '#000',
-          borderRadius: 8,
+          borderRadius: 'var(--radius-md)',
           overflow: 'hidden',
         }}
       >
@@ -200,7 +200,7 @@ export default function VideoPlayer({ variants, shortId, hasSubtitles }: Props) 
               alignItems: 'center',
               justifyContent: 'center',
               backgroundColor: 'rgba(0,0,0,0.7)',
-              color: '#ff7b72',
+              color: 'var(--warn)',
               fontSize: 14,
               textAlign: 'center',
               padding: 16,
@@ -221,21 +221,22 @@ export default function VideoPlayer({ variants, shortId, hasSubtitles }: Props) 
             marginTop: 8,
           }}
         >
-          <span style={{ fontSize: 13, color: '#8b949e' }}>{t('player.quality')}</span>
+          <span style={{ fontSize: 13, color: 'var(--muted)' }}>{t('player.quality')}</span>
           <div style={{ display: 'flex', gap: 4 }}>
             {masterVariant && (
               <button
                 onClick={() => handleVariantChange('master')}
                 style={{
                   padding: '4px 10px',
-                  borderRadius: 4,
+                  borderRadius: 'var(--radius-sm)',
                   border: '1px solid',
-                  borderColor: selectedVariant === 'master' ? '#58a6ff' : '#30363d',
+                  borderColor: selectedVariant === 'master' ? 'var(--accent)' : 'var(--line)',
                   backgroundColor:
-                    selectedVariant === 'master' ? '#1f6feb33' : 'transparent',
-                  color: selectedVariant === 'master' ? '#58a6ff' : '#8b949e',
+                    selectedVariant === 'master' ? 'var(--accent-emphasis)' : 'transparent',
+                  color: selectedVariant === 'master' ? 'var(--accent)' : 'var(--muted)',
                   cursor: 'pointer',
                   fontSize: 12,
+                  transition: 'all 0.15s',
                 }}
               >
                 Auto
@@ -247,18 +248,19 @@ export default function VideoPlayer({ variants, shortId, hasSubtitles }: Props) 
                 onClick={() => handleVariantChange(v.variant_type)}
                 style={{
                   padding: '4px 10px',
-                  borderRadius: 4,
+                  borderRadius: 'var(--radius-sm)',
                   border: '1px solid',
                   borderColor:
-                    selectedVariant === v.variant_type ? '#58a6ff' : '#30363d',
+                    selectedVariant === v.variant_type ? 'var(--accent)' : 'var(--line)',
                   backgroundColor:
                     selectedVariant === v.variant_type
-                      ? '#1f6feb33'
+                      ? 'var(--accent-emphasis)'
                       : 'transparent',
                   color:
-                    selectedVariant === v.variant_type ? '#58a6ff' : '#8b949e',
+                    selectedVariant === v.variant_type ? 'var(--accent)' : 'var(--muted)',
                   cursor: 'pointer',
                   fontSize: 12,
+                  transition: 'all 0.15s',
                 }}
               >
                 {QUALITY_LABELS[v.variant_type] ?? v.variant_type}

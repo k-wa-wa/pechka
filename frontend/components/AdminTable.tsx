@@ -16,11 +16,11 @@ interface Props {
 const POLL_INTERVAL_MS = 5000
 const IN_PROGRESS_STATUSES: ContentStatus[] = ['pending', 'processing']
 
-const STATUS_COLORS: Record<ContentStatus, { bg: string; text: string }> = {
-  pending: { bg: '#d29922', text: '#fff' },
-  processing: { bg: '#1f6feb', text: '#fff' },
-  ready: { bg: '#238636', text: '#fff' },
-  error: { bg: '#da3633', text: '#fff' },
+const STATUS_COLORS: Record<ContentStatus, { bg: string; text: string; border: string }> = {
+  pending: { bg: 'var(--blocked-subtle)', text: 'var(--blocked)', border: 'var(--blocked-border)' },
+  processing: { bg: 'var(--accent-subtle)', text: 'var(--accent)', border: 'var(--accent-border)' },
+  ready: { bg: 'var(--success-subtle)', text: 'var(--success)', border: 'var(--success-border)' },
+  error: { bg: 'var(--warn-subtle)', text: 'var(--warn)', border: 'var(--warn-border)' },
 }
 
 const STATUS_LABEL: Record<ContentStatus, string> = {
@@ -116,15 +116,17 @@ export default function AdminTable({ initialContents, onUploaded }: Props) {
       >
         <button
           onClick={() => setUploadOpen(true)}
+          className="admin-btn-primary"
           style={{
             padding: '6px 14px',
-            borderRadius: 6,
+            borderRadius: 'var(--radius-md)',
             border: 'none',
-            backgroundColor: '#1f6feb',
-            color: '#e6edf3',
+            backgroundColor: 'var(--accent)',
+            color: '#191816',
             cursor: 'pointer',
             fontSize: 13,
             fontWeight: 600,
+            transition: 'opacity 0.15s, transform var(--duration-release) var(--ease-spring)',
           }}
         >
           {t('admin.table.btnUpload')}
@@ -134,8 +136,8 @@ export default function AdminTable({ initialContents, onUploaded }: Props) {
       <div
         style={{
           overflowX: 'auto',
-          border: '1px solid #30363d',
-          borderRadius: 8,
+          border: '1px solid var(--line)',
+          borderRadius: 'var(--radius-md)',
         }}
       >
         <table
@@ -148,8 +150,8 @@ export default function AdminTable({ initialContents, onUploaded }: Props) {
           <thead>
             <tr
               style={{
-                backgroundColor: '#161b22',
-                borderBottom: '1px solid #30363d',
+                backgroundColor: 'var(--card)',
+                borderBottom: '1px solid var(--line)',
               }}
             >
               {tableHeaders.map((h, idx) => (
@@ -158,7 +160,7 @@ export default function AdminTable({ initialContents, onUploaded }: Props) {
                   style={{
                     padding: '10px 14px',
                     textAlign: 'left',
-                    color: '#8b949e',
+                    color: 'var(--muted)',
                     fontWeight: 500,
                     whiteSpace: 'nowrap',
                   }}
@@ -176,7 +178,7 @@ export default function AdminTable({ initialContents, onUploaded }: Props) {
                   style={{
                     padding: '32px',
                     textAlign: 'center',
-                    color: '#8b949e',
+                    color: 'var(--muted)',
                   }}
                 >
                   {t('admin.table.noContents')}
@@ -186,24 +188,19 @@ export default function AdminTable({ initialContents, onUploaded }: Props) {
             {contents.map((content, i) => (
               <tr
                 key={content.id}
+                className="admin-table-row"
                 style={{
                   borderBottom:
-                    i < contents.length - 1 ? '1px solid #30363d' : 'none',
+                    i < contents.length - 1 ? '1px solid var(--line)' : 'none',
                   backgroundColor: 'transparent',
                   transition: 'background 0.1s',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#161b22'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = 'transparent'
                 }}
               >
                 {/* Title */}
                 <td
                   style={{
                     padding: '10px 14px',
-                    color: '#e6edf3',
+                    color: 'var(--fg)',
                     maxWidth: 280,
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
@@ -215,7 +212,7 @@ export default function AdminTable({ initialContents, onUploaded }: Props) {
                 </td>
 
                 {/* Content type */}
-                <td style={{ padding: '10px 14px', color: '#8b949e', whiteSpace: 'nowrap' }}>
+                <td style={{ padding: '10px 14px', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
                   {CONTENT_TYPE_LABEL[content.content_type] ?? content.content_type}
                 </td>
 
@@ -225,11 +222,12 @@ export default function AdminTable({ initialContents, onUploaded }: Props) {
                     style={{
                       display: 'inline-block',
                       padding: '2px 8px',
-                      borderRadius: 4,
+                      borderRadius: 'var(--radius-sm)',
                       fontSize: 12,
                       fontWeight: 600,
-                      backgroundColor: STATUS_COLORS[content.status]?.bg ?? '#30363d',
-                      color: STATUS_COLORS[content.status]?.text ?? '#e6edf3',
+                      backgroundColor: STATUS_COLORS[content.status]?.bg ?? 'var(--muted-subtle)',
+                      color: STATUS_COLORS[content.status]?.text ?? 'var(--fg)',
+                      border: `1px solid ${STATUS_COLORS[content.status]?.border ?? 'transparent'}`,
                     }}
                   >
                     {STATUS_LABEL[content.status] ?? content.status}
@@ -240,11 +238,12 @@ export default function AdminTable({ initialContents, onUploaded }: Props) {
                         display: 'inline-block',
                         marginLeft: 6,
                         padding: '2px 8px',
-                        borderRadius: 4,
+                        borderRadius: 'var(--radius-sm)',
                         fontSize: 12,
                         fontWeight: 600,
-                        backgroundColor: '#30363d',
-                        color: '#8b949e',
+                        backgroundColor: 'var(--muted-subtle)',
+                        color: 'var(--muted)',
+                        border: '1px solid var(--muted-border)',
                       }}
                     >
                       {t('admin.table.badgeArchived')}
@@ -261,10 +260,10 @@ export default function AdminTable({ initialContents, onUploaded }: Props) {
                         style={{
                           fontSize: 11,
                           padding: '1px 6px',
-                          borderRadius: 4,
-                          backgroundColor: '#1f6feb22',
-                          color: '#58a6ff',
-                          border: '1px solid #1f6feb44',
+                          borderRadius: 'var(--radius-sm)',
+                          backgroundColor: 'var(--accent-subtle)',
+                          color: 'var(--accent)',
+                          border: '1px solid var(--accent-border)',
                           whiteSpace: 'nowrap',
                         }}
                       >
@@ -272,7 +271,7 @@ export default function AdminTable({ initialContents, onUploaded }: Props) {
                       </span>
                     ))}
                     {content.tags.length > 3 && (
-                      <span style={{ fontSize: 11, color: '#8b949e' }}>
+                      <span style={{ fontSize: 11, color: 'var(--muted)' }}>
                         +{content.tags.length - 3}
                       </span>
                     )}
@@ -283,7 +282,7 @@ export default function AdminTable({ initialContents, onUploaded }: Props) {
                 <td
                   style={{
                     padding: '10px 14px',
-                    color: '#8b949e',
+                    color: 'var(--muted)',
                     whiteSpace: 'nowrap',
                     fontSize: 12,
                   }}
@@ -301,51 +300,37 @@ export default function AdminTable({ initialContents, onUploaded }: Props) {
                   )}
                 </td>
 
-                {/* Edit button */}
+                {/* Action buttons */}
                 <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
                   <button
                     onClick={() => setEditingContent(content)}
+                    className="admin-action-btn"
                     style={{
                       padding: '4px 12px',
-                      borderRadius: 6,
-                      border: '1px solid #30363d',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--line)',
                       backgroundColor: 'transparent',
-                      color: '#8b949e',
+                      color: 'var(--muted)',
                       cursor: 'pointer',
                       fontSize: 12,
-                      transition: 'all 0.15s',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = '#58a6ff'
-                      e.currentTarget.style.color = '#58a6ff'
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = '#30363d'
-                      e.currentTarget.style.color = '#8b949e'
+                      transition: 'all 0.15s, transform var(--duration-release) var(--ease-spring)',
                     }}
                   >
                     {t('admin.table.btnEdit')}
                   </button>
                   <button
                     onClick={() => setSubtitleContent(content)}
+                    className="admin-action-btn"
                     style={{
                       marginLeft: 6,
                       padding: '4px 12px',
-                      borderRadius: 6,
-                      border: '1px solid #30363d',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--line)',
                       backgroundColor: 'transparent',
-                      color: '#8b949e',
+                      color: 'var(--muted)',
                       cursor: 'pointer',
                       fontSize: 12,
-                      transition: 'all 0.15s',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = '#58a6ff'
-                      e.currentTarget.style.color = '#58a6ff'
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = '#30363d'
-                      e.currentTarget.style.color = '#8b949e'
+                      transition: 'all 0.15s, transform var(--duration-release) var(--ease-spring)',
                     }}
                   >
                     {t('admin.table.btnSubtitles')}
@@ -353,25 +338,17 @@ export default function AdminTable({ initialContents, onUploaded }: Props) {
                   <button
                     onClick={() => handleToggleArchive(content)}
                     disabled={archivingId === content.id}
+                    className="admin-action-btn admin-archive-btn"
                     style={{
                       marginLeft: 6,
                       padding: '4px 12px',
-                      borderRadius: 6,
-                      border: '1px solid #30363d',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--line)',
                       backgroundColor: 'transparent',
-                      color: archivingId === content.id ? '#8b949e88' : '#8b949e',
+                      color: archivingId === content.id ? 'var(--muted-border)' : 'var(--muted)',
                       cursor: archivingId === content.id ? 'not-allowed' : 'pointer',
                       fontSize: 12,
-                      transition: 'all 0.15s',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = '#da3633'
-                      e.currentTarget.style.color = '#da3633'
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = '#30363d'
-                      e.currentTarget.style.color =
-                        archivingId === content.id ? '#8b949e88' : '#8b949e'
+                      transition: 'all 0.15s, transform var(--duration-release) var(--ease-spring)',
                     }}
                   >
                     {content.archived_at
@@ -384,6 +361,29 @@ export default function AdminTable({ initialContents, onUploaded }: Props) {
           </tbody>
         </table>
       </div>
+
+      <style>{`
+        @media (hover: hover) {
+          .admin-table-row:hover {
+            background-color: var(--card) !important;
+          }
+          .admin-action-btn:hover {
+            border-color: var(--accent) !important;
+            color: var(--accent) !important;
+          }
+          .admin-archive-btn:hover {
+            border-color: var(--warn) !important;
+            color: var(--warn) !important;
+          }
+          .admin-btn-primary:hover {
+            opacity: 0.9;
+          }
+        }
+        .admin-action-btn:active, .admin-btn-primary:active {
+          transform: scale(var(--scale-button-active));
+          transition: transform var(--duration-press) var(--ease-snappy);
+        }
+      `}</style>
 
       {editingContent && (
         <EditModal

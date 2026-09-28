@@ -31,7 +31,7 @@ export default function VrViewer({ variants }: Props) {
       scene.setAttribute('embedded', '')
       scene.setAttribute('style', 'width:100%;height:100%;')
       scene.setAttribute('vr-mode-ui', 'enabled: true')
-      scene.setAttribute('loading-screen', 'dotsColor: #58a6ff; backgroundColor: #0d1117')
+      scene.setAttribute('loading-screen', 'dotsColor: #60a5fa; backgroundColor: #191816')
 
       const assets = document.createElement('a-assets')
       const video = document.createElement('video')
@@ -83,8 +83,8 @@ export default function VrViewer({ variants }: Props) {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: '#0d1117',
-          color: '#8b949e',
+          backgroundColor: 'var(--bg)',
+          color: 'var(--muted)',
         }}
       >
         VRコンテンツが見つかりません
@@ -98,7 +98,7 @@ export default function VrViewer({ variants }: Props) {
       style={{
         width: '100%',
         height: 'calc(100vh - 60px)',
-        backgroundColor: '#0d1117',
+        backgroundColor: 'var(--bg)',
         position: 'relative',
       }}
     />

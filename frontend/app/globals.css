@@ -1,36 +1,111 @@
 @import "tailwindcss";
 
+@theme {
+  --color-bg: var(--bg);
+  --color-fg: var(--fg);
+  --color-card: var(--card);
+  --color-line: var(--line);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-warn: var(--warn);
+  --color-success: var(--success);
+  --color-blocked: var(--blocked);
+}
+
 :root {
-  --bg: #0d1117;
-  --bg-card: #161b22;
-  --text-primary: #e6edf3;
-  --text-muted: #8b949e;
-  --accent: #58a6ff;
-  --border: #30363d;
-  --tag-bg: #1f6feb;
-  --tag-text: #58a6ff;
+  /* ベースカラー（ダークテーマ専用） */
+  --bg: #191816;
+  --fg: #e8e4dc;
+  --card: #211f1c;
+  --line: #2f2d29;
+  --muted: #98928a;
+
+  /* セマンティック・状態カラー */
+  --accent: #60a5fa;
+  --warn: #e0a08a;
+  --success: #10b981;
+  --blocked: #f59e0b;
+
+  /* 半透明（Alpha）パターントークン（弱 ~8%, 中 ~16%, 強 ~25%） */
+  --accent-subtle: rgba(96, 165, 250, 0.08);
+  --accent-emphasis: rgba(96, 165, 250, 0.16);
+  --accent-border: rgba(96, 165, 250, 0.25);
+
+  --warn-subtle: rgba(224, 160, 138, 0.08);
+  --warn-emphasis: rgba(224, 160, 138, 0.16);
+  --warn-border: rgba(224, 160, 138, 0.25);
+
+  --muted-subtle: rgba(152, 146, 138, 0.08);
+  --muted-emphasis: rgba(152, 146, 138, 0.16);
+  --muted-border: rgba(152, 146, 138, 0.25);
+
+  --success-subtle: rgba(16, 185, 129, 0.08);
+  --success-emphasis: rgba(16, 185, 129, 0.16);
+  --success-border: rgba(16, 185, 129, 0.25);
+
+  --blocked-subtle: rgba(245, 158, 11, 0.08);
+  --blocked-emphasis: rgba(245, 158, 11, 0.16);
+  --blocked-border: rgba(245, 158, 11, 0.25);
+
+  /* タイポグラフィ */
+  --font-sans:
+    "IBM Plex Sans", "IBM Plex Sans JP", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* 角丸 */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 14px;
+  --radius-full: 9999px;
+
+  /* モーション・触覚トークン（iOS Fluid Interaction） */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-snappy: ease-out;
+  --duration-press: 0.08s;
+  --duration-release: 0.35s;
+  --scale-button-active: 0.94;
+  --scale-icon-active: 0.88;
+
+  /* 互換用エイリアス */
+  --bg-card: var(--card);
+  --text-primary: var(--fg);
+  --text-muted: var(--muted);
+  --border: var(--line);
+  --tag-bg: var(--accent-emphasis);
+  --tag-text: var(--accent);
 }
 
 html,
 body {
   background-color: var(--bg);
-  color: var(--text-primary);
-  font-family:
-    'Inter',
-    -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
-    Roboto,
-    Oxygen,
-    Ubuntu,
-    Cantarell,
-    sans-serif;
+  color: var(--fg);
+  font-family: var(--font-sans);
   margin: 0;
   padding: 0;
 }
 
 * {
   box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus:not(:focus-visible),
+a:focus:not(:focus-visible),
+summary:focus:not(:focus-visible) {
+  outline: none;
+}
+
+button:focus-visible,
+a:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+button {
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 a {
@@ -48,7 +123,7 @@ a {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
+  background: var(--line);
   border-radius: 3px;
 }
 
@@ -81,5 +156,6 @@ a {
     padding: 16px 16px !important;
   }
 }
+
 
 

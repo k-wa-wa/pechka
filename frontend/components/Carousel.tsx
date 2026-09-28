@@ -118,7 +118,7 @@ export default function Carousel({ items }: Props) {
           className="carousel-slide-box"
           style={{
             width: '100%',
-            backgroundColor: '#0d1117',
+            backgroundColor: 'var(--bg)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -167,7 +167,7 @@ export default function Carousel({ items }: Props) {
               position: 'absolute',
               inset: 0,
               background:
-                'linear-gradient(to top, rgba(13,17,23,0.95) 0%, rgba(13,17,23,0.3) 50%, transparent 100%)',
+                'linear-gradient(to top, rgba(25,24,22,0.95) 0%, rgba(25,24,22,0.3) 50%, transparent 100%)',
               pointerEvents: 'none',
             }}
           />
@@ -188,15 +188,16 @@ export default function Carousel({ items }: Props) {
                 style={{
                   fontSize: 11,
                   padding: '2px 8px',
-                  borderRadius: 4,
-                  backgroundColor: 'rgba(31,111,235,0.85)',
-                  color: '#58a6ff',
+                  borderRadius: 'var(--radius-sm)',
+                  backgroundColor: 'var(--accent-emphasis)',
+                  color: 'var(--accent)',
+                  border: '1px solid var(--accent-border)',
                 }}
               >
                 {CONTENT_TYPE_LABEL[item.content_type]}
               </span>
               {item.duration_seconds != null && (
-                <span style={{ fontSize: 13, color: '#8b949e' }}>
+                <span style={{ fontSize: 13, color: 'var(--muted)' }}>
                   {formatDuration(item.duration_seconds)}
                 </span>
               )}
@@ -206,9 +207,9 @@ export default function Carousel({ items }: Props) {
                 margin: 0,
                 fontSize: 'clamp(16px, 3vw, 24px)',
                 fontWeight: 700,
-                color: '#e6edf3',
+                color: 'var(--fg)',
                 lineHeight: 1.3,
-                textShadow: '0 1px 4px rgba(0,0,0,0.5)',
+                textShadow: '0 1px 4px rgba(0,0,0,0.6)',
               }}
             >
               {item.title}
@@ -221,10 +222,10 @@ export default function Carousel({ items }: Props) {
                     style={{
                       fontSize: 11,
                       padding: '2px 6px',
-                      borderRadius: 4,
-                      backgroundColor: '#1f6feb22',
-                      color: '#58a6ff',
-                      border: '1px solid #1f6feb44',
+                      borderRadius: 'var(--radius-sm)',
+                      backgroundColor: 'var(--accent-subtle)',
+                      color: 'var(--accent)',
+                      border: '1px solid var(--accent-border)',
                     }}
                   >
                     {tag}
@@ -250,8 +251,8 @@ export default function Carousel({ items }: Props) {
               left: 12,
               top: '50%',
               transform: 'translateY(-50%)',
-              backgroundColor: 'rgba(22,27,34,0.8)',
-              border: '1px solid #30363d',
+              backgroundColor: 'rgba(33, 31, 28, 0.8)',
+              border: '1px solid var(--line)',
               borderRadius: '50%',
               width: 36,
               height: 36,
@@ -259,8 +260,9 @@ export default function Carousel({ items }: Props) {
               alignItems: 'center',
               justifyContent: 'center',
               cursor: 'pointer',
-              color: '#e6edf3',
+              color: 'var(--fg)',
               zIndex: 3,
+              transition: 'background-color 0.15s, border-color 0.15s, transform var(--duration-release) var(--ease-spring)',
             }}
             aria-label="Previous"
           >
@@ -279,8 +281,8 @@ export default function Carousel({ items }: Props) {
               right: 12,
               top: '50%',
               transform: 'translateY(-50%)',
-              backgroundColor: 'rgba(22,27,34,0.8)',
-              border: '1px solid #30363d',
+              backgroundColor: 'rgba(33, 31, 28, 0.8)',
+              border: '1px solid var(--line)',
               borderRadius: '50%',
               width: 36,
               height: 36,
@@ -288,8 +290,9 @@ export default function Carousel({ items }: Props) {
               alignItems: 'center',
               justifyContent: 'center',
               cursor: 'pointer',
-              color: '#e6edf3',
+              color: 'var(--fg)',
               zIndex: 3,
+              transition: 'background-color 0.15s, border-color 0.15s, transform var(--duration-release) var(--ease-spring)',
             }}
             aria-label="Next"
           >
@@ -312,9 +315,10 @@ export default function Carousel({ items }: Props) {
           >
             <button
               onClick={() => setIsPlaying((p) => !p)}
+              className="carousel-ctrl-btn"
               style={{
-                backgroundColor: 'rgba(22,27,34,0.8)',
-                border: '1px solid #30363d',
+                backgroundColor: 'rgba(33, 31, 28, 0.8)',
+                border: '1px solid var(--line)',
                 borderRadius: '50%',
                 width: 24,
                 height: 24,
@@ -322,8 +326,9 @@ export default function Carousel({ items }: Props) {
                 alignItems: 'center',
                 justifyContent: 'center',
                 cursor: 'pointer',
-                color: '#8b949e',
+                color: 'var(--muted)',
                 padding: 0,
+                transition: 'color 0.15s, border-color 0.15s, transform var(--duration-release) var(--ease-spring)',
               }}
               aria-label={isPlaying ? 'Pause slideshow' : 'Start slideshow'}
               title={isPlaying ? 'Pause auto-slide' : 'Start auto-slide'}
@@ -355,7 +360,7 @@ export default function Carousel({ items }: Props) {
                       width: isActive ? 28 : 6,
                       height: 6,
                       borderRadius: 3,
-                      backgroundColor: '#30363d',
+                      backgroundColor: 'var(--line)',
                       border: 'none',
                       cursor: 'pointer',
                       padding: 0,
@@ -370,7 +375,7 @@ export default function Carousel({ items }: Props) {
                         style={{
                           position: 'absolute',
                           inset: 0,
-                          backgroundColor: '#58a6ff',
+                          backgroundColor: 'var(--accent)',
                           borderRadius: 3,
                           transformOrigin: 'left',
                           animation: `indicator-progress ${AUTO_SLIDE_INTERVAL}ms linear`,
@@ -383,6 +388,19 @@ export default function Carousel({ items }: Props) {
               })}
             </div>
           </div>
+
+          <style>{`
+            .carousel-arrow:active, .carousel-ctrl-btn:active {
+              transform: scale(var(--scale-button-active));
+              transition: transform var(--duration-press) var(--ease-snappy);
+            }
+            @media (hover: hover) {
+              .carousel-arrow:hover, .carousel-ctrl-btn:hover {
+                border-color: var(--accent);
+                color: var(--fg);
+              }
+            }
+          `}</style>
         </>
       )}
     </div>

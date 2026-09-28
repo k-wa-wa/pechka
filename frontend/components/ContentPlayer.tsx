@@ -11,12 +11,12 @@ function LoadingFallback({ textKey }: { textKey: string }) {
       style={{
         width: '100%',
         aspectRatio: '16/9',
-        backgroundColor: '#0d1117',
-        borderRadius: 8,
+        backgroundColor: 'var(--bg)',
+        borderRadius: 'var(--radius-md)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        color: '#8b949e',
+        color: 'var(--muted)',
       }}
     >
       {t(textKey)}

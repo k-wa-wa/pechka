@@ -40,8 +40,8 @@ export default function Header() {
       <header
         style={{
           height: 60,
-          backgroundColor: '#161b22',
-          borderBottom: '1px solid #30363d',
+          backgroundColor: 'var(--card)',
+          borderBottom: '1px solid var(--line)',
           display: 'flex',
           alignItems: 'center',
           padding: '0 24px',
@@ -57,7 +57,7 @@ export default function Header() {
           style={{
             fontSize: 20,
             fontWeight: 700,
-            color: '#e6edf3',
+            color: 'var(--fg)',
             letterSpacing: '-0.5px',
           }}
         >
@@ -75,11 +75,11 @@ export default function Header() {
               href={link.href}
               style={{
                 padding: '6px 12px',
-                borderRadius: 6,
+                borderRadius: 'var(--radius-md)',
                 fontSize: 14,
-                color: pathname === link.href ? '#e6edf3' : '#8b949e',
+                color: pathname === link.href ? 'var(--fg)' : 'var(--muted)',
                 backgroundColor:
-                  pathname === link.href ? '#0d1117' : 'transparent',
+                  pathname === link.href ? 'var(--bg)' : 'transparent',
                 transition: 'color 0.15s, background 0.15s',
               }}
             >
@@ -94,17 +94,19 @@ export default function Header() {
         <button
           onClick={() => setSearchOpen(true)}
           title={t('header.searchHint')}
+          className="header-btn"
           style={{
             background: 'none',
-            border: '1px solid #30363d',
-            borderRadius: 6,
-            color: '#8b949e',
+            border: '1px solid var(--line)',
+            borderRadius: 'var(--radius-md)',
+            color: 'var(--muted)',
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
             gap: 6,
             padding: '5px 10px',
             fontSize: 13,
+            transition: 'color 0.15s, border-color 0.15s, transform var(--duration-release) var(--ease-spring)',
           }}
         >
           <svg
@@ -122,7 +124,7 @@ export default function Header() {
           <kbd
             style={{
               fontSize: 10,
-              border: '1px solid #30363d',
+              border: '1px solid var(--line)',
               borderRadius: 3,
               padding: '1px 4px',
             }}
@@ -136,18 +138,19 @@ export default function Header() {
         <button
           onClick={() => setSettingsOpen(true)}
           title={t('header.settings')}
+          className="header-icon-btn"
           style={{
             background: 'none',
-            border: '1px solid #30363d',
-            borderRadius: 6,
-            color: '#8b949e',
+            border: '1px solid var(--line)',
+            borderRadius: 'var(--radius-md)',
+            color: 'var(--muted)',
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             padding: '6px',
             fontSize: 13,
-            transition: 'color 0.15s, border-color 0.15s',
+            transition: 'color 0.15s, border-color 0.15s, transform var(--duration-release) var(--ease-spring)',
           }}
         >
           <svg
@@ -172,7 +175,7 @@ export default function Header() {
           style={{
             background: 'none',
             border: 'none',
-            color: '#e6edf3',
+            color: 'var(--fg)',
             cursor: 'pointer',
             display: 'none',
             padding: 4,
@@ -208,8 +211,8 @@ export default function Header() {
             top: 60,
             left: 0,
             right: 0,
-            backgroundColor: '#161b22',
-            borderBottom: '1px solid #30363d',
+            backgroundColor: 'var(--card)',
+            borderBottom: '1px solid var(--line)',
             zIndex: 99,
             padding: '12px 24px',
           }}
@@ -222,9 +225,9 @@ export default function Header() {
               style={{
                 display: 'block',
                 padding: '10px 0',
-                color: pathname === link.href ? '#58a6ff' : '#e6edf3',
+                color: pathname === link.href ? 'var(--accent)' : 'var(--fg)',
                 fontSize: 15,
-                borderBottom: '1px solid #30363d',
+                borderBottom: '1px solid var(--line)',
               }}
             >
               {link.label}
@@ -238,6 +241,16 @@ export default function Header() {
           .desktop-nav { display: none !important; }
           .search-hint { display: none !important; }
           .hamburger { display: flex !important; }
+        }
+        .header-btn:active, .header-icon-btn:active {
+          transform: scale(var(--scale-button-active));
+          transition: transform var(--duration-press) var(--ease-snappy);
+        }
+        @media (hover: hover) {
+          .header-btn:hover, .header-icon-btn:hover {
+            color: var(--fg) !important;
+            border-color: var(--fg) !important;
+          }
         }
       `}</style>
 
