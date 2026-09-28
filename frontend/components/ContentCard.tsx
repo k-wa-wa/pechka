@@ -89,16 +89,18 @@ export default function ContentCard({ content }: Props) {
           justifyContent: 'center',
         }}
       >
-        {thumbnailUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={thumbnailUrl}
-            alt={content.title}
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-          />
-        ) : (
-          CONTENT_TYPE_ICON[content.content_type]
-        )}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={thumbnailUrl || `/images/placeholder-${content.content_type}.svg`}
+          alt={content.title}
+          onError={(e) => {
+            const fallback = `/images/placeholder-${content.content_type}.svg`
+            if (!e.currentTarget.src.endsWith(fallback)) {
+              e.currentTarget.src = fallback
+            }
+          }}
+          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+        />
 
         {/* Duration badge */}
         {content.duration_seconds != null && (
