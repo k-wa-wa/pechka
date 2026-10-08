@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/bwmarrin/snowflake"
 	"github.com/minio/minio-go/v7"
@@ -74,7 +75,7 @@ type IngestRequest struct {
 	ContentTitle string `json:"content_title"`
 }
 
-func triggerIngestAPI(ctx context.Context, apiURL, discLabel string) error {
+func triggerIngestAPI(ctx context.Context, apiURL, discLabel, contentTitle string) error {
 	if apiURL == "" {
 		log.Println("PECHKA_API_URL is not set, skipping Ingest API trigger")
 		return nil
@@ -88,9 +89,13 @@ func triggerIngestAPI(ctx context.Context, apiURL, discLabel string) error {
 	}
 	urlStr = fmt.Sprintf("%s/api/v1/contents/ingest", strings.TrimSuffix(urlStr, "/"))
 
+	if contentTitle == "" {
+		contentTitle = fmt.Sprintf("Auto Ingested from Bluray Extractor VM (Label: %s)", discLabel)
+	}
+
 	reqBody := IngestRequest{
 		DiscLabel:    discLabel,
-		ContentTitle: fmt.Sprintf("Auto Ingested from Bluray Extractor VM (Label: %s)", discLabel),
+		ContentTitle: contentTitle,
 	}
 
 	data, err := json.Marshal(reqBody)
@@ -252,6 +257,35 @@ func getDiscLabel(device string) (string, error) {
 	return label, nil
 }
 
+func getDiscUUID(device string) (string, error) {
+	cmd := exec.Command("blkid", "-o", "value", "-s", "UUID", device)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	uuid := strings.TrimSpace(string(out))
+	if uuid == "" {
+		return "", fmt.Errorf("no UUID found for device %s", device)
+	}
+	return uuid, nil
+}
+
+// resolveDiscKey returns a unique key for the disc.
+// If label is "DVD_VIDEO_RECORDER" (standard for domestic BD recorders),
+// we append the disc's filesystem UUID (or timestamp fallback) so that
+// each recorded disc has its own isolated directory and database record.
+func resolveDiscKey(device, label string) string {
+	if strings.EqualFold(label, "DVD_VIDEO_RECORDER") {
+		uuid, err := getDiscUUID(device)
+		if err == nil && uuid != "" {
+			return fmt.Sprintf("%s_%s", label, uuid)
+		}
+		log.Printf("WARNING: failed to read UUID for %s: %v. Using timestamp fallback.", device, err)
+		return fmt.Sprintf("%s_%s", label, time.Now().Format("20060102150405"))
+	}
+	return label
+}
+
 func resolveDiscIndex(device string) (int, error) {
 	cmd := exec.Command("makemkvcon", "-r", "info", "disc:9999")
 	out, _ := cmd.Output()
@@ -301,13 +335,13 @@ func RunExtract(ctx context.Context, osArgs []string) error {
 		if cfg.Device == "" {
 			return fmt.Errorf("DEVICE env var is required in auto mode")
 		}
-		var err error
-		discLabel, err = getDiscLabel(cfg.Device)
+		rawLabel, err := getDiscLabel(cfg.Device)
 		if err != nil {
 			log.Printf("No disc detected: %v. Skipping extraction.", err)
 			writeOutputs("", []MkvFile{})
 			return nil
 		}
+		discLabel = resolveDiscKey(cfg.Device, rawLabel)
 	}
 
 	var mkvFiles []MkvFile
@@ -345,7 +379,11 @@ func RunExtract(ctx context.Context, osArgs []string) error {
 			log.Printf("WARNING: failed to cleanup local output directory: %v", err)
 		}
 
-		if err := triggerIngestAPI(ctx, cfg.PechkaAPIURL, discLabel); err != nil {
+		var mainTitle string
+		if len(mkvFiles) > 0 {
+			mainTitle = mkvFiles[0].Title
+		}
+		if err := triggerIngestAPI(ctx, cfg.PechkaAPIURL, discLabel, mainTitle); err != nil {
 			log.Printf("WARNING: failed to trigger Ingest API: %v", err)
 		}
 
