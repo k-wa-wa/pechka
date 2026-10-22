@@ -16,6 +16,7 @@ configMapGenerator:
       - 003_add_thumbnail_key.up.sql=migrations/003_add_thumbnail_key.up.sql
       - 004_add_subtitles.up.sql=migrations/004_add_subtitles.up.sql
       - 005_add_archived_at.up.sql=migrations/005_add_archived_at.up.sql
+      - 006_add_channels.up.sql=migrations/006_add_channels.up.sql
     options:
       # このConfigMapに非hookのままだと、Argo CDの通常Syncフェーズ（PreSyncの後）で
       # 適用される。postgres-migrate Job（PreSyncフック）はそれより先に走るため、

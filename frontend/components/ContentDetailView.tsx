@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import type { MongoContent, MongoVariant } from '@/lib/types'
 import ContentPlayer from '@/components/ContentPlayer'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
@@ -72,6 +73,7 @@ export default function ContentDetailView({ content, variants }: Props) {
         <div
           style={{
             display: 'flex',
+            alignItems: 'center',
             gap: 16,
             marginBottom: 16,
             flexWrap: 'wrap',
@@ -79,6 +81,26 @@ export default function ContentDetailView({ content, variants }: Props) {
             color: 'var(--muted)',
           }}
         >
+          {content.channel_id && (
+            <Link
+              href={`/channels/${content.channel_id}`}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '3px 10px',
+                borderRadius: 'var(--radius-full)',
+                backgroundColor: 'var(--card)',
+                border: '1px solid var(--line)',
+                color: 'var(--fg)',
+                fontSize: 12,
+                fontWeight: 600,
+                textDecoration: 'none',
+              }}
+            >
+              <span>{content.channel_name || content.channel_id}</span>
+            </Link>
+          )}
           {content.duration_seconds != null && (
             <span>
               {Math.floor(content.duration_seconds / 60)}{t('content.minutes')}

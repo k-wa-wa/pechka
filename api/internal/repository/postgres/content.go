@@ -20,6 +20,7 @@ func NewContentRepository(pool *pgxpool.Pool) *ContentRepository {
 type CreateContentParams struct {
 	ShortID         string
 	ContentType     domain.ContentType
+	ChannelID       string
 	DiscID          *string
 	Title           string
 	Description     string
@@ -30,11 +31,15 @@ type CreateContentParams struct {
 }
 
 func (r *ContentRepository) Create(ctx context.Context, params CreateContentParams) (*domain.Content, error) {
+	channelID := strings.TrimSpace(params.ChannelID)
+	if channelID == "" {
+		return nil, fmt.Errorf("channel_id is required")
+	}
 	row := r.pool.QueryRow(ctx, `
-		INSERT INTO contents (short_id, content_type, disc_id, title, description, duration_seconds, is_360, tags, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING id, short_id, content_type, disc_id, title, description, duration_seconds, is_360, tags, status, published_at, archived_at, created_at, updated_at
-	`, params.ShortID, params.ContentType, params.DiscID, params.Title, params.Description,
+		INSERT INTO contents (short_id, content_type, channel_id, disc_id, title, description, duration_seconds, is_360, tags, status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		RETURNING id, short_id, content_type, channel_id, disc_id, title, description, duration_seconds, is_360, tags, status, published_at, archived_at, created_at, updated_at
+	`, params.ShortID, params.ContentType, channelID, params.DiscID, params.Title, params.Description,
 		params.DurationSeconds, params.Is360, params.Tags, params.Status)
 
 	return scanContent(row)
@@ -42,6 +47,7 @@ func (r *ContentRepository) Create(ctx context.Context, params CreateContentPara
 
 type UpdateContentParams struct {
 	ID          string
+	ChannelID   *string
 	Title       *string
 	Description *string
 	Tags        []string
@@ -53,6 +59,11 @@ func (r *ContentRepository) Update(ctx context.Context, params UpdateContentPara
 	args := []any{}
 	argIdx := 1
 
+	if params.ChannelID != nil {
+		setClauses = append(setClauses, fmt.Sprintf("channel_id = $%d", argIdx))
+		args = append(args, *params.ChannelID)
+		argIdx++
+	}
 	if params.Title != nil {
 		setClauses = append(setClauses, fmt.Sprintf("title = $%d", argIdx))
 		args = append(args, *params.Title)
@@ -82,7 +93,7 @@ func (r *ContentRepository) Update(ctx context.Context, params UpdateContentPara
 	query := fmt.Sprintf(`
 		UPDATE contents SET %s
 		WHERE id = $%d
-		RETURNING id, short_id, content_type, disc_id, title, description, duration_seconds, is_360, tags, status, published_at, archived_at, created_at, updated_at
+		RETURNING id, short_id, content_type, channel_id, disc_id, title, description, duration_seconds, is_360, tags, status, published_at, archived_at, created_at, updated_at
 	`, strings.Join(setClauses, ", "), argIdx)
 
 	row := r.pool.QueryRow(ctx, query, args...)
@@ -102,13 +113,13 @@ func (r *ContentRepository) SetArchived(ctx context.Context, id string, archived
 		row = r.pool.QueryRow(ctx, `
 			UPDATE contents SET archived_at = CURRENT_TIMESTAMP
 			WHERE id = $1
-			RETURNING id, short_id, content_type, disc_id, title, description, duration_seconds, is_360, tags, status, published_at, archived_at, created_at, updated_at
+			RETURNING id, short_id, content_type, channel_id, disc_id, title, description, duration_seconds, is_360, tags, status, published_at, archived_at, created_at, updated_at
 		`, id)
 	} else {
 		row = r.pool.QueryRow(ctx, `
 			UPDATE contents SET archived_at = NULL
 			WHERE id = $1
-			RETURNING id, short_id, content_type, disc_id, title, description, duration_seconds, is_360, tags, status, published_at, archived_at, created_at, updated_at
+			RETURNING id, short_id, content_type, channel_id, disc_id, title, description, duration_seconds, is_360, tags, status, published_at, archived_at, created_at, updated_at
 		`, id)
 	}
 	return scanContent(row)
@@ -116,14 +127,15 @@ func (r *ContentRepository) SetArchived(ctx context.Context, id string, archived
 
 func (r *ContentRepository) GetByID(ctx context.Context, id string) (*domain.Content, error) {
 	row := r.pool.QueryRow(ctx, `
-		SELECT id, short_id, content_type, disc_id, title, description, duration_seconds, is_360, tags, status, published_at, archived_at, created_at, updated_at
+		SELECT id, short_id, content_type, channel_id, disc_id, title, description, duration_seconds, is_360, tags, status, published_at, archived_at, created_at, updated_at
 		FROM contents WHERE id = $1
 	`, id)
 	return scanContent(row)
 }
 
 type ListContentsParams struct {
-	Status *domain.ContentStatus
+	Status    *domain.ContentStatus
+	ChannelID *string
 	// IncludeArchived が false の場合、アーカイブ済み(archived_at IS NOT NULL)のコンテンツは除外される。
 	// admin画面はアーカイブ済みも含めて表示・管理するため true を指定する。
 	IncludeArchived bool
@@ -133,7 +145,7 @@ type ListContentsParams struct {
 
 func (r *ContentRepository) List(ctx context.Context, params ListContentsParams) ([]*domain.Content, error) {
 	whereClause, args, argIdx := buildListContentsWhere(params)
-	query := `SELECT id, short_id, content_type, disc_id, title, description, duration_seconds, is_360, tags, status, published_at, archived_at, created_at, updated_at FROM contents` + whereClause
+	query := `SELECT id, short_id, content_type, channel_id, disc_id, title, description, duration_seconds, is_360, tags, status, published_at, archived_at, created_at, updated_at FROM contents` + whereClause
 
 	query += fmt.Sprintf(" ORDER BY updated_at DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
 	args = append(args, params.Limit, params.Offset)
@@ -155,7 +167,7 @@ func (r *ContentRepository) List(ctx context.Context, params ListContentsParams)
 	return contents, rows.Err()
 }
 
-// Count は List と同じ絞り込み条件(Status/IncludeArchived)に一致する件数を返す。
+// Count は List と同じ絞り込み条件(Status/ChannelID/IncludeArchived)に一致する件数を返す。
 // Limit/Offset は無視される。
 func (r *ContentRepository) Count(ctx context.Context, params ListContentsParams) (int, error) {
 	whereClause, args, _ := buildListContentsWhere(params)
@@ -178,6 +190,11 @@ func buildListContentsWhere(params ListContentsParams) (string, []any, int) {
 		args = append(args, *params.Status)
 		argIdx++
 	}
+	if params.ChannelID != nil {
+		conditions = append(conditions, fmt.Sprintf("channel_id = $%d", argIdx))
+		args = append(args, *params.ChannelID)
+		argIdx++
+	}
 	if !params.IncludeArchived {
 		conditions = append(conditions, "archived_at IS NULL")
 	}
@@ -195,7 +212,7 @@ type scanner interface {
 func scanContent(row scanner) (*domain.Content, error) {
 	var c domain.Content
 	err := row.Scan(
-		&c.ID, &c.ShortID, &c.ContentType, &c.DiscID, &c.Title, &c.Description,
+		&c.ID, &c.ShortID, &c.ContentType, &c.ChannelID, &c.DiscID, &c.Title, &c.Description,
 		&c.DurationSeconds, &c.Is360, &c.Tags, &c.Status, &c.PublishedAt, &c.ArchivedAt, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if err != nil {

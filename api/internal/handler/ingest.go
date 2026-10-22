@@ -11,8 +11,9 @@ import (
 )
 
 type IngestHandler struct {
-	dynClient dynamic.Interface
-	namespace string
+	dynClient   dynamic.Interface
+	channelRepo pgChannelRepository
+	namespace   string
 }
 
 func NewIngestHandler(dynClient dynamic.Interface, namespace string) *IngestHandler {
@@ -22,9 +23,15 @@ func NewIngestHandler(dynClient dynamic.Interface, namespace string) *IngestHand
 	}
 }
 
+func (h *IngestHandler) WithChannelRepository(channelRepo pgChannelRepository) *IngestHandler {
+	h.channelRepo = channelRepo
+	return h
+}
+
 type IngestRequest struct {
-	DiscLabel    string `json:"disc_label"`
-	ContentTitle string `json:"content_title"`
+	DiscLabel    string  `json:"disc_label"`
+	ContentTitle string  `json:"content_title"`
+	ChannelID    *string `json:"channel_id"`
 }
 
 type IngestResponse struct {
@@ -43,6 +50,11 @@ func (h *IngestHandler) TriggerIngest(c echo.Context) error {
 	}
 
 	ctx := c.Request().Context()
+	channelID, err := resolveChannelID(ctx, c, req.ChannelID, h.channelRepo)
+	if err != nil {
+		return err
+	}
+
 	workflowGVR := schema.GroupVersionResource{
 		Group:    "argoproj.io",
 		Version:  "v1alpha1",
@@ -71,6 +83,10 @@ func (h *IngestHandler) TriggerIngest(c echo.Context) error {
 						map[string]interface{}{
 							"name":  "content-title",
 							"value": req.ContentTitle,
+						},
+						map[string]interface{}{
+							"name":  "channel-id",
+							"value": channelID,
 						},
 					},
 				},

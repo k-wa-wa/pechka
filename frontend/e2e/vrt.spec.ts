@@ -63,6 +63,13 @@ test.describe('Visual Regression Tests', () => {
     await expect(page).toHaveScreenshot('content-vr360.png', SCREENSHOT_OPTIONS)
   })
 
+  test('channel page - bluray', async ({ page }) => {
+    await page.goto('/channels/bluray')
+    await page.waitForSelector('h1', { timeout: 10_000 })
+    await waitForPageReady(page)
+    await expect(page).toHaveScreenshot('channel-bluray.png', SCREENSHOT_OPTIONS)
+  })
+
   test('settings modal', async ({ page }) => {
     await page.goto('/')
     await page.waitForSelector('h1', { timeout: 10_000 })

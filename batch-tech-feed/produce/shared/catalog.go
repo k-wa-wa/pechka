@@ -16,6 +16,7 @@ import (
 
 const (
 	ContentTypeContentType = "video"
+	DefaultChannelID       = "tech-feed"
 	ShortIDMax             = 50
 	RandomSuffixLen        = 6 // 6桁のランダムヘキサ(例: a1b2c3)
 )
@@ -85,13 +86,18 @@ func UpsertContent(ctx context.Context, conn *pgx.Conn, sourceKey, title, descri
 	if tags == nil {
 		tags = defaultTags
 	}
+	channelID := strings.TrimSpace(os.Getenv("CHANNEL_ID"))
+	if channelID == "" {
+		channelID = DefaultChannelID
+	}
 
 	query := `
 	INSERT INTO contents
-		(short_id, content_type, title, description, status, duration_seconds, tags)
-	VALUES ($1, $2, $3, $4, 'processing', $5, $6)
+		(short_id, content_type, channel_id, title, description, status, duration_seconds, tags)
+	VALUES ($1, $2, $3, $4, $5, 'processing', $6, $7)
 	ON CONFLICT (short_id)
 	DO UPDATE SET
+		channel_id = EXCLUDED.channel_id,
 		title = EXCLUDED.title,
 		description = EXCLUDED.description,
 		duration_seconds = EXCLUDED.duration_seconds,
@@ -103,7 +109,7 @@ func UpsertContent(ctx context.Context, conn *pgx.Conn, sourceKey, title, descri
 
 	var contentID string
 	var retShortID string
-	err := conn.QueryRow(ctx, query, shortID, ContentTypeContentType, title, description, durationSeconds, tags).Scan(&contentID, &retShortID)
+	err := conn.QueryRow(ctx, query, shortID, ContentTypeContentType, channelID, title, description, durationSeconds, tags).Scan(&contentID, &retShortID)
 	if err != nil {
 		return "", "", fmt.Errorf("upsert_content failed: %w", err)
 	}

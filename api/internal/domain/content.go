@@ -21,6 +21,7 @@ type Content struct {
 	ID              string        `json:"id"`
 	ShortID         string        `json:"short_id"`
 	ContentType     ContentType   `json:"content_type"`
+	ChannelID       string        `json:"channel_id"`
 	DiscID          *string       `json:"disc_id,omitempty"`
 	Title           string        `json:"title"`
 	Description     string        `json:"description"`
@@ -57,6 +58,8 @@ type Asset struct {
 type MongoContent struct {
 	ID              string         `bson:"_id" json:"short_id"`
 	ContentType     ContentType    `bson:"content_type" json:"content_type"`
+	ChannelID       string         `bson:"channel_id" json:"channel_id"`
+	ChannelName     string         `bson:"channel_name" json:"channel_name"`
 	Title           string         `bson:"title" json:"title"`
 	Description     string         `bson:"description" json:"description"`
 	DurationSeconds *int           `bson:"duration_seconds,omitempty" json:"duration_seconds,omitempty"`

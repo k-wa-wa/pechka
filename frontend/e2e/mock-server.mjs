@@ -1,9 +1,28 @@
 import http from 'node:http'
 
+const CHANNELS = [
+  {
+    id: 'tech-feed',
+    name: 'Tech Feed',
+    description: '自動収集・AI生成による技術ダイジェスト解説',
+    created_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-01T00:00:00Z',
+  },
+  {
+    id: 'bluray',
+    name: 'Blu-ray',
+    description: 'Blu-ray取り込み動画',
+    created_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-01T00:00:00Z',
+  },
+]
+
 const CONTENTS = [
   {
     short_id: 'vid001',
     content_type: 'video',
+    channel_id: 'bluray',
+    channel_name: 'Blu-ray',
     title: '夏の思い出 2024',
     description: '海辺での夏のひとこまを収めた映像です。',
     duration_seconds: 342,
@@ -19,6 +38,8 @@ const CONTENTS = [
   {
     short_id: 'vid002',
     content_type: 'video',
+    channel_id: 'bluray',
+    channel_name: 'Blu-ray',
     title: '秋の紅葉ドライブ',
     description: '山道を走りながら撮影した紅葉の映像。',
     duration_seconds: 580,
@@ -34,6 +55,8 @@ const CONTENTS = [
   {
     short_id: 'gal001',
     content_type: 'image_gallery',
+    channel_id: 'bluray',
+    channel_name: 'Blu-ray',
     title: '春の花々フォトギャラリー',
     description: '桜・菜の花・チューリップなど春の花の写真集。',
     duration_seconds: null,
@@ -49,6 +72,8 @@ const CONTENTS = [
   {
     short_id: 'vr001',
     content_type: 'vr360',
+    channel_id: 'bluray',
+    channel_name: 'Blu-ray',
     title: '360° 富士山山頂の眺め',
     description: '富士山山頂からの360度パノラマ映像。',
     duration_seconds: 120,
@@ -64,6 +89,8 @@ const CONTENTS = [
   {
     short_id: 'vid003',
     content_type: 'video',
+    channel_id: 'bluray',
+    channel_name: 'Blu-ray',
     title: '冬の北海道旅行記',
     description: '雪景色の北海道を旅した記録映像。',
     duration_seconds: 1240,
@@ -79,6 +106,8 @@ const CONTENTS = [
   {
     short_id: 'doc001',
     content_type: 'document',
+    channel_id: 'tech-feed',
+    channel_name: 'Tech Feed',
     title: '2024年度 活動報告書',
     description: '年間の活動をまとめたドキュメント。',
     duration_seconds: null,
@@ -94,6 +123,8 @@ const CONTENTS = [
   {
     short_id: 'vid004',
     content_type: 'video',
+    channel_id: 'bluray',
+    channel_name: 'Blu-ray',
     title: '処理中のコンテンツ',
     description: '',
     duration_seconds: null,
@@ -112,6 +143,7 @@ const ADMIN_CONTENTS = CONTENTS.map((c, i) => ({
   id: `00000000-0000-0000-0000-${String(i + 1).padStart(12, '0')}`,
   short_id: c.short_id,
   content_type: c.content_type,
+  channel_id: c.channel_id,
   disc_id: null,
   title: c.title,
   description: c.description,
@@ -215,12 +247,29 @@ const server = http.createServer(async (req, res) => {
   const path = url.pathname
   const method = req.method ?? 'GET'
 
+  // GET /api/v1/channels
+  if (path === '/api/v1/channels') {
+    send(res, 200, CHANNELS)
+    return
+  }
+
+  // GET /api/v1/channels/:id
+  const channelMatch = path.match(/^\/api\/v1\/channels\/([^/]+)$/)
+  if (channelMatch) {
+    const ch = CHANNELS.find((c) => c.id === channelMatch[1])
+    if (!ch) { send(res, 404, { error: 'not found' }); return }
+    send(res, 200, ch)
+    return
+  }
+
   // GET /api/v1/contents
   if (path === '/api/v1/contents') {
     const contentType = url.searchParams.get('content_type')
+    const channelId = url.searchParams.get('channel_id')
     const limit = parseInt(url.searchParams.get('limit') ?? '100')
     let items = CONTENTS
     if (contentType) items = items.filter((c) => c.content_type === contentType)
+    if (channelId) items = items.filter((c) => c.channel_id === channelId)
     send(res, 200, items.slice(0, limit))
     return
   }
@@ -264,11 +313,27 @@ const server = http.createServer(async (req, res) => {
     const item = ADMIN_CONTENTS.find((c) => c.id === updateContentMatch[1])
     if (!item) { send(res, 404, { error: 'not found' }); return }
     const body = await readJsonBody(req)
+    if (body.channel_id != null) item.channel_id = body.channel_id
     if (body.title != null) item.title = body.title
     if (body.description != null) item.description = body.description
     if (body.tags != null) item.tags = body.tags
     if (body.status != null) item.status = body.status
     item.updated_at = new Date().toISOString()
+
+    // Sync to public CONTENTS mock so changes are immediately visible on / and /channels/:id
+    const pubItem = CONTENTS.find((c) => c.short_id === item.short_id)
+    if (pubItem) {
+      if (body.channel_id != null) {
+        pubItem.channel_id = body.channel_id
+        const ch = CHANNELS.find((c) => c.id === body.channel_id)
+        pubItem.channel_name = ch ? ch.name : body.channel_id
+      }
+      if (body.title != null) pubItem.title = body.title
+      if (body.description != null) pubItem.description = body.description
+      if (body.tags != null) pubItem.tags = body.tags
+      if (body.status != null) pubItem.status = body.status
+      pubItem.updated_at = item.updated_at
+    }
     send(res, 200, item)
     return
   }
@@ -281,11 +346,14 @@ const server = http.createServer(async (req, res) => {
     const titleMatch = body.match(/name="title"\r\n\r\n(.*)\r\n/)
     const title = titleMatch ? titleMatch[1] : null
     if (!title) { send(res, 400, { error: 'file and title are required' }); return }
+    const channelId = (req.headers['x-channel-id'] || '').trim()
+    if (!channelId) { send(res, 400, { error: 'channel_id is required' }); return }
     const now = new Date().toISOString()
     const content = {
       id: `upload-${Date.now()}`,
       short_id: `up${Date.now()}`,
       content_type: 'video',
+      channel_id: channelId,
       disc_id: null,
       title,
       description: '',
@@ -418,6 +486,7 @@ const server = http.createServer(async (req, res) => {
 })
 
 const PORT = process.env.MOCK_PORT ?? 3001
-server.listen(PORT, () => {
-  console.log(`Mock API server running on http://localhost:${PORT}`)
+const HOST = process.env.MOCK_HOST ?? '127.0.0.1'
+server.listen(PORT, HOST, () => {
+  console.log(`Mock API server running on http://${HOST}:${PORT}`)
 })

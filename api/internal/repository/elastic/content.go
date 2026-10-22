@@ -21,11 +21,13 @@ func NewContentRepository(client *elasticsearch.Client) *ContentRepository {
 }
 
 type SearchResult struct {
-	ShortID     string             `json:"short_id"`
-	Title       string             `json:"title"`
-	Description string             `json:"description"`
-	ContentType domain.ContentType `json:"content_type"`
-	Tags        []string           `json:"tags"`
+	ShortID     string               `json:"short_id"`
+	Title       string               `json:"title"`
+	Description string               `json:"description"`
+	ContentType domain.ContentType   `json:"content_type"`
+	ChannelID   string               `json:"channel_id"`
+	ChannelName string               `json:"channel_name"`
+	Tags        []string             `json:"tags"`
 	Status      domain.ContentStatus `json:"status"`
 }
 
@@ -59,7 +61,7 @@ func (r *ContentRepository) Search(ctx context.Context, query string, limit, off
 				},
 			},
 		},
-		"_source": []string{"short_id", "title", "description", "content_type", "tags", "status"},
+		"_source": []string{"short_id", "title", "description", "content_type", "channel_id", "channel_name", "tags", "status"},
 	}
 
 	var buf bytes.Buffer

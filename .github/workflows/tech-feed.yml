@@ -42,6 +42,9 @@ jobs:
       - name: Build
         run: CGO_ENABLED=0 go build ./...
 
+      - name: Test
+        run: CGO_ENABLED=0 go test ./...
+
   test-produce:
     name: Test (Tech Feed Produce)
     runs-on: ubuntu-latest
@@ -63,6 +66,9 @@ jobs:
 
       - name: Build
         run: CGO_ENABLED=0 go build ./...
+
+      - name: Test
+        run: CGO_ENABLED=0 go test ./...
 
       - name: Set up Node.js
         uses: actions/setup-node@v4

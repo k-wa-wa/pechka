@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import type { Content, ContentStatus } from '@/lib/types'
+import type { Channel, Content, ContentStatus } from '@/lib/types'
 import { archiveContent, getAdminContents, unarchiveContent } from '@/lib/api'
 import EditModal from './EditModal'
 import SubtitleEditorModal from './SubtitleEditorModal'
@@ -10,6 +10,7 @@ import { useLanguage } from '@/lib/i18n/LanguageContext'
 
 interface Props {
   initialContents: Content[]
+  channels?: Channel[]
   onUploaded?: () => void
 }
 
@@ -37,7 +38,7 @@ const CONTENT_TYPE_LABEL: Record<string, string> = {
   document: 'Document',
 }
 
-export default function AdminTable({ initialContents, onUploaded }: Props) {
+export default function AdminTable({ initialContents, channels, onUploaded }: Props) {
   const [contents, setContents] = useState<Content[]>(initialContents)
   const [editingContent, setEditingContent] = useState<Content | null>(null)
   const [subtitleContent, setSubtitleContent] = useState<Content | null>(null)
@@ -98,6 +99,7 @@ export default function AdminTable({ initialContents, onUploaded }: Props) {
 
   const tableHeaders = [
     t('admin.table.colTitle'),
+    t('admin.table.colChannel'),
     t('admin.table.colType'),
     t('admin.table.colStatus'),
     t('admin.table.colTags'),
@@ -174,7 +176,7 @@ export default function AdminTable({ initialContents, onUploaded }: Props) {
             {contents.length === 0 && (
               <tr>
                 <td
-                  colSpan={6}
+                  colSpan={7}
                   style={{
                     padding: '32px',
                     textAlign: 'center',
@@ -209,6 +211,22 @@ export default function AdminTable({ initialContents, onUploaded }: Props) {
                   title={content.title}
                 >
                   {content.title}
+                </td>
+
+                {/* Channel */}
+                <td style={{ padding: '10px 14px', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                  <span
+                    style={{
+                      fontSize: 12,
+                      padding: '2px 8px',
+                      borderRadius: 'var(--radius-sm)',
+                      backgroundColor: 'var(--card)',
+                      border: '1px solid var(--line)',
+                      color: 'var(--fg)',
+                    }}
+                  >
+                    {content.channel_id ?? 'bluray'}
+                  </span>
                 </td>
 
                 {/* Content type */}
@@ -388,6 +406,7 @@ export default function AdminTable({ initialContents, onUploaded }: Props) {
       {editingContent && (
         <EditModal
           content={editingContent}
+          channels={channels}
           onClose={() => setEditingContent(null)}
           onSave={handleSave}
         />
@@ -401,7 +420,11 @@ export default function AdminTable({ initialContents, onUploaded }: Props) {
       )}
 
       {uploadOpen && (
-        <UploadModal onClose={() => setUploadOpen(false)} onUploaded={handleUploaded} />
+        <UploadModal
+          channels={channels}
+          onClose={() => setUploadOpen(false)}
+          onUploaded={handleUploaded}
+        />
       )}
     </>
   )

@@ -16,6 +16,7 @@ type LoadConfig struct {
 	DiscLabel    string
 	ContentTitle string
 	ContentType  string
+	ChannelID    string
 	Is360        bool
 }
 
@@ -28,10 +29,12 @@ func loadConfigFromEnv() LoadConfig {
 	if contentTitle == "" {
 		log.Fatalf("CONTENT_TITLE env var is required when DISC_LABEL is not set")
 	}
+	channelID := os.Getenv("CHANNEL_ID")
 	return LoadConfig{
 		DiscLabel:    discLabel,
 		ContentTitle: contentTitle,
 		ContentType:  os.Getenv("CONTENT_TYPE"),
+		ChannelID:    channelID,
 		Is360:        os.Getenv("IS_360") == "true",
 	}
 }
@@ -46,13 +49,16 @@ func ensureDisc(ctx context.Context, db *pgxpool.Pool, label string) (string, er
 }
 
 func upsertContent(ctx context.Context, db *pgxpool.Pool, proposedShortID string, discID *string, cfg LoadConfig) (contentID string, finalShortID string, err error) {
+	if cfg.ChannelID == "" {
+		return "", "", fmt.Errorf("CHANNEL_ID env var is required")
+	}
 	err = db.QueryRow(ctx,
-		`INSERT INTO contents (short_id, content_type, disc_id, title, status, is_360)
-		 VALUES ($1, $2, $3, $4, 'processing', $5)
+		`INSERT INTO contents (short_id, content_type, channel_id, disc_id, title, status, is_360)
+		 VALUES ($1, $2, $3, $4, $5, 'processing', $6)
 		 ON CONFLICT (disc_id) WHERE disc_id IS NOT NULL
-		 DO UPDATE SET status = 'processing', updated_at = NOW()
+		 DO UPDATE SET channel_id = EXCLUDED.channel_id, status = 'processing', updated_at = NOW()
 		 RETURNING id, short_id`,
-		proposedShortID, cfg.ContentType, discID, cfg.ContentTitle, cfg.Is360,
+		proposedShortID, cfg.ContentType, cfg.ChannelID, discID, cfg.ContentTitle, cfg.Is360,
 	).Scan(&contentID, &finalShortID)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to upsert content: %w", err)

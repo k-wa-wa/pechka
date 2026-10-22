@@ -20,6 +20,7 @@ func NewContentRepository(db *mongo.Database) *ContentRepository {
 
 type ListParams struct {
 	ContentType *domain.ContentType
+	ChannelID   *string
 	Status      *domain.ContentStatus
 	Limit       int64
 	Offset      int64
@@ -31,6 +32,9 @@ func (r *ContentRepository) List(ctx context.Context, params ListParams) ([]*dom
 	filter := bson.M{"archived_at": nil}
 	if params.ContentType != nil {
 		filter["content_type"] = *params.ContentType
+	}
+	if params.ChannelID != nil {
+		filter["channel_id"] = *params.ChannelID
 	}
 	if params.Status != nil {
 		filter["status"] = *params.Status

@@ -39,8 +39,17 @@ func (h *ContentsHandler) List(c echo.Context) error {
 		contentType = &v
 	}
 
+	var channelID *string
+	if ch := c.QueryParam("channel_id"); ch != "" {
+		if !domain.IsValidChannelID(ch) {
+			return echo.NewHTTPError(http.StatusBadRequest, "invalid channel_id")
+		}
+		channelID = &ch
+	}
+
 	params := mongoRepo.ListParams{
 		ContentType: contentType,
+		ChannelID:   channelID,
 		Limit:       limit,
 		Offset:      offset,
 	}
