@@ -138,6 +138,7 @@ func TestUploadHandler_UploadVideo_MinioFailure(t *testing.T) {
 	e := echo.New()
 
 	req, _ := newMultipartUploadRequest(t, map[string]string{"title": "Test Video"}, true)
+	req.Header.Set(domain.HeaderChannelID, "bluray")
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -187,6 +188,7 @@ func TestUploadHandler_UploadVideo_Success(t *testing.T) {
 		"description": "a video",
 		"tags":        "foo, bar",
 	}, true)
+	req.Header.Set(domain.HeaderChannelID, "bluray")
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -247,6 +249,7 @@ func TestUploadHandler_UploadVideo_WorkflowTriggerFailure(t *testing.T) {
 	e := echo.New()
 
 	req, _ := newMultipartUploadRequest(t, map[string]string{"title": "Test Video"}, true)
+	req.Header.Set(domain.HeaderChannelID, "bluray")
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -257,5 +260,59 @@ func TestUploadHandler_UploadVideo_WorkflowTriggerFailure(t *testing.T) {
 	he := err.(*echo.HTTPError)
 	if he.Code != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", he.Code)
+	}
+}
+
+func TestUploadHandler_UploadVideo_MissingChannelId(t *testing.T) {
+	minioClient := &mockMinioPutObjecter{
+		putObjectFn: func(ctx context.Context, bucketName, objectName string, reader io.Reader, objectSize int64, opts minio.PutObjectOptions) (minio.UploadInfo, error) {
+			t.Fatal("minio PutObject should not be called when channel_id is missing")
+			return minio.UploadInfo{}, nil
+		},
+	}
+	h := handler.NewUploadHandler(&mockContentCreator{}, minioClient, "pechka", newFakeDynamicClient(), newSnowflakeNode(t), "pechka")
+	e := echo.New()
+
+	req, _ := newMultipartUploadRequest(t, map[string]string{"title": "Test Video"}, true)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.UploadVideo(c)
+	if err == nil {
+		t.Fatal("expected error when channel_id is missing, got nil")
+	}
+	he := err.(*echo.HTTPError)
+	if he.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", he.Code)
+	}
+}
+
+func TestUploadHandler_UploadVideo_UnknownChannelId(t *testing.T) {
+	minioClient := &mockMinioPutObjecter{
+		putObjectFn: func(ctx context.Context, bucketName, objectName string, reader io.Reader, objectSize int64, opts minio.PutObjectOptions) (minio.UploadInfo, error) {
+			t.Fatal("minio PutObject should not be called when channel_id is unknown")
+			return minio.UploadInfo{}, nil
+		},
+	}
+	channelRepo := &mockPgChannelRepo{
+		existsFn: func(_ context.Context, id string) (bool, error) {
+			return id == "bluray" || id == "tech-feed", nil
+		},
+	}
+	h := handler.NewUploadHandler(&mockContentCreator{}, minioClient, "pechka", newFakeDynamicClient(), newSnowflakeNode(t), "pechka").WithChannelRepository(channelRepo)
+	e := echo.New()
+
+	req, _ := newMultipartUploadRequest(t, map[string]string{"title": "Test Video"}, true)
+	req.Header.Set(domain.HeaderChannelID, "unknown-ch")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.UploadVideo(c)
+	if err == nil {
+		t.Fatal("expected error when channel_id is unknown, got nil")
+	}
+	he := err.(*echo.HTTPError)
+	if he.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", he.Code)
 	}
 }

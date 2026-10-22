@@ -26,6 +26,8 @@ export const dictionaries: Record<Language, Translations> = {
     'home.title': 'コンテンツ一覧',
     'home.noContents': 'コンテンツがありません',
     'filter.all': 'すべて',
+    'filter.allChannels': 'すべてのチャンネル',
+    'channel.label': 'チャンネル',
 
     // Search Modal
     'search.placeholder': 'コンテンツを検索...',
@@ -46,6 +48,7 @@ export const dictionaries: Record<Language, Translations> = {
     'admin.title': '管理画面',
     'admin.itemsCount': '件',
     'admin.table.colTitle': 'タイトル',
+    'admin.table.colChannel': 'チャンネル',
     'admin.table.colType': '種別',
     'admin.table.colStatus': 'ステータス',
     'admin.table.colTags': 'タグ',
@@ -67,6 +70,7 @@ export const dictionaries: Record<Language, Translations> = {
 
     // Edit Modal
     'editModal.title': 'コンテンツを編集',
+    'editModal.fieldChannel': 'チャンネル',
     'editModal.fieldTitle': 'タイトル',
     'editModal.fieldDescription': '説明',
     'editModal.fieldTags': 'タグ (カンマ区切り)',
@@ -77,6 +81,7 @@ export const dictionaries: Record<Language, Translations> = {
 
     // Upload Modal
     'uploadModal.title': '動画をアップロード',
+    'uploadModal.fieldChannel': 'チャンネル',
     'uploadModal.fieldFile': '動画ファイル',
     'uploadModal.fieldTitle': 'タイトル',
     'uploadModal.fieldDescription': '説明',
@@ -105,6 +110,8 @@ export const dictionaries: Record<Language, Translations> = {
     'home.title': 'Contents',
     'home.noContents': 'No contents found',
     'filter.all': 'All',
+    'filter.allChannels': 'All Channels',
+    'channel.label': 'Channel',
 
     // Search Modal
     'search.placeholder': 'Search contents...',
@@ -125,6 +132,7 @@ export const dictionaries: Record<Language, Translations> = {
     'admin.title': 'Admin Panel',
     'admin.itemsCount': 'items',
     'admin.table.colTitle': 'Title',
+    'admin.table.colChannel': 'Channel',
     'admin.table.colType': 'Type',
     'admin.table.colStatus': 'Status',
     'admin.table.colTags': 'Tags',
@@ -146,6 +154,7 @@ export const dictionaries: Record<Language, Translations> = {
 
     // Edit Modal
     'editModal.title': 'Edit Content',
+    'editModal.fieldChannel': 'Channel',
     'editModal.fieldTitle': 'Title',
     'editModal.fieldDescription': 'Description',
     'editModal.fieldTags': 'Tags (comma separated)',
@@ -156,6 +165,7 @@ export const dictionaries: Record<Language, Translations> = {
 
     // Upload Modal
     'uploadModal.title': 'Upload Video',
+    'uploadModal.fieldChannel': 'Channel',
     'uploadModal.fieldFile': 'Video File',
     'uploadModal.fieldTitle': 'Title',
     'uploadModal.fieldDescription': 'Description',

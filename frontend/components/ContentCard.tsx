@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import type { MongoContent, ContentType } from '@/lib/types'
 
 const CONTENT_TYPE_LABEL: Record<ContentType, string> = {
@@ -51,6 +52,7 @@ interface Props {
 }
 
 export default function ContentCard({ content }: Props) {
+  const router = useRouter()
   const thumbnailUrl = content.thumbnail_key
     ? `/thumbnails/${content.thumbnail_key}`
     : null
@@ -134,6 +136,41 @@ export default function ContentCard({ content }: Props) {
 
       {/* Info */}
       <div style={{ padding: '12px' }}>
+        {(content.channel_name || content.channel_id) && (
+          <div style={{ marginBottom: 4 }}>
+            <span
+              role={content.channel_id ? 'link' : undefined}
+              tabIndex={content.channel_id ? 0 : undefined}
+              onClick={(e) => {
+                if (!content.channel_id) return
+                e.preventDefault()
+                e.stopPropagation()
+                router.push(`/channels/${content.channel_id}`)
+              }}
+              onKeyDown={(e) => {
+                if (!content.channel_id) return
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  router.push(`/channels/${content.channel_id}`)
+                }
+              }}
+              className="channel-card-link"
+              style={{
+                fontSize: 11,
+                fontWeight: 500,
+                color: 'var(--muted)',
+                display: 'inline-block',
+                maxWidth: '100%',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {content.channel_name || content.channel_id}
+            </span>
+          </div>
+        )}
         <h3
           style={{
             margin: 0,
@@ -188,6 +225,10 @@ export default function ContentCard({ content }: Props) {
           .content-card:hover {
             border-color: var(--accent) !important;
             transform: translateY(-2px);
+          }
+          .channel-card-link:hover {
+            color: var(--accent) !important;
+            text-decoration: underline;
           }
         }
         .content-card:active {

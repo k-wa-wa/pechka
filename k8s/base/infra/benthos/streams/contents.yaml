@@ -12,6 +12,8 @@ pipeline:
           SELECT
               c.short_id,
               c.content_type,
+              c.channel_id,
+              COALESCE(ch.name, c.channel_id) AS channel_name,
               c.title,
               c.description,
               c.duration_seconds,
@@ -39,6 +41,7 @@ pipeline:
                   WHERE st.content_id = c.id AND st.status = 'published'
               ) AS has_subtitles
           FROM contents c
+          LEFT JOIN channels ch ON c.channel_id = ch.id
           LEFT JOIN discs d ON c.disc_id = d.id;
     - mapping: |
         root = if this.type() == "object" {
@@ -46,6 +49,8 @@ pipeline:
             [{
               "short_id": this.short_id,
               "content_type": this.content_type,
+              "channel_id": this.channel_id,
+              "channel_name": this.channel_name,
               "title": this.title,
               "description": this.description,
               "duration_seconds": this.duration_seconds,
@@ -68,6 +73,8 @@ pipeline:
             this.map_each(item -> {
               "short_id": item.short_id,
               "content_type": item.content_type,
+              "channel_id": item.channel_id,
+              "channel_name": item.channel_name,
               "title": item.title,
               "description": item.description,
               "duration_seconds": item.duration_seconds,

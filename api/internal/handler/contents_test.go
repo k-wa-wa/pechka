@@ -130,3 +130,43 @@ func TestContentsHandler_Get_NotFound(t *testing.T) {
 		t.Errorf("unexpected status: %d", he.Code)
 	}
 }
+
+func TestContentsHandler_List_ChannelFilter(t *testing.T) {
+	var gotChannelID *string
+	mock := &mockMongoContentRepo{
+		listFn: func(_ context.Context, params mongoRepo.ListParams) ([]*domain.MongoContent, error) {
+			gotChannelID = params.ChannelID
+			return []*domain.MongoContent{}, nil
+		},
+	}
+
+	h := handler.NewContentsHandler(mock)
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/v1/contents?channel_id=bluray", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	if err := h.List(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotChannelID == nil || *gotChannelID != "bluray" {
+		t.Errorf("expected channel_id bluray, got %v", gotChannelID)
+	}
+}
+
+func TestContentsHandler_List_InvalidChannelFilter(t *testing.T) {
+	h := handler.NewContentsHandler(&mockMongoContentRepo{})
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/v1/contents?channel_id=INVALID_ID!", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.List(c)
+	if err == nil {
+		t.Fatal("expected error for invalid channel_id, got nil")
+	}
+	he := err.(*echo.HTTPError)
+	if he.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", he.Code)
+	}
+}

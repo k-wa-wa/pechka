@@ -1,4 +1,5 @@
 import type {
+  Channel,
   MongoContent,
   MongoVariant,
   SearchResult,
@@ -30,15 +31,29 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   return res.json() as Promise<T>
 }
 
+export async function getChannels(): Promise<Channel[]> {
+  return fetchJson<Channel[]>(`${API_BASE}/api/v1/channels`, {
+    cache: 'no-store',
+  })
+}
+
+export async function getChannel(id: string): Promise<Channel> {
+  return fetchJson<Channel>(`${API_BASE}/api/v1/channels/${encodeURIComponent(id)}`, {
+    cache: 'no-store',
+  })
+}
+
 export async function getContents(params?: {
   limit?: number
   offset?: number
   content_type?: ContentType
+  channel_id?: string
 }): Promise<MongoContent[]> {
   const query = new URLSearchParams()
   if (params?.limit != null) query.set('limit', String(params.limit))
   if (params?.offset != null) query.set('offset', String(params.offset))
   if (params?.content_type) query.set('content_type', params.content_type)
+  if (params?.channel_id) query.set('channel_id', params.channel_id)
   const qs = query.toString()
   return fetchJson<MongoContent[]>(`${API_BASE}/api/v1/contents${qs ? `?${qs}` : ''}`, {
     cache: 'no-store',
@@ -110,6 +125,9 @@ export function uploadContent(
 
     const xhr = new XMLHttpRequest()
     xhr.open('POST', `${API_BASE}/api/v1/admin/contents/upload`)
+    if (metadata.channel_id) {
+      xhr.setRequestHeader('X-Channel-Id', metadata.channel_id)
+    }
     xhr.upload.onprogress = (e) => {
       if (onProgress && e.lengthComputable) {
         onProgress(Math.round((e.loaded / e.total) * 100))

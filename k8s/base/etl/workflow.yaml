@@ -12,6 +12,8 @@ spec:
           - name: disc-label
           - name: content-title
             value: ""
+          - name: channel-id
+            value: "bluray"
       dag:
         tasks:
           - name: scan-mkv
@@ -33,6 +35,8 @@ spec:
                   value: "{{inputs.parameters.content-title}}"
                 - name: short-id
                   value: "{{tasks.scan-mkv.outputs.parameters.short-id}}"
+                - name: channel-id
+                  value: "{{inputs.parameters.channel-id}}"
 
     # --- Entrypoint: Upload Ingestion (from a video file already uploaded to MinIO) ---
     - name: upload
@@ -71,6 +75,8 @@ spec:
           - name: short-id
           - name: content-id
             value: ""
+          - name: channel-id
+            value: "bluray"
       dag:
         tasks:
           - name: init-db
@@ -88,6 +94,8 @@ spec:
                   value: "init"
                 - name: content-id
                   value: "{{inputs.parameters.content-id}}"
+                - name: channel-id
+                  value: "{{inputs.parameters.channel-id}}"
           - name: transcode
             dependencies: [init-db]
             when: "{{inputs.parameters.mkv-files-json}} != '[]'"
@@ -325,6 +333,8 @@ spec:
             value: "all"
           - name: content-id
             value: ""
+          - name: channel-id
+            value: "bluray"
       container:
         image: ghcr.io/k-wa-wa/pechka/etl-load:latest
         imagePullPolicy: Always
@@ -351,6 +361,8 @@ spec:
             value: video
           - name: CONTENT_ID
             value: "{{inputs.parameters.content-id}}"
+          - name: CHANNEL_ID
+            value: "{{inputs.parameters.channel-id}}"
           - *env-minio-bucket
           - *env-minio-url
           - *env-minio-user

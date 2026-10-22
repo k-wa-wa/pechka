@@ -33,6 +33,7 @@ type minioPutObjecter interface {
 
 type UploadHandler struct {
 	contentRepo contentCreator
+	channelRepo pgChannelRepository
 	minioClient minioPutObjecter
 	bucket      string
 	dynClient   dynamic.Interface
@@ -49,6 +50,11 @@ func NewUploadHandler(contentRepo contentCreator, minioClient minioPutObjecter, 
 		snowflake:   node,
 		namespace:   namespace,
 	}
+}
+
+func (h *UploadHandler) WithChannelRepository(channelRepo pgChannelRepository) *UploadHandler {
+	h.channelRepo = channelRepo
+	return h
 }
 
 type UploadVideoResponse struct {
@@ -90,6 +96,15 @@ func (h *UploadHandler) UploadVideo(c echo.Context) error {
 	defer src.Close()
 
 	ctx := c.Request().Context()
+	var formChannel *string
+	if ch := strings.TrimSpace(c.FormValue("channel_id")); ch != "" {
+		formChannel = &ch
+	}
+	channelID, err := resolveChannelID(ctx, c, formChannel, h.channelRepo)
+	if err != nil {
+		return err
+	}
+
 	shortID := h.snowflake.Generate().String()
 	filename := filepath.Base(fileHeader.Filename)
 	objectKey := fmt.Sprintf("uploads/%s/%s", shortID, filename)
@@ -103,6 +118,7 @@ func (h *UploadHandler) UploadVideo(c echo.Context) error {
 	content, err := h.contentRepo.Create(ctx, pgRepo.CreateContentParams{
 		ShortID:     shortID,
 		ContentType: domain.ContentTypeVideo,
+		ChannelID:   channelID,
 		DiscID:      nil,
 		Title:       title,
 		Description: description,

@@ -13,18 +13,25 @@ export interface FilterOption {
 interface Props {
   types: FilterOption[]
   currentType: string
+  currentChannel?: string
+  basePath?: string
 }
 
-export default function FilterBar({ types, currentType }: Props) {
+export default function FilterBar({
+  types,
+  currentType,
+  currentChannel,
+  basePath = '/',
+}: Props) {
   const router = useRouter()
   const { t } = useLanguage()
 
   function handleChange(value: string) {
-    if (value) {
-      router.push(`/?type=${value}`)
-    } else {
-      router.push('/')
-    }
+    const query = new URLSearchParams()
+    if (currentChannel) query.set('channel', currentChannel)
+    if (value) query.set('type', value)
+    const qs = query.toString()
+    router.push(qs ? `${basePath}?${qs}` : basePath)
   }
 
   return (

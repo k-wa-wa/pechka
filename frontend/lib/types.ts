@@ -1,9 +1,19 @@
 export type ContentType = 'video' | 'image_gallery' | 'vr360' | 'document'
 export type ContentStatus = 'pending' | 'processing' | 'ready' | 'error'
 
+export interface Channel {
+  id: string
+  name: string
+  description: string
+  created_at: string
+  updated_at: string
+}
+
 export interface MongoContent {
   short_id: string
   content_type: ContentType
+  channel_id?: string
+  channel_name?: string
   title: string
   description: string
   duration_seconds: number | null
@@ -30,6 +40,8 @@ export interface SearchResult {
   title: string
   description: string
   content_type: ContentType
+  channel_id?: string
+  channel_name?: string
   tags: string[]
   status: ContentStatus
 }
@@ -38,6 +50,7 @@ export interface Content {
   id: string
   short_id: string
   content_type: ContentType
+  channel_id?: string
   disc_id: string | null
   title: string
   description: string
@@ -59,6 +72,7 @@ export interface AdminContentsResponse {
 }
 
 export interface UpdateContentRequest {
+  channel_id?: string | null
   title?: string | null
   description?: string | null
   tags?: string[] | null
@@ -69,6 +83,7 @@ export interface UploadContentRequest {
   title: string
   description?: string
   tags?: string[]
+  channel_id?: string
 }
 
 export interface UploadContentResponse {

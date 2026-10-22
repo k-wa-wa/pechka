@@ -1,18 +1,26 @@
 'use client'
 
 import { useState } from 'react'
-import type { Content, ContentStatus, UpdateContentRequest } from '@/lib/types'
+import type { Channel, Content, ContentStatus, UpdateContentRequest } from '@/lib/types'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
+
+const FALLBACK_CHANNELS: Pick<Channel, 'id' | 'name'>[] = [
+  { id: 'bluray', name: 'Blu-ray' },
+  { id: 'tech-feed', name: 'Tech Feed' },
+]
 
 interface Props {
   content: Content
+  channels?: Channel[]
   onClose: () => void
   onSave: (updated: Content) => void
 }
 
 const STATUS_OPTIONS: ContentStatus[] = ['pending', 'processing', 'ready', 'error']
 
-export default function EditModal({ content, onClose, onSave }: Props) {
+export default function EditModal({ content, channels, onClose, onSave }: Props) {
+  const channelOptions = channels && channels.length > 0 ? channels : FALLBACK_CHANNELS
+  const [channelId, setChannelId] = useState(content.channel_id ?? 'bluray')
   const [title, setTitle] = useState(content.title)
   const [description, setDescription] = useState(content.description)
   const [tags, setTags] = useState(content.tags.join(', '))
@@ -26,6 +34,7 @@ export default function EditModal({ content, onClose, onSave }: Props) {
     setError(null)
     try {
       const body: UpdateContentRequest = {
+        channel_id: channelId,
         title: title || null,
         description: description || null,
         tags: tags
@@ -112,6 +121,31 @@ export default function EditModal({ content, onClose, onSave }: Props) {
 
         {/* Form */}
         <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 13, color: 'var(--muted)' }}>{t('editModal.fieldChannel')}</span>
+            <select
+              value={channelId}
+              onChange={(e) => setChannelId(e.target.value)}
+              className="edit-form-input"
+              style={{
+                backgroundColor: 'var(--bg)',
+                border: '1px solid var(--line)',
+                borderRadius: 'var(--radius-md)',
+                color: 'var(--fg)',
+                padding: '8px 12px',
+                fontSize: 14,
+                outline: 'none',
+                cursor: 'pointer',
+              }}
+            >
+              {channelOptions.map((ch) => (
+                <option key={ch.id} value={ch.id}>
+                  {ch.name} ({ch.id})
+                </option>
+              ))}
+            </select>
+          </label>
+
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <span style={{ fontSize: 13, color: 'var(--muted)' }}>{t('editModal.fieldTitle')}</span>
             <input

@@ -1,16 +1,24 @@
 'use client'
 
 import { useState } from 'react'
-import type { Content } from '@/lib/types'
+import type { Channel, Content } from '@/lib/types'
 import { uploadContent } from '@/lib/api'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
 
+const FALLBACK_CHANNELS: Pick<Channel, 'id' | 'name'>[] = [
+  { id: 'bluray', name: 'Blu-ray' },
+  { id: 'tech-feed', name: 'Tech Feed' },
+]
+
 interface Props {
+  channels?: Channel[]
   onClose: () => void
   onUploaded: (content: Content) => void
 }
 
-export default function UploadModal({ onClose, onUploaded }: Props) {
+export default function UploadModal({ channels, onClose, onUploaded }: Props) {
+  const channelOptions = channels && channels.length > 0 ? channels : FALLBACK_CHANNELS
+  const [channelId, setChannelId] = useState(channelOptions[0]?.id ?? 'bluray')
   const [file, setFile] = useState<File | null>(null)
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -37,6 +45,7 @@ export default function UploadModal({ onClose, onUploaded }: Props) {
             .split(',')
             .map((tag) => tag.trim())
             .filter(Boolean),
+          channel_id: channelId,
         },
         setProgress
       )
@@ -112,6 +121,32 @@ export default function UploadModal({ onClose, onUploaded }: Props) {
 
         {/* Form */}
         <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 13, color: 'var(--muted)' }}>{t('uploadModal.fieldChannel')}</span>
+            <select
+              value={channelId}
+              disabled={uploading}
+              onChange={(e) => setChannelId(e.target.value)}
+              className="upload-form-input"
+              style={{
+                backgroundColor: 'var(--bg)',
+                border: '1px solid var(--line)',
+                borderRadius: 'var(--radius-md)',
+                color: 'var(--fg)',
+                padding: '8px 12px',
+                fontSize: 14,
+                outline: 'none',
+                cursor: uploading ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {channelOptions.map((ch) => (
+                <option key={ch.id} value={ch.id}>
+                  {ch.name} ({ch.id})
+                </option>
+              ))}
+            </select>
+          </label>
+
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <span style={{ fontSize: 13, color: 'var(--muted)' }}>{t('uploadModal.fieldFile')}</span>
             <input

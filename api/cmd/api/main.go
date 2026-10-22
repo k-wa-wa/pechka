@@ -93,6 +93,7 @@ func main() {
 	}
 
 	pgContent := pgRepo.NewContentRepository(pgPool)
+	pgChannel := pgRepo.NewChannelRepository(pgPool)
 	pgDisc := pgRepo.NewDiscRepository(pgPool)
 	pgSubtitle := pgRepo.NewSubtitleRepository(pgPool)
 	mgContent := mongoRepo.NewContentRepository(mongoDB)
@@ -100,13 +101,14 @@ func main() {
 	esContent := elasticRepo.NewContentRepository(esClient)
 
 	contentsH := handler.NewContentsHandler(mgContent)
+	channelsH := handler.NewChannelsHandler(pgChannel)
 	subtitlesH := handler.NewSubtitlesHandler(mgSubtitle)
 	searchH := handler.NewSearchHandler(esContent)
-	adminH := handler.NewAdminHandler(pgContent, pgDisc, pgSubtitle, sfNode)
+	adminH := handler.NewAdminHandler(pgContent, pgDisc, pgSubtitle, sfNode).WithChannelRepository(pgChannel)
 	k8sNamespace := currentNamespace()
 	slog.Info("resolved k8s namespace for workflow triggers", "namespace", k8sNamespace)
-	ingestH := handler.NewIngestHandler(dynClient, k8sNamespace)
-	uploadH := handler.NewUploadHandler(pgContent, minioClient, cfg.MinioBucket, dynClient, sfNode, k8sNamespace)
+	ingestH := handler.NewIngestHandler(dynClient, k8sNamespace).WithChannelRepository(pgChannel)
+	uploadH := handler.NewUploadHandler(pgContent, minioClient, cfg.MinioBucket, dynClient, sfNode, k8sNamespace).WithChannelRepository(pgChannel)
 
 	e := echo.New()
 	e.HideBanner = true
@@ -152,6 +154,8 @@ func main() {
 
 	v1 := e.Group("/api/v1")
 
+	v1.GET("/channels", channelsH.List)
+	v1.GET("/channels/:id", channelsH.Get)
 	v1.GET("/contents", contentsH.List)
 	v1.GET("/contents/:short_id", contentsH.Get)
 	v1.GET("/contents/:short_id/variants", contentsH.GetVariants)

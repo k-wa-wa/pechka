@@ -143,6 +143,7 @@ func TestAdminHandler_CreateContent_SetsStatusPending(t *testing.T) {
 	body := `{"content_type":"video","title":"Test Video"}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/admin/contents", strings.NewReader(body))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req.Header.Set(domain.HeaderChannelID, "bluray")
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 

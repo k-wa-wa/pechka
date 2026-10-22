@@ -2,6 +2,7 @@ import { http, HttpResponse } from 'msw'
 import type { Content, SubtitleCue, SubtitleTrack, UpdateContentRequest } from '@/lib/types'
 import {
   ADMIN_CONTENTS,
+  CHANNELS,
   CONTENTS,
   SEARCH_RESULTS,
   SUBTITLE_CUES,
@@ -16,12 +17,24 @@ const subtitleTracks: Record<string, SubtitleTrack[]> = structuredClone(SUBTITLE
 const subtitleCues: Record<string, SubtitleCue[]> = structuredClone(SUBTITLE_CUES)
 
 export const handlers = [
+  http.get('/api/v1/channels', () => {
+    return HttpResponse.json(CHANNELS)
+  }),
+
+  http.get('/api/v1/channels/:id', ({ params }) => {
+    const ch = CHANNELS.find((c) => c.id === params.id)
+    if (!ch) return HttpResponse.json({ error: 'not found' }, { status: 404 })
+    return HttpResponse.json(ch)
+  }),
+
   http.get('/api/v1/contents', ({ request }) => {
     const url = new URL(request.url)
     const contentType = url.searchParams.get('content_type')
+    const channelId = url.searchParams.get('channel_id')
     const limit = Number(url.searchParams.get('limit') ?? '100')
     let items = CONTENTS
     if (contentType) items = items.filter((c) => c.content_type === contentType)
+    if (channelId) items = items.filter((c) => c.channel_id === channelId)
     return HttpResponse.json(items.slice(0, limit))
   }),
 
@@ -69,6 +82,7 @@ export const handlers = [
     if (idx === -1) return HttpResponse.json({ error: 'not found' }, { status: 404 })
     adminContents[idx] = {
       ...adminContents[idx],
+      ...(body.channel_id != null && { channel_id: body.channel_id }),
       ...(body.title != null && { title: body.title }),
       ...(body.description != null && { description: body.description }),
       ...(body.tags != null && { tags: body.tags }),
@@ -94,11 +108,16 @@ export const handlers = [
             .map((t) => t.trim())
             .filter((t) => t !== '')
         : []
+    const channelId = (request.headers.get('X-Channel-Id') ?? '').trim()
+    if (!channelId) {
+      return HttpResponse.json({ error: 'channel_id is required' }, { status: 400 })
+    }
     const now = new Date().toISOString()
     const content: Content = {
       id: `upload-${Date.now()}`,
       short_id: `up${Date.now()}`,
       content_type: 'video',
+      channel_id: channelId,
       disc_id: null,
       title,
       description: typeof description === 'string' ? description : '',

@@ -1,4 +1,5 @@
 import type {
+  Channel,
   Content,
   MongoContent,
   MongoVariant,
@@ -11,10 +12,29 @@ import type {
 // Mirrors the shape served by e2e/mock-server.mjs (used for Playwright VRT)
 // so that component behavior stays consistent across dev tools.
 
+export const CHANNELS: Channel[] = [
+  {
+    id: 'tech-feed',
+    name: 'Tech Feed',
+    description: '自動収集・AI生成による技術ダイジェスト解説',
+    created_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-01T00:00:00Z',
+  },
+  {
+    id: 'bluray',
+    name: 'Blu-ray',
+    description: 'Blu-ray取り込み動画',
+    created_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-01T00:00:00Z',
+  },
+]
+
 export const CONTENTS: MongoContent[] = [
   {
     short_id: 'vid001',
     content_type: 'video',
+    channel_id: 'bluray',
+    channel_name: 'Blu-ray',
     title: '夏の思い出 2024',
     description: '海辺での夏のひとこまを収めた映像です。',
     duration_seconds: 342,
@@ -30,6 +50,8 @@ export const CONTENTS: MongoContent[] = [
   {
     short_id: 'vid002',
     content_type: 'video',
+    channel_id: 'bluray',
+    channel_name: 'Blu-ray',
     title: '秋の紅葉ドライブ',
     description: '山道を走りながら撮影した紅葉の映像。',
     duration_seconds: 580,
@@ -45,6 +67,8 @@ export const CONTENTS: MongoContent[] = [
   {
     short_id: 'gal001',
     content_type: 'image_gallery',
+    channel_id: 'bluray',
+    channel_name: 'Blu-ray',
     title: '春の花々フォトギャラリー',
     description: '桜・菜の花・チューリップなど春の花の写真集。',
     duration_seconds: null,
@@ -60,6 +84,8 @@ export const CONTENTS: MongoContent[] = [
   {
     short_id: 'vr001',
     content_type: 'vr360',
+    channel_id: 'bluray',
+    channel_name: 'Blu-ray',
     title: '360° 富士山山頂の眺め',
     description: '富士山山頂からの360度パノラマ映像。',
     duration_seconds: 120,
@@ -75,6 +101,8 @@ export const CONTENTS: MongoContent[] = [
   {
     short_id: 'vid003',
     content_type: 'video',
+    channel_id: 'bluray',
+    channel_name: 'Blu-ray',
     title: '冬の北海道旅行記',
     description: '雪景色の北海道を旅した記録映像。',
     duration_seconds: 1240,
@@ -90,6 +118,8 @@ export const CONTENTS: MongoContent[] = [
   {
     short_id: 'doc001',
     content_type: 'document',
+    channel_id: 'tech-feed',
+    channel_name: 'Tech Feed',
     title: '2024年度 活動報告書',
     description: '年間の活動をまとめたドキュメント。',
     duration_seconds: null,
@@ -105,6 +135,8 @@ export const CONTENTS: MongoContent[] = [
   {
     short_id: 'vid004',
     content_type: 'video',
+    channel_id: 'bluray',
+    channel_name: 'Blu-ray',
     title: '処理中のコンテンツ',
     description: '',
     duration_seconds: null,
@@ -123,6 +155,7 @@ export const ADMIN_CONTENTS: Content[] = CONTENTS.map((c, i) => ({
   id: `00000000-0000-0000-0000-${String(i + 1).padStart(12, '0')}`,
   short_id: c.short_id,
   content_type: c.content_type,
+  channel_id: c.channel_id ?? 'bluray',
   disc_id: null,
   title: c.title,
   description: c.description,

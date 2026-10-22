@@ -19,6 +19,38 @@ paths:
                     type: string
                     example: ok
 
+  /v1/channels:
+    get:
+      summary: チャンネル一覧取得
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Channel"
+
+  /v1/channels/{id}:
+    get:
+      summary: チャンネル詳細取得
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Channel"
+        "404":
+          description: Not Found
+
   /v1/contents:
     get:
       summary: コンテンツ一覧取得
@@ -27,6 +59,10 @@ paths:
           in: query
           schema:
             $ref: "#/components/schemas/ContentType"
+        - name: channel_id
+          in: query
+          schema:
+            type: string
         - name: limit
           in: query
           schema:
@@ -151,6 +187,13 @@ paths:
                   $ref: "#/components/schemas/Content"
     post:
       summary: コンテンツ登録
+      parameters:
+        - name: X-Channel-Id
+          in: header
+          required: true
+          description: 紐付けるチャンネルID (例: tech-feed, bluray)。必須。
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -170,6 +213,13 @@ paths:
   /v1/admin/contents/upload:
     post:
       summary: 動画ファイルのアップロード
+      parameters:
+        - name: X-Channel-Id
+          in: header
+          required: true
+          description: 紐付けるチャンネルID (例: tech-feed, bluray)。必須。
+          schema:
+            type: string
       description: >
         動画ファイルを multipart/form-data で受け取り、MinIO の一時領域
         (`uploads/{short_id}/{filename}`) に保存した上で、content_type=video の
@@ -315,6 +365,22 @@ paths:
 
 components:
   schemas:
+    Channel:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
     ContentType:
       type: string
       enum: [video, image_gallery, vr360, document]
@@ -332,6 +398,8 @@ components:
           type: string
         content_type:
           $ref: "#/components/schemas/ContentType"
+        channel_id:
+          type: string
         disc_id:
           type: string
           nullable: true
@@ -373,6 +441,10 @@ components:
           type: string
         content_type:
           $ref: "#/components/schemas/ContentType"
+        channel_id:
+          type: string
+        channel_name:
+          type: string
         title:
           type: string
         description:
@@ -477,6 +549,9 @@ components:
     UpdateContentRequest:
       type: object
       properties:
+        channel_id:
+          type: string
+          nullable: true
         title:
           type: string
           nullable: true

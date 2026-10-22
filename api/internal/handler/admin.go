@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/bwmarrin/snowflake"
 	"github.com/jackc/pgx/v5"
@@ -41,6 +42,7 @@ type AdminHandler struct {
 	contentRepo  pgContentRepository
 	discRepo     pgDiscRepository
 	subtitleRepo pgSubtitleRepository
+	channelRepo  pgChannelRepository
 	snowflake    *snowflake.Node
 }
 
@@ -48,8 +50,14 @@ func NewAdminHandler(contentRepo pgContentRepository, discRepo pgDiscRepository,
 	return &AdminHandler{contentRepo: contentRepo, discRepo: discRepo, subtitleRepo: subtitleRepo, snowflake: node}
 }
 
+func (h *AdminHandler) WithChannelRepository(channelRepo pgChannelRepository) *AdminHandler {
+	h.channelRepo = channelRepo
+	return h
+}
+
 type createContentRequest struct {
 	ContentType     domain.ContentType `json:"content_type" validate:"required"`
+	ChannelID       *string            `json:"channel_id"`
 	DiscID          *string            `json:"disc_id"`
 	Title           string             `json:"title" validate:"required"`
 	Description     string             `json:"description"`
@@ -67,15 +75,22 @@ func (h *AdminHandler) CreateContent(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "title and content_type are required")
 	}
 
+	ctx := c.Request().Context()
+	channelID, err := resolveChannelID(ctx, c, req.ChannelID, h.channelRepo)
+	if err != nil {
+		return err
+	}
+
 	shortID := h.snowflake.Generate().String()
 	tags := req.Tags
 	if tags == nil {
 		tags = []string{}
 	}
 
-	content, err := h.contentRepo.Create(c.Request().Context(), pgRepo.CreateContentParams{
+	content, err := h.contentRepo.Create(ctx, pgRepo.CreateContentParams{
 		ShortID:         shortID,
 		ContentType:     req.ContentType,
+		ChannelID:       channelID,
 		DiscID:          req.DiscID,
 		Title:           req.Title,
 		Description:     req.Description,
@@ -91,6 +106,7 @@ func (h *AdminHandler) CreateContent(c echo.Context) error {
 }
 
 type updateContentRequest struct {
+	ChannelID   *string               `json:"channel_id"`
 	Title       *string               `json:"title"`
 	Description *string               `json:"description"`
 	Tags        []string              `json:"tags"`
@@ -104,8 +120,26 @@ func (h *AdminHandler) UpdateContent(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	content, err := h.contentRepo.Update(c.Request().Context(), pgRepo.UpdateContentParams{
+	ctx := c.Request().Context()
+	var channelID *string
+	if headerCh := strings.TrimSpace(c.Request().Header.Get(domain.HeaderChannelID)); headerCh != "" {
+		channelID = &headerCh
+	} else if req.ChannelID != nil {
+		trimmed := strings.TrimSpace(*req.ChannelID)
+		channelID = &trimmed
+	}
+
+	if channelID != nil {
+		validated, err := resolveChannelID(ctx, c, channelID, h.channelRepo)
+		if err != nil {
+			return err
+		}
+		channelID = &validated
+	}
+
+	content, err := h.contentRepo.Update(ctx, pgRepo.UpdateContentParams{
 		ID:          id,
+		ChannelID:   channelID,
 		Title:       req.Title,
 		Description: req.Description,
 		Tags:        req.Tags,
@@ -175,8 +209,17 @@ func (h *AdminHandler) ListContents(c echo.Context) error {
 		status = &v
 	}
 
+	var channelID *string
+	if ch := c.QueryParam("channel_id"); ch != "" {
+		if !domain.IsValidChannelID(ch) {
+			return echo.NewHTTPError(http.StatusBadRequest, "invalid channel_id")
+		}
+		channelID = &ch
+	}
+
 	listParams := pgRepo.ListContentsParams{
-		Status: status,
+		Status:    status,
+		ChannelID: channelID,
 		// admin画面ではアーカイブ済みコンテンツも一覧・管理できるようにする。
 		IncludeArchived: true,
 		Limit:           limit,

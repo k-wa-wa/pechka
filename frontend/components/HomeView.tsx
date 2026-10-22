@@ -1,12 +1,12 @@
 'use client'
 
-import type { MongoContent, ContentType } from '@/lib/types'
+import type { MongoContent } from '@/lib/types'
 import ContentCard from '@/components/ContentCard'
 import Carousel from '@/components/Carousel'
 import FilterBar, { FilterOption } from '@/components/FilterBar'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
 
-const CONTENT_TYPES: FilterOption[] = [
+export const CONTENT_TYPES: FilterOption[] = [
   { value: '', labelKey: 'filter.all' },
   { value: 'video', label: 'Video' },
   { value: 'image_gallery', label: 'Gallery' },
@@ -20,7 +20,11 @@ interface Props {
   currentType: string
 }
 
-export default function HomeView({ carouselReady, gridItems, currentType }: Props) {
+export default function HomeView({
+  carouselReady,
+  gridItems,
+  currentType,
+}: Props) {
   const { t } = useLanguage()
 
   return (

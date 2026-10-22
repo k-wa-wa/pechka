@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import type { Content } from '@/lib/types'
+import type { Channel, Content } from '@/lib/types'
 import { getAdminContents } from '@/lib/api'
 import AdminTable from '@/components/AdminTable'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
@@ -11,9 +11,10 @@ interface Props {
   total: number
   limit: number
   offset: number
+  channels?: Channel[]
 }
 
-export default function AdminView({ contents, total, limit, offset }: Props) {
+export default function AdminView({ contents, total, limit, offset, channels }: Props) {
   const { t } = useLanguage()
   const [items, setItems] = useState(contents)
   const [currentOffset, setCurrentOffset] = useState(offset)
@@ -77,6 +78,7 @@ export default function AdminView({ contents, total, limit, offset }: Props) {
       <AdminTable
         key={currentOffset}
         initialContents={items}
+        channels={channels}
         onUploaded={() => setCurrentTotal((t) => t + 1)}
       />
 
