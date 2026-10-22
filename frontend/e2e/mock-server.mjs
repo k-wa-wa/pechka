@@ -216,13 +216,19 @@ const SUBTITLE_CUES = {
   ],
 }
 
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, X-Channel-Id',
+}
+
 function send(res, status, data) {
-  res.writeHead(status, { 'Content-Type': 'application/json' })
+  res.writeHead(status, { 'Content-Type': 'application/json', ...CORS_HEADERS })
   res.end(JSON.stringify(data))
 }
 
 function sendNoContent(res) {
-  res.writeHead(204)
+  res.writeHead(204, CORS_HEADERS)
   res.end()
 }
 
@@ -246,6 +252,12 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost')
   const path = url.pathname
   const method = req.method ?? 'GET'
+
+  if (method === 'OPTIONS') {
+    res.writeHead(204, CORS_HEADERS)
+    res.end()
+    return
+  }
 
   // GET /api/v1/channels
   if (path === '/api/v1/channels') {

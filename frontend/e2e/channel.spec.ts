@@ -17,17 +17,17 @@ test.describe('Channel E2E Functional Tests', () => {
     await expect(page).toHaveURL(/\/channels\/tech-feed$/)
     await expect(page.locator('h1')).toHaveText('Tech Feed')
     await expect(page.getByText('自動収集・AI生成による技術ダイジェスト解説')).toBeVisible()
-    await expect(page.getByText('Weekly Tech Feed Digest: Kubernetes 1.32 & AI Agents')).toBeVisible()
-    await expect(page.getByText('インターステラー')).toHaveCount(0)
+    await expect(page.getByText('2024年度 活動報告書')).toBeVisible()
+    await expect(page.getByText('夏の思い出 2024')).toHaveCount(0)
   })
 
   test('channel page /channels/bluray displays only Blu-ray contents', async ({ page }) => {
     await page.goto('/channels/bluray')
     await expect(page.locator('h1')).toHaveText('Blu-ray')
     await expect(page.getByText('Blu-ray取り込み動画')).toBeVisible()
-    await expect(page.getByText('インターステラー')).toBeVisible()
-    await expect(page.getByText('ブレードランナー 2049')).toBeVisible()
-    await expect(page.getByText('Weekly Tech Feed Digest: Kubernetes 1.32 & AI Agents')).toHaveCount(0)
+    await expect(page.getByText('夏の思い出 2024')).toBeVisible()
+    await expect(page.getByText('秋の紅葉ドライブ')).toBeVisible()
+    await expect(page.getByText('2024年度 活動報告書')).toHaveCount(0)
   })
 
   test('unknown channel page returns 404 not found', async ({ page }) => {
@@ -69,6 +69,7 @@ test.describe('Channel E2E Functional Tests', () => {
 
     const putReq = await putPromise
     expect(putReq.postDataJSON()).toMatchObject({ channel_id: 'tech-feed' })
+    await expect(page.locator('select')).toHaveCount(0)
 
     // Restore back to bluray so mock state stays clean for subsequent tests
     await editButtons.first().click()
@@ -79,7 +80,8 @@ test.describe('Channel E2E Functional Tests', () => {
 
   test('admin upload modal sends X-Channel-Id header and API rejects missing X-Channel-Id', async ({ page, request }) => {
     // 1. Verify API rejects upload without X-Channel-Id header with 400
-    const badRes = await request.post('/api/v1/admin/contents/upload', {
+    const apiBase = process.env.API_URL ?? 'http://localhost:9001'
+    const badRes = await request.post(`${apiBase}/api/v1/admin/contents/upload`, {
       multipart: {
         title: 'No Channel Upload',
         file: {
