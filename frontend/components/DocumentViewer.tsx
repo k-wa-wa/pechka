@@ -5,7 +5,7 @@ import { resolveDocumentViewerKind } from '@/lib/types'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
 
 interface Props {
-  title: string
+  title?: string
   documentKey?: string | null
   documentMimeType?: string | null
   initialMarkdown?: string
@@ -482,8 +482,6 @@ export default function DocumentViewer({
     )
   }
 
-  const badgeLabel = viewerKind === 'pdf' ? 'PDF' : 'Markdown'
-
   return (
     <div
       style={{
@@ -494,92 +492,15 @@ export default function DocumentViewer({
         overflow: 'hidden',
       }}
     >
-      {/* Toolbar */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '10px 16px',
-          borderBottom: '1px solid var(--line)',
-          backgroundColor: 'var(--bg)',
-          gap: 12,
-          flexWrap: 'wrap',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span
-            style={{
-              fontSize: 11,
-              fontWeight: 600,
-              padding: '2px 8px',
-              borderRadius: 'var(--radius-sm)',
-              backgroundColor: 'var(--accent-emphasis)',
-              color: 'var(--accent)',
-              border: '1px solid var(--accent-border)',
-            }}
-          >
-            {badgeLabel}
-          </span>
-          <span
-            style={{
-              fontSize: 13,
-              color: 'var(--muted)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {title}
-          </span>
-        </div>
-
-        {resourceUrl && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <a
-              href={resourceUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                padding: '4px 10px',
-                borderRadius: 'var(--radius-sm)',
-                border: '1px solid var(--line)',
-                backgroundColor: 'var(--card)',
-                color: 'var(--fg)',
-                fontSize: 12,
-                textDecoration: 'none',
-              }}
-            >
-              {t('document.openNewTab')}
-            </a>
-            <a
-              href={resourceUrl}
-              download
-              style={{
-                padding: '4px 10px',
-                borderRadius: 'var(--radius-sm)',
-                border: '1px solid var(--accent-border)',
-                backgroundColor: 'var(--accent-subtle)',
-                color: 'var(--accent)',
-                fontSize: 12,
-                textDecoration: 'none',
-              }}
-            >
-              {t('document.download')}
-            </a>
-          </div>
-        )}
-      </div>
-
       {/* Body */}
       {viewerKind === 'pdf' && resourceUrl ? (
         <iframe
-          src={resourceUrl}
-          title={title}
+          src={`${resourceUrl}#toolbar=0&navpanes=0`}
+          title={title || 'PDF Document'}
           style={{
             width: '100%',
-            height: '75vh',
-            minHeight: 560,
+            height: '80vh',
+            minHeight: 600,
             border: 'none',
             display: 'block',
             backgroundColor: '#ffffff',
