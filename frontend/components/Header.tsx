@@ -1,51 +1,51 @@
-'use client'
+"use client";
 
-import { useState, useEffect } from 'react'
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
-import SearchModal from './SearchModal'
-import SettingsModal from './SettingsModal'
-import { useLanguage } from '@/lib/i18n/LanguageContext'
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useLanguage } from "@/lib/i18n/LanguageContext";
+import SearchModal from "./SearchModal";
+import SettingsModal from "./SettingsModal";
 
 export default function Header() {
-  const [searchOpen, setSearchOpen] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  const [drawerOpen, setDrawerOpen] = useState(false)
-  const pathname = usePathname()
-  const { t } = useLanguage()
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const pathname = usePathname();
+  const { t } = useLanguage();
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault()
-        setSearchOpen((v) => !v)
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setSearchOpen((v) => !v);
       }
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [])
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   // Close drawer on route change
   useEffect(() => {
-    setDrawerOpen(false)
-  }, [pathname])
+    setDrawerOpen(false);
+  }, []);
 
   const navLinks = [
-    { href: '/', label: t('nav.home') },
-    { href: '/admin', label: t('nav.admin') },
-  ]
+    { href: "/", label: t("nav.home") },
+    { href: "/admin", label: t("nav.admin") },
+  ];
 
   return (
     <>
       <header
         style={{
           height: 60,
-          backgroundColor: 'var(--card)',
-          borderBottom: '1px solid var(--line)',
-          display: 'flex',
-          alignItems: 'center',
-          padding: '0 24px',
-          position: 'sticky',
+          backgroundColor: "var(--card)",
+          borderBottom: "1px solid var(--line)",
+          display: "flex",
+          alignItems: "center",
+          padding: "0 24px",
+          position: "sticky",
           top: 0,
           zIndex: 100,
           gap: 16,
@@ -57,30 +57,26 @@ export default function Header() {
           style={{
             fontSize: 20,
             fontWeight: 700,
-            color: 'var(--fg)',
-            letterSpacing: '-0.5px',
+            color: "var(--fg)",
+            letterSpacing: "-0.5px",
           }}
         >
           pechka
         </Link>
 
         {/* Desktop nav */}
-        <nav
-          style={{ display: 'flex', gap: 4, marginLeft: 16 }}
-          className="desktop-nav"
-        >
+        <nav style={{ display: "flex", gap: 4, marginLeft: 16 }} className="desktop-nav">
           {navLinks.map((link) => (
             <Link
               key={link.href}
               href={link.href}
               style={{
-                padding: '6px 12px',
-                borderRadius: 'var(--radius-md)',
+                padding: "6px 12px",
+                borderRadius: "var(--radius-md)",
                 fontSize: 14,
-                color: pathname === link.href ? 'var(--fg)' : 'var(--muted)',
-                backgroundColor:
-                  pathname === link.href ? 'var(--bg)' : 'transparent',
-                transition: 'color 0.15s, background 0.15s',
+                color: pathname === link.href ? "var(--fg)" : "var(--muted)",
+                backgroundColor: pathname === link.href ? "var(--bg)" : "transparent",
+                transition: "color 0.15s, background 0.15s",
               }}
             >
               {link.label}
@@ -93,20 +89,21 @@ export default function Header() {
         {/* Search icon */}
         <button
           onClick={() => setSearchOpen(true)}
-          title={t('header.searchHint')}
+          title={t("header.searchHint")}
           className="header-btn"
           style={{
-            background: 'none',
-            border: '1px solid var(--line)',
-            borderRadius: 'var(--radius-md)',
-            color: 'var(--muted)',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
+            background: "none",
+            border: "1px solid var(--line)",
+            borderRadius: "var(--radius-md)",
+            color: "var(--muted)",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
             gap: 6,
-            padding: '5px 10px',
+            padding: "5px 10px",
             fontSize: 13,
-            transition: 'color 0.15s, border-color 0.15s, transform var(--duration-release) var(--ease-spring)',
+            transition:
+              "color 0.15s, border-color 0.15s, transform var(--duration-release) var(--ease-spring)",
           }}
         >
           <svg
@@ -120,13 +117,13 @@ export default function Header() {
             <circle cx="11" cy="11" r="8" />
             <path d="m21 21-4.35-4.35" />
           </svg>
-          <span className="search-hint">{t('header.search')}</span>
+          <span className="search-hint">{t("header.search")}</span>
           <kbd
             style={{
               fontSize: 10,
-              border: '1px solid var(--line)',
+              border: "1px solid var(--line)",
               borderRadius: 3,
-              padding: '1px 4px',
+              padding: "1px 4px",
             }}
             className="search-hint"
           >
@@ -137,20 +134,21 @@ export default function Header() {
         {/* Settings icon */}
         <button
           onClick={() => setSettingsOpen(true)}
-          title={t('header.settings')}
+          title={t("header.settings")}
           className="header-icon-btn"
           style={{
-            background: 'none',
-            border: '1px solid var(--line)',
-            borderRadius: 'var(--radius-md)',
-            color: 'var(--muted)',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '6px',
+            background: "none",
+            border: "1px solid var(--line)",
+            borderRadius: "var(--radius-md)",
+            color: "var(--muted)",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "6px",
             fontSize: 13,
-            transition: 'color 0.15s, border-color 0.15s, transform var(--duration-release) var(--ease-spring)',
+            transition:
+              "color 0.15s, border-color 0.15s, transform var(--duration-release) var(--ease-spring)",
           }}
         >
           <svg
@@ -173,11 +171,11 @@ export default function Header() {
           onClick={() => setDrawerOpen((v) => !v)}
           className="hamburger"
           style={{
-            background: 'none',
-            border: 'none',
-            color: 'var(--fg)',
-            cursor: 'pointer',
-            display: 'none',
+            background: "none",
+            border: "none",
+            color: "var(--fg)",
+            cursor: "pointer",
+            display: "none",
             padding: 4,
           }}
           aria-label="Menu"
@@ -207,14 +205,14 @@ export default function Header() {
       {drawerOpen && (
         <div
           style={{
-            position: 'fixed',
+            position: "fixed",
             top: 60,
             left: 0,
             right: 0,
-            backgroundColor: 'var(--card)',
-            borderBottom: '1px solid var(--line)',
+            backgroundColor: "var(--card)",
+            borderBottom: "1px solid var(--line)",
             zIndex: 99,
-            padding: '12px 24px',
+            padding: "12px 24px",
           }}
           className="mobile-drawer"
         >
@@ -223,11 +221,11 @@ export default function Header() {
               key={link.href}
               href={link.href}
               style={{
-                display: 'block',
-                padding: '10px 0',
-                color: pathname === link.href ? 'var(--accent)' : 'var(--fg)',
+                display: "block",
+                padding: "10px 0",
+                color: pathname === link.href ? "var(--accent)" : "var(--fg)",
                 fontSize: 15,
-                borderBottom: '1px solid var(--line)',
+                borderBottom: "1px solid var(--line)",
               }}
             >
               {link.label}
@@ -255,11 +253,7 @@ export default function Header() {
       `}</style>
 
       <SearchModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
-      <SettingsModal
-        isOpen={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-      />
+      <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </>
-  )
+  );
 }
-

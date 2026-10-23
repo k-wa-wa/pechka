@@ -81,23 +81,23 @@ output:
               - check: 'this.status == "published"'
                 output:
                   mongodb:
-                      url: "${MONGO_URL}"
-                      database: pechka
-                      collection: subtitles
-                      operation: update-one
-                      upsert: true
-                      filter_map: 'root = {"_id": this._id}'
-                      document_map: 'root = {"$set": this}'
-                      write_concern:
-                        w: "1"
+                    url: "${MONGO_URL}"
+                    database: pechka
+                    collection: subtitles
+                    operation: update-one
+                    upsert: true
+                    filter_map: 'root = {"_id": this._id}'
+                    document_map: 'root = {"$set": this}'
+                    write_concern:
+                      w: "1"
               - check: 'true'
                 output:
                   mongodb:
-                      url: "${MONGO_URL}"
-                      database: pechka
-                      collection: subtitles
-                      operation: delete-one
-                      filter_map: 'root = {"_id": this._id}'
-                      write_concern:
-                        w: "1"
+                    url: "${MONGO_URL}"
+                    database: pechka
+                    collection: subtitles
+                    operation: delete-one
+                    filter_map: 'root = {"_id": this._id}'
+                    write_concern:
+                      w: "1"
     - stdout: {}

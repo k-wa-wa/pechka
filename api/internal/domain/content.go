@@ -36,14 +36,14 @@ type Content struct {
 }
 
 type VideoVariant struct {
-	ID          string     `json:"id"`
-	ContentID   string     `json:"content_id"`
-	VariantType string     `json:"variant_type"`
-	HLSKey      string     `json:"hls_key"`
-	Bandwidth   *int       `json:"bandwidth,omitempty"`
-	Resolution  *string    `json:"resolution,omitempty"`
-	Codecs      *string    `json:"codecs,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
+	ID          string    `json:"id"`
+	ContentID   string    `json:"content_id"`
+	VariantType string    `json:"variant_type"`
+	HLSKey      string    `json:"hls_key"`
+	Bandwidth   *int      `json:"bandwidth,omitempty"`
+	Resolution  *string   `json:"resolution,omitempty"`
+	Codecs      *string   `json:"codecs,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 type Asset struct {
