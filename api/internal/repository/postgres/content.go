@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/k-wa-wa/pechka/api/internal/domain"
@@ -17,17 +18,22 @@ func NewContentRepository(pool *pgxpool.Pool) *ContentRepository {
 	return &ContentRepository{pool: pool}
 }
 
+const contentColumns = `id, short_id, content_type, channel_id, disc_id, title, description, duration_seconds, is_360, tags, status, document_key, document_mime_type, published_at, archived_at, created_at, updated_at`
+
 type CreateContentParams struct {
-	ShortID         string
-	ContentType     domain.ContentType
-	ChannelID       string
-	DiscID          *string
-	Title           string
-	Description     string
-	DurationSeconds *int
-	Is360           bool
-	Tags            []string
-	Status          domain.ContentStatus
+	ShortID          string
+	ContentType      domain.ContentType
+	ChannelID        string
+	DiscID           *string
+	Title            string
+	Description      string
+	DurationSeconds  *int
+	Is360            bool
+	Tags             []string
+	Status           domain.ContentStatus
+	DocumentKey      *string
+	DocumentMimeType *string
+	PublishedAt      *time.Time
 }
 
 func (r *ContentRepository) Create(ctx context.Context, params CreateContentParams) (*domain.Content, error) {
@@ -36,11 +42,11 @@ func (r *ContentRepository) Create(ctx context.Context, params CreateContentPara
 		return nil, fmt.Errorf("channel_id is required")
 	}
 	row := r.pool.QueryRow(ctx, `
-		INSERT INTO contents (short_id, content_type, channel_id, disc_id, title, description, duration_seconds, is_360, tags, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		RETURNING id, short_id, content_type, channel_id, disc_id, title, description, duration_seconds, is_360, tags, status, published_at, archived_at, created_at, updated_at
+		INSERT INTO contents (short_id, content_type, channel_id, disc_id, title, description, duration_seconds, is_360, tags, status, document_key, document_mime_type, published_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		RETURNING `+contentColumns+`
 	`, params.ShortID, params.ContentType, channelID, params.DiscID, params.Title, params.Description,
-		params.DurationSeconds, params.Is360, params.Tags, params.Status)
+		params.DurationSeconds, params.Is360, params.Tags, params.Status, params.DocumentKey, params.DocumentMimeType, params.PublishedAt)
 
 	return scanContent(row)
 }
@@ -93,7 +99,7 @@ func (r *ContentRepository) Update(ctx context.Context, params UpdateContentPara
 	query := fmt.Sprintf(`
 		UPDATE contents SET %s
 		WHERE id = $%d
-		RETURNING id, short_id, content_type, channel_id, disc_id, title, description, duration_seconds, is_360, tags, status, published_at, archived_at, created_at, updated_at
+		RETURNING `+contentColumns+`
 	`, strings.Join(setClauses, ", "), argIdx)
 
 	row := r.pool.QueryRow(ctx, query, args...)
@@ -113,13 +119,13 @@ func (r *ContentRepository) SetArchived(ctx context.Context, id string, archived
 		row = r.pool.QueryRow(ctx, `
 			UPDATE contents SET archived_at = CURRENT_TIMESTAMP
 			WHERE id = $1
-			RETURNING id, short_id, content_type, channel_id, disc_id, title, description, duration_seconds, is_360, tags, status, published_at, archived_at, created_at, updated_at
+			RETURNING `+contentColumns+`
 		`, id)
 	} else {
 		row = r.pool.QueryRow(ctx, `
 			UPDATE contents SET archived_at = NULL
 			WHERE id = $1
-			RETURNING id, short_id, content_type, channel_id, disc_id, title, description, duration_seconds, is_360, tags, status, published_at, archived_at, created_at, updated_at
+			RETURNING `+contentColumns+`
 		`, id)
 	}
 	return scanContent(row)
@@ -127,7 +133,7 @@ func (r *ContentRepository) SetArchived(ctx context.Context, id string, archived
 
 func (r *ContentRepository) GetByID(ctx context.Context, id string) (*domain.Content, error) {
 	row := r.pool.QueryRow(ctx, `
-		SELECT id, short_id, content_type, channel_id, disc_id, title, description, duration_seconds, is_360, tags, status, published_at, archived_at, created_at, updated_at
+		SELECT `+contentColumns+`
 		FROM contents WHERE id = $1
 	`, id)
 	return scanContent(row)
@@ -145,7 +151,7 @@ type ListContentsParams struct {
 
 func (r *ContentRepository) List(ctx context.Context, params ListContentsParams) ([]*domain.Content, error) {
 	whereClause, args, argIdx := buildListContentsWhere(params)
-	query := `SELECT id, short_id, content_type, channel_id, disc_id, title, description, duration_seconds, is_360, tags, status, published_at, archived_at, created_at, updated_at FROM contents` + whereClause
+	query := `SELECT ` + contentColumns + ` FROM contents` + whereClause
 
 	query += fmt.Sprintf(" ORDER BY updated_at DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
 	args = append(args, params.Limit, params.Offset)
@@ -213,7 +219,8 @@ func scanContent(row scanner) (*domain.Content, error) {
 	var c domain.Content
 	err := row.Scan(
 		&c.ID, &c.ShortID, &c.ContentType, &c.ChannelID, &c.DiscID, &c.Title, &c.Description,
-		&c.DurationSeconds, &c.Is360, &c.Tags, &c.Status, &c.PublishedAt, &c.ArchivedAt, &c.CreatedAt, &c.UpdatedAt,
+		&c.DurationSeconds, &c.Is360, &c.Tags, &c.Status, &c.DocumentKey, &c.DocumentMimeType,
+		&c.PublishedAt, &c.ArchivedAt, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err

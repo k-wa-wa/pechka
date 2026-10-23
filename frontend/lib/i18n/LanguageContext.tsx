@@ -44,6 +44,15 @@ export const dictionaries: Record<Language, Translations> = {
     'player.notFound': '動画が見つかりません',
     'player.quality': '画質:',
 
+    // Document Viewer
+    'document.loading': 'ドキュメントを読み込み中...',
+    'document.notFound': 'ドキュメントが見つかりません',
+    'document.loadError': 'ドキュメントの読み込みに失敗しました',
+    'document.openNewTab': '別タブで開く',
+    'document.download': 'ダウンロード',
+    'document.copyCode': 'コピー',
+    'document.copied': 'コピー完了',
+
     // Admin & Table
     'admin.title': '管理画面',
     'admin.itemsCount': '件',
@@ -90,6 +99,7 @@ export const dictionaries: Record<Language, Translations> = {
     'uploadModal.btnCancel': 'キャンセル',
     'uploadModal.uploading': 'アップロード中...',
     'uploadModal.uploadFailed': 'アップロードに失敗しました',
+    'uploadModal.fileHint': '対応形式: 動画 (mp4 等) / ドキュメント (.md, .pdf)',
   },
   en: {
     // Header & Nav
@@ -127,6 +137,15 @@ export const dictionaries: Record<Language, Translations> = {
     'player.loadingVr': 'Loading VR viewer...',
     'player.notFound': 'Video not found',
     'player.quality': 'Quality:',
+
+    // Document Viewer
+    'document.loading': 'Loading document...',
+    'document.notFound': 'Document not found',
+    'document.loadError': 'Failed to load document',
+    'document.openNewTab': 'Open in new tab',
+    'document.download': 'Download',
+    'document.copyCode': 'Copy',
+    'document.copied': 'Copied',
 
     // Admin & Table
     'admin.title': 'Admin Panel',
@@ -174,6 +193,7 @@ export const dictionaries: Record<Language, Translations> = {
     'uploadModal.btnCancel': 'Cancel',
     'uploadModal.uploading': 'Uploading...',
     'uploadModal.uploadFailed': 'Upload failed',
+    'uploadModal.fileHint': 'Supported: Video (mp4, etc.) / Document (.md, .pdf)',
   },
 }
 

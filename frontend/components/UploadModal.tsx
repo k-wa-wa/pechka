@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import type { Channel, Content } from '@/lib/types'
+import { UPLOAD_ACCEPT_ATTR, type Channel, type Content } from '@/lib/types'
 import { uploadContent } from '@/lib/api'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
 
@@ -151,9 +151,15 @@ export default function UploadModal({ channels, onClose, onUploaded }: Props) {
             <span style={{ fontSize: 13, color: 'var(--muted)' }}>{t('uploadModal.fieldFile')}</span>
             <input
               type="file"
-              accept="video/*"
+              accept={UPLOAD_ACCEPT_ATTR}
               disabled={uploading}
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              onChange={(e) => {
+                const selected = e.target.files?.[0] ?? null
+                setFile(selected)
+                if (selected && title.trim() === '') {
+                  setTitle(selected.name.replace(/\.[^/.]+$/, ''))
+                }
+              }}
               className="upload-form-input"
               style={{
                 backgroundColor: 'var(--bg)',
@@ -165,6 +171,9 @@ export default function UploadModal({ channels, onClose, onUploaded }: Props) {
                 outline: 'none',
               }}
             />
+            <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+              {t('uploadModal.fileHint')}
+            </span>
           </label>
 
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

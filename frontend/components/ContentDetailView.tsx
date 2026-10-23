@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import type { MongoContent, MongoVariant } from '@/lib/types'
 import ContentPlayer from '@/components/ContentPlayer'
+import DocumentViewer from '@/components/DocumentViewer'
 import { useLanguage } from '@/lib/i18n/LanguageContext'
 
 interface Props {
@@ -13,6 +14,7 @@ interface Props {
 export default function ContentDetailView({ content, variants }: Props) {
   const { t, language } = useLanguage()
   const isVr = content.content_type === 'vr360'
+  const isDocument = content.content_type === 'document'
 
   return (
     <div
@@ -22,12 +24,20 @@ export default function ContentDetailView({ content, variants }: Props) {
         padding: isVr ? '0 0 32px' : '32px 24px',
       }}
     >
-      <ContentPlayer
-        variants={variants}
-        isVr={isVr}
-        shortId={content.short_id}
-        hasSubtitles={content.has_subtitles}
-      />
+      {isDocument ? (
+        <DocumentViewer
+          title={content.title}
+          documentKey={content.document_key}
+          documentMimeType={content.document_mime_type}
+        />
+      ) : (
+        <ContentPlayer
+          variants={variants}
+          isVr={isVr}
+          shortId={content.short_id}
+          hasSubtitles={content.has_subtitles}
+        />
+      )}
       <div
         style={{
           maxWidth: isVr ? 900 : undefined,

@@ -19,6 +19,10 @@ const nextConfig: NextConfig = {
         source: '/api/v1/:path*',
         destination: `${process.env.MOCK_API_URL}/api/v1/:path*`,
       },
+      {
+        source: '/resources/:path*',
+        destination: `${process.env.MOCK_API_URL}/resources/:path*`,
+      },
     ]
   },
 }
