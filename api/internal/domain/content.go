@@ -18,21 +18,23 @@ const (
 )
 
 type Content struct {
-	ID              string        `json:"id"`
-	ShortID         string        `json:"short_id"`
-	ContentType     ContentType   `json:"content_type"`
-	ChannelID       string        `json:"channel_id"`
-	DiscID          *string       `json:"disc_id,omitempty"`
-	Title           string        `json:"title"`
-	Description     string        `json:"description"`
-	DurationSeconds *int          `json:"duration_seconds,omitempty"`
-	Is360           bool          `json:"is_360"`
-	Tags            []string      `json:"tags"`
-	Status          ContentStatus `json:"status"`
-	PublishedAt     *time.Time    `json:"published_at,omitempty"`
-	ArchivedAt      *time.Time    `json:"archived_at,omitempty"`
-	CreatedAt       time.Time     `json:"created_at"`
-	UpdatedAt       time.Time     `json:"updated_at"`
+	ID               string        `json:"id"`
+	ShortID          string        `json:"short_id"`
+	ContentType      ContentType   `json:"content_type"`
+	ChannelID        string        `json:"channel_id"`
+	DiscID           *string       `json:"disc_id,omitempty"`
+	Title            string        `json:"title"`
+	Description      string        `json:"description"`
+	DurationSeconds  *int          `json:"duration_seconds,omitempty"`
+	Is360            bool          `json:"is_360"`
+	Tags             []string      `json:"tags"`
+	Status           ContentStatus `json:"status"`
+	DocumentKey      *string       `json:"document_key,omitempty"`
+	DocumentMimeType *string       `json:"document_mime_type,omitempty"`
+	PublishedAt      *time.Time    `json:"published_at,omitempty"`
+	ArchivedAt       *time.Time    `json:"archived_at,omitempty"`
+	CreatedAt        time.Time     `json:"created_at"`
+	UpdatedAt        time.Time     `json:"updated_at"`
 }
 
 type VideoVariant struct {
@@ -56,22 +58,24 @@ type Asset struct {
 
 // MongoContent はMongoDB の非正規化ドキュメント構造
 type MongoContent struct {
-	ID              string         `bson:"_id" json:"short_id"`
-	ContentType     ContentType    `bson:"content_type" json:"content_type"`
-	ChannelID       string         `bson:"channel_id" json:"channel_id"`
-	ChannelName     string         `bson:"channel_name" json:"channel_name"`
-	Title           string         `bson:"title" json:"title"`
-	Description     string         `bson:"description" json:"description"`
-	DurationSeconds *int           `bson:"duration_seconds,omitempty" json:"duration_seconds,omitempty"`
-	Is360           bool           `bson:"is_360" json:"is_360"`
-	Tags            []string       `bson:"tags" json:"tags"`
-	Status          ContentStatus  `bson:"status" json:"status"`
-	DiscLabel       *string        `bson:"disc_label,omitempty" json:"disc_label,omitempty"`
-	Variants        []MongoVariant `bson:"variants,omitempty" json:"variants,omitempty"`
-	ThumbnailKey    *string        `bson:"thumbnail_key,omitempty" json:"thumbnail_key,omitempty"`
-	PublishedAt     *time.Time     `bson:"published_at,omitempty" json:"published_at,omitempty"`
-	UpdatedAt       time.Time      `bson:"updated_at" json:"updated_at"`
-	HasSubtitles    bool           `bson:"has_subtitles" json:"has_subtitles"`
+	ID               string         `bson:"_id" json:"short_id"`
+	ContentType      ContentType    `bson:"content_type" json:"content_type"`
+	ChannelID        string         `bson:"channel_id" json:"channel_id"`
+	ChannelName      string         `bson:"channel_name" json:"channel_name"`
+	Title            string         `bson:"title" json:"title"`
+	Description      string         `bson:"description" json:"description"`
+	DurationSeconds  *int           `bson:"duration_seconds,omitempty" json:"duration_seconds,omitempty"`
+	Is360            bool           `bson:"is_360" json:"is_360"`
+	Tags             []string       `bson:"tags" json:"tags"`
+	Status           ContentStatus  `bson:"status" json:"status"`
+	DiscLabel        *string        `bson:"disc_label,omitempty" json:"disc_label,omitempty"`
+	Variants         []MongoVariant `bson:"variants,omitempty" json:"variants,omitempty"`
+	ThumbnailKey     *string        `bson:"thumbnail_key,omitempty" json:"thumbnail_key,omitempty"`
+	DocumentKey      *string        `bson:"document_key,omitempty" json:"document_key,omitempty"`
+	DocumentMimeType *string        `bson:"document_mime_type,omitempty" json:"document_mime_type,omitempty"`
+	PublishedAt      *time.Time     `bson:"published_at,omitempty" json:"published_at,omitempty"`
+	UpdatedAt        time.Time      `bson:"updated_at" json:"updated_at"`
+	HasSubtitles     bool           `bson:"has_subtitles" json:"has_subtitles"`
 }
 
 type MongoVariant struct {

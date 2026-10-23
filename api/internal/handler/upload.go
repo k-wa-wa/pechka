@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -8,6 +9,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/bwmarrin/snowflake"
 	"github.com/labstack/echo/v4"
@@ -63,8 +65,9 @@ type UploadVideoResponse struct {
 	Content      *domain.Content `json:"content"`
 }
 
-// UploadVideo は管理画面から送られた動画ファイルを MinIO の一時領域に保存し、
-// ETL 側の Argo Workflow (アップロード用エントリーポイント) を起動する。
+// UploadVideo は管理画面またはAPIから送られた動画・ドキュメント(.md/.pdf)を受け付ける。
+// - ドキュメント(.md/.pdf): フォーマット・マジックバイト検証の上で MinIO の公開領域へ直接保存し、status=ready で即時公開する。
+// - 動画: MinIO の一時領域に保存し、ETL 側の Argo Workflow (アップロード用エントリーポイント) を起動する。
 func (h *UploadHandler) UploadVideo(c echo.Context) error {
 	fileHeader, err := c.FormFile("file")
 	if err != nil {
@@ -89,11 +92,35 @@ func (h *UploadHandler) UploadVideo(c echo.Context) error {
 		tags = []string{}
 	}
 
+	requestedType := domain.ContentType(strings.TrimSpace(c.FormValue("content_type")))
+	docSpec, isDocExt := domain.ResolveDocumentFormat(fileHeader.Filename)
+	if requestedType == domain.ContentTypeDocument && !isDocExt {
+		return echo.NewHTTPError(http.StatusBadRequest, "unsupported document format: only .md and .pdf are supported")
+	}
+	if requestedType != "" && requestedType != domain.ContentTypeVideo && requestedType != domain.ContentTypeDocument {
+		return echo.NewHTTPError(http.StatusBadRequest, "unsupported content_type")
+	}
+
 	src, err := fileHeader.Open()
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "failed to read uploaded file")
 	}
 	defer src.Close()
+
+	// TODO(security): Integrate with an antivirus API / CDR tool to scan and strip active content from uploaded PDFs.
+	var uploadReader io.Reader = src
+	if isDocExt {
+		sniffBuf := make([]byte, 512)
+		n, readErr := io.ReadFull(src, sniffBuf)
+		if readErr != nil && readErr != io.EOF && readErr != io.ErrUnexpectedEOF {
+			return echo.NewHTTPError(http.StatusBadRequest, "failed to inspect uploaded file")
+		}
+		sample := sniffBuf[:n]
+		if err := domain.ValidateDocumentUpload(docSpec, fileHeader.Size, sample); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		}
+		uploadReader = io.MultiReader(bytes.NewReader(sample), src)
+	}
 
 	ctx := c.Request().Context()
 	var formChannel *string
@@ -106,10 +133,45 @@ func (h *UploadHandler) UploadVideo(c echo.Context) error {
 	}
 
 	shortID := h.snowflake.Generate().String()
+
+	if isDocExt {
+		objectKey := domain.DocumentObjectKey(shortID, docSpec)
+		if _, err := h.minioClient.PutObject(ctx, h.bucket, objectKey, uploadReader, fileHeader.Size, minio.PutObjectOptions{
+			ContentType: docSpec.StorageMimeType,
+		}); err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("failed to upload document to storage: %v", err))
+		}
+
+		mimeType := docSpec.MimeType
+		now := time.Now().UTC()
+		content, err := h.contentRepo.Create(ctx, pgRepo.CreateContentParams{
+			ShortID:          shortID,
+			ContentType:      domain.ContentTypeDocument,
+			ChannelID:        channelID,
+			DiscID:           nil,
+			Title:            title,
+			Description:      description,
+			Tags:             tags,
+			Status:           domain.ContentStatusReady,
+			DocumentKey:      &objectKey,
+			DocumentMimeType: &mimeType,
+			PublishedAt:      &now,
+		})
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		}
+
+		return c.JSON(http.StatusCreated, UploadVideoResponse{
+			Message:      "Document uploaded and published",
+			WorkflowName: "",
+			Content:      content,
+		})
+	}
+
 	filename := filepath.Base(fileHeader.Filename)
 	objectKey := fmt.Sprintf("uploads/%s/%s", shortID, filename)
 
-	if _, err := h.minioClient.PutObject(ctx, h.bucket, objectKey, src, fileHeader.Size, minio.PutObjectOptions{
+	if _, err := h.minioClient.PutObject(ctx, h.bucket, objectKey, uploadReader, fileHeader.Size, minio.PutObjectOptions{
 		ContentType: fileHeader.Header.Get(echo.HeaderContentType),
 	}); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("failed to upload file to storage: %v", err))

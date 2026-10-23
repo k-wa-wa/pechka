@@ -1,9 +1,16 @@
 import { HttpResponse, http } from "msw";
-import type { Content, SubtitleCue, SubtitleTrack, UpdateContentRequest } from "@/lib/types";
+import {
+  type Content,
+  resolveDocumentViewerKind,
+  type SubtitleCue,
+  type SubtitleTrack,
+  type UpdateContentRequest,
+} from "@/lib/types";
 import {
   ADMIN_CONTENTS,
   CHANNELS,
   CONTENTS,
+  SAMPLE_MARKDOWN,
   SEARCH_RESULTS,
   SUBTITLE_CUES,
   SUBTITLE_TRACKS,
@@ -47,6 +54,23 @@ export const handlers = [
   http.get("/api/v1/contents/:shortId/variants", ({ params }) => {
     const variants = VARIANTS[params.shortId as string] ?? [];
     return HttpResponse.json(variants);
+  }),
+
+  http.get("/resources/documents/:shortId/:filename", ({ params }) => {
+    const filename = String(params.filename ?? "");
+    if (filename.endsWith(".md") || filename.endsWith(".markdown")) {
+      return new HttpResponse(SAMPLE_MARKDOWN, {
+        status: 200,
+        headers: { "Content-Type": "text/markdown; charset=utf-8" },
+      });
+    }
+    if (filename.endsWith(".pdf")) {
+      return new HttpResponse("%PDF-1.7\n%mock pdf\n%%EOF\n", {
+        status: 200,
+        headers: { "Content-Type": "application/pdf" },
+      });
+    }
+    return HttpResponse.json({ error: "not found" }, { status: 404 });
   }),
 
   http.get("/api/v1/search", ({ request }) => {
@@ -113,10 +137,23 @@ export const handlers = [
       return HttpResponse.json({ error: "channel_id is required" }, { status: 400 });
     }
     const now = new Date().toISOString();
+    const shortId = `up${Date.now()}`;
+    const uploadedFilename = file instanceof File ? file.name : "";
+    const docKind = resolveDocumentViewerKind(null, uploadedFilename);
+    const isDoc = docKind != null;
+    const docKey =
+      docKind === "markdown"
+        ? `resources/documents/${shortId}/document.md`
+        : docKind === "pdf"
+          ? `resources/documents/${shortId}/document.pdf`
+          : null;
+    const docMime =
+      docKind === "markdown" ? "text/markdown" : docKind === "pdf" ? "application/pdf" : null;
+
     const content: Content = {
       id: `upload-${Date.now()}`,
-      short_id: `up${Date.now()}`,
-      content_type: "video",
+      short_id: shortId,
+      content_type: isDoc ? "document" : "video",
       channel_id: channelId,
       disc_id: null,
       title,
@@ -124,14 +161,19 @@ export const handlers = [
       duration_seconds: null,
       is_360: false,
       tags,
-      status: "pending",
-      published_at: null,
+      status: isDoc ? "ready" : "pending",
+      document_key: docKey,
+      document_mime_type: docMime,
+      published_at: isDoc ? now : null,
       archived_at: null,
       created_at: now,
       updated_at: now,
     };
     adminContents.unshift(content);
-    return HttpResponse.json({ content, workflow_name: "video-upload-mock" }, { status: 201 });
+    return HttpResponse.json(
+      { content, workflow_name: isDoc ? "" : "video-upload-mock" },
+      { status: 201 },
+    );
   }),
 
   http.post("/api/v1/admin/contents/:id/archive", ({ params }) => {

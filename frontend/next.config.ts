@@ -9,7 +9,12 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "*" },
     ],
   },
-  // Local mock API mode (`npm run dev:mock`): proxy same-origin /api/v1/*
+  // Transpile aframe for SSR compatibility
+  transpilePackages: ["aframe"],
+
+  // Route API and resources requests to the local mock server during dev:mock.
+  //
+  // Next.js rewrites run on the Node.js dev server and seamlessly forward
   // browser requests to the mock server, mirroring the nginx reverse proxy
   // used in preview/prod so lib/api.ts doesn't need CORS-aware branching.
   async rewrites() {
@@ -18,6 +23,10 @@ const nextConfig: NextConfig = {
       {
         source: "/api/v1/:path*",
         destination: `${process.env.MOCK_API_URL}/api/v1/:path*`,
+      },
+      {
+        source: "/resources/:path*",
+        destination: `${process.env.MOCK_API_URL}/resources/:path*`,
       },
     ];
   },

@@ -1,5 +1,53 @@
 export type ContentType = "video" | "image_gallery" | "vr360" | "document";
 export type ContentStatus = "pending" | "processing" | "ready" | "error";
+export type DocumentViewerKind = "markdown" | "pdf";
+
+export interface DocumentFormatSpec {
+  kind: DocumentViewerKind;
+  mimeType: string;
+  extensions: string[];
+  label: string;
+}
+
+// 対応ドキュメント形式のレジストリ（新形式追加時はここにエントリを追加する）
+export const DOCUMENT_FORMAT_SPECS: DocumentFormatSpec[] = [
+  {
+    kind: "markdown",
+    mimeType: "text/markdown",
+    extensions: [".md", ".markdown"],
+    label: "Markdown",
+  },
+  {
+    kind: "pdf",
+    mimeType: "application/pdf",
+    extensions: [".pdf"],
+    label: "PDF",
+  },
+];
+
+export const UPLOAD_ACCEPT_ATTR = [
+  "video/*",
+  ...DOCUMENT_FORMAT_SPECS.flatMap((s) => [...s.extensions, s.mimeType]),
+].join(",");
+
+export function resolveDocumentViewerKind(
+  mimeType?: string | null,
+  documentKey?: string | null,
+): DocumentViewerKind | null {
+  if (mimeType) {
+    const normalized = mimeType.split(";")[0].trim().toLowerCase();
+    const byMime = DOCUMENT_FORMAT_SPECS.find((s) => s.mimeType === normalized);
+    if (byMime) return byMime.kind;
+  }
+  if (documentKey) {
+    const lowerKey = documentKey.toLowerCase();
+    const byExt = DOCUMENT_FORMAT_SPECS.find((s) =>
+      s.extensions.some((ext) => lowerKey.endsWith(ext)),
+    );
+    if (byExt) return byExt.kind;
+  }
+  return null;
+}
 
 export interface Channel {
   id: string;
@@ -22,6 +70,8 @@ export interface MongoContent {
   status: ContentStatus;
   disc_label: string | null;
   thumbnail_key: string | null;
+  document_key?: string | null;
+  document_mime_type?: string | null;
   published_at: string | null;
   updated_at: string;
   has_subtitles: boolean;
@@ -58,6 +108,8 @@ export interface Content {
   is_360: boolean;
   tags: string[];
   status: ContentStatus;
+  document_key?: string | null;
+  document_mime_type?: string | null;
   published_at: string | null;
   archived_at: string | null;
   created_at: string;

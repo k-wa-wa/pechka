@@ -116,6 +116,8 @@ const CONTENTS = [
     status: "ready",
     disc_label: null,
     thumbnail_key: null,
+    document_key: "resources/documents/doc001/document.md",
+    document_mime_type: "text/markdown",
     published_at: "2025-01-05T00:00:00Z",
     updated_at: "2025-01-06T09:00:00Z",
     has_subtitles: false,
@@ -151,11 +153,31 @@ const ADMIN_CONTENTS = CONTENTS.map((c, i) => ({
   is_360: c.is_360,
   tags: c.tags,
   status: c.status,
+  document_key: c.document_key ?? null,
+  document_mime_type: c.document_mime_type ?? null,
   published_at: c.published_at,
   archived_at: null,
   created_at: c.updated_at,
   updated_at: c.updated_at,
 }));
+
+const SAMPLE_MARKDOWN = `# 2024年度 活動報告書
+
+本ドキュメントは **pechka** メディア基盤における年間の活動と技術構成をまとめたレポートです。
+
+## 1. 主な成果
+
+- **動画配信 (HLS / ABR)**: Blu-ray および自動生成ダイジェスト動画のマルチ品質配信
+- **ドキュメント閲覧対応**: \`.md\` (Markdown) および \`.pdf\` (PDF) のブラウザ内表示に対応
+- **全文検索**: Elasticsearch による高速キーワード・タグ検索
+
+## 2. 対応フォーマット一覧
+
+| フォーマット | 拡張子 | MIME タイプ | 状態 |
+| --- | --- | --- | --- |
+| Markdown | .md, .markdown | text/markdown | 対応済み |
+| PDF | .pdf | application/pdf | 対応済み |
+`;
 
 const VARIANTS = {
   vid001: [
@@ -362,6 +384,32 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // GET /resources/documents/:shortId/:filename
+  const docResourceMatch = path.match(/^\/resources\/documents\/([^/]+)\/([^/]+)$/);
+  if (docResourceMatch && method === "GET") {
+    const filename = docResourceMatch[2];
+    if (filename.endsWith(".md") || filename.endsWith(".markdown")) {
+      res.writeHead(200, {
+        "Content-Type": "text/markdown; charset=utf-8",
+        "X-Content-Type-Options": "nosniff",
+        ...CORS_HEADERS,
+      });
+      res.end(SAMPLE_MARKDOWN);
+      return;
+    }
+    if (filename.endsWith(".pdf")) {
+      res.writeHead(200, {
+        "Content-Type": "application/pdf",
+        "X-Content-Type-Options": "nosniff",
+        ...CORS_HEADERS,
+      });
+      res.end("%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n");
+      return;
+    }
+    send(res, 404, { error: "not found" });
+    return;
+  }
+
   // GET /api/v1/admin/contents
   if (path === "/api/v1/admin/contents" && method === "GET") {
     const limit = parseInt(url.searchParams.get("limit") ?? "20");
@@ -413,6 +461,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   // POST /api/v1/admin/contents/upload
+  // POST /api/v1/admin/contents/upload
   if (path === "/api/v1/admin/contents/upload" && method === "POST") {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
@@ -428,11 +477,23 @@ const server = http.createServer(async (req, res) => {
       send(res, 400, { error: "channel_id is required" });
       return;
     }
+    const filenameMatch = body.match(/filename="([^"]+)"/);
+    const uploadedFilename = (filenameMatch ? filenameMatch[1] : "").toLowerCase();
+    const isMarkdown = uploadedFilename.endsWith(".md") || uploadedFilename.endsWith(".markdown");
+    const isPdf = uploadedFilename.endsWith(".pdf");
+    const isDoc = isMarkdown || isPdf;
     const now = new Date().toISOString();
+    const shortId = `up${Date.now()}`;
+    const docKey = isMarkdown
+      ? `resources/documents/${shortId}/document.md`
+      : isPdf
+        ? `resources/documents/${shortId}/document.pdf`
+        : null;
+    const docMime = isMarkdown ? "text/markdown" : isPdf ? "application/pdf" : null;
     const content = {
       id: `upload-${Date.now()}`,
-      short_id: `up${Date.now()}`,
-      content_type: "video",
+      short_id: shortId,
+      content_type: isDoc ? "document" : "video",
       channel_id: channelId,
       disc_id: null,
       title,
@@ -440,14 +501,38 @@ const server = http.createServer(async (req, res) => {
       duration_seconds: null,
       is_360: false,
       tags: [],
-      status: "pending",
-      published_at: null,
+      status: isDoc ? "ready" : "pending",
+      document_key: docKey,
+      document_mime_type: docMime,
+      published_at: isDoc ? now : null,
       archived_at: null,
       created_at: now,
       updated_at: now,
     };
     ADMIN_CONTENTS.unshift(content);
-    send(res, 201, { content, workflow_name: "video-upload-mock" });
+    if (isDoc) {
+      const ch = CHANNELS.find((c) => c.id === channelId);
+      CONTENTS.unshift({
+        short_id: shortId,
+        content_type: "document",
+        channel_id: channelId,
+        channel_name: ch ? ch.name : channelId,
+        title,
+        description: "",
+        duration_seconds: null,
+        is_360: false,
+        tags: [],
+        status: "ready",
+        disc_label: null,
+        thumbnail_key: null,
+        document_key: docKey,
+        document_mime_type: docMime,
+        published_at: now,
+        updated_at: now,
+        has_subtitles: false,
+      });
+    }
+    send(res, 201, { content, workflow_name: isDoc ? "" : "video-upload-mock" });
     return;
   }
 

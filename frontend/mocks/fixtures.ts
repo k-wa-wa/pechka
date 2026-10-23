@@ -128,6 +128,8 @@ export const CONTENTS: MongoContent[] = [
     status: "ready",
     disc_label: null,
     thumbnail_key: null,
+    document_key: "resources/documents/doc001/document.md",
+    document_mime_type: "text/markdown",
     published_at: "2025-01-05T00:00:00Z",
     updated_at: "2025-01-06T09:00:00Z",
     has_subtitles: false,
@@ -163,11 +165,43 @@ export const ADMIN_CONTENTS: Content[] = CONTENTS.map((c, i) => ({
   is_360: c.is_360,
   tags: c.tags,
   status: c.status,
+  document_key: c.document_key ?? null,
+  document_mime_type: c.document_mime_type ?? null,
   published_at: c.published_at,
   archived_at: null,
   created_at: c.updated_at,
   updated_at: c.updated_at,
 }));
+
+export const SAMPLE_MARKDOWN = `# 2024年度 活動報告書
+
+本ドキュメントは **pechka** メディア基盤における年間の活動と技術構成をまとめたレポートです。
+
+## 1. 主な成果
+
+- **動画配信 (HLS / ABR)**: Blu-ray および自動生成ダイジェスト動画のマルチ品質配信
+- **ドキュメント閲覧対応**: \`.md\` (Markdown) および \`.pdf\` (PDF) のブラウザ内表示に対応
+- **全文検索**: Elasticsearch による高速キーワード・タグ検索
+
+## 2. 対応フォーマット一覧
+
+| フォーマット | 拡張子 | MIME タイプ | 状態 |
+| --- | --- | --- | --- |
+| Markdown | .md, .markdown | text/markdown | 対応済み |
+| PDF | .pdf | application/pdf | 対応済み |
+
+## 3. API からのアップロード例
+
+\`\`\`bash
+curl -X POST http://localhost:8080/api/v1/admin/contents/upload \\
+  -H "X-Channel-Id: tech-feed" \\
+  -F "file=@report.md" \\
+  -F "title=2024年度 活動報告書" \\
+  -F "tags=報告,ドキュメント"
+\`\`\`
+
+> 詳細は [pechka ドキュメント](https://example.com/docs) を参照してください。
+`;
 
 export const VARIANTS: Record<string, MongoVariant[]> = {
   vid001: [

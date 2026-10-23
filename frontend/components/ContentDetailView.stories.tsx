@@ -27,7 +27,30 @@ export const Vr360: Story = {
 
 export const NoDescription: Story = {
   args: {
-    content: { ...CONTENTS.find((c) => c.short_id === "vid002")!, description: "" },
+    content: {
+      ...CONTENTS.find((c) => c.short_id === "vid002")!,
+      description: "",
+    },
     variants: VARIANTS.vid002,
+  },
+};
+
+export const DocumentMarkdown: Story = {
+  args: {
+    content: CONTENTS.find((c) => c.short_id === "doc001")!,
+    variants: [],
+  },
+};
+
+export const DocumentPDF: Story = {
+  args: {
+    content: {
+      ...CONTENTS.find((c) => c.short_id === "doc001")!,
+      short_id: "doc002",
+      title: "システム構成ガイド (PDF)",
+      document_key: "resources/documents/doc002/document.pdf",
+      document_mime_type: "application/pdf",
+    },
+    variants: [],
   },
 };

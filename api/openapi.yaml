@@ -212,19 +212,22 @@ paths:
 
   /v1/admin/contents/upload:
     post:
-      summary: 動画ファイルのアップロード
+      summary: 動画・ドキュメントファイルのアップロード
       parameters:
         - name: X-Channel-Id
           in: header
-          required: true
-          description: 紐付けるチャンネルID (例: tech-feed, bluray)。必須。
+          required: false
+          description: 紐付けるチャンネルID (例: tech-feed, bluray)。ヘッダーまたはフォームの channel_id で指定必須。
           schema:
             type: string
       description: >
-        動画ファイルを multipart/form-data で受け取り、MinIO の一時領域
-        (`uploads/{short_id}/{filename}`) に保存した上で、content_type=video の
-        コンテンツを作成し、ETL の HLS 変換パイプライン(Argo Workflow)を起動する。
-        作成されるコンテンツは disc_id=null、status=pending となる。
+        動画またはドキュメント(.md, .pdf)ファイルを multipart/form-data で受け取る。
+        ・ドキュメント(.md, .markdown, .pdf)の場合: フォーマットおよびマジックバイトを検証の上、
+          MinIO の公開領域 (`resources/documents/{short_id}/document.{ext}`) に保存し、
+          content_type=document, status=ready として即時公開する (201 Created)。
+        ・動画の場合: MinIO の一時領域 (`uploads/{short_id}/{filename}`) に保存した上で、
+          content_type=video, status=pending のコンテンツを作成し、ETL の HLS 変換パイプライン
+          (Argo Workflow)を起動する (202 Accepted)。
       requestBody:
         required: true
         content:
@@ -236,7 +239,7 @@ paths:
                 file:
                   type: string
                   format: binary
-                  description: アップロードする動画ファイル(mp4 等)
+                  description: アップロードするファイル(動画: mp4 等 / ドキュメント: .md, .pdf)
                 title:
                   type: string
                 description:
@@ -244,15 +247,26 @@ paths:
                 tags:
                   type: string
                   description: 'カンマ区切りのタグ一覧(例: "action,drama")'
+                channel_id:
+                  type: string
+                  description: '紐付けるチャンネルID(X-Channel-Id ヘッダー未指定時のフォールバック)'
+                content_type:
+                  $ref: "#/components/schemas/ContentType"
       responses:
+        "201":
+          description: Created (ドキュメントの即時公開完了)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadVideoResponse"
         "202":
-          description: Accepted
+          description: Accepted (動画アップロード・変換ジョブ起動)
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/UploadVideoResponse"
         "400":
-          description: Bad Request (file または title が未指定)
+          description: Bad Request (file・title 未指定、未対応フォーマット、マジックバイト不一致等)
         "500":
           description: Internal Server Error (MinIO 接続失敗、Workflow 起動失敗等)
 
@@ -418,6 +432,15 @@ components:
             type: string
         status:
           $ref: "#/components/schemas/ContentStatus"
+        document_key:
+          type: string
+          nullable: true
+          description: ドキュメントファイルのMinIOキー (例: resources/documents/{short_id}/document.md)
+        document_mime_type:
+          type: string
+          nullable: true
+          enum: [text/markdown, application/pdf]
+          description: ドキュメントの正規化MIMEタイプ
         published_at:
           type: string
           format: date-time
@@ -464,6 +487,12 @@ components:
           type: string
           nullable: true
         thumbnail_key:
+          type: string
+          nullable: true
+        document_key:
+          type: string
+          nullable: true
+        document_mime_type:
           type: string
           nullable: true
         published_at:

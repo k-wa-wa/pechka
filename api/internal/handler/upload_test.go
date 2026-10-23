@@ -58,7 +58,7 @@ func newFakeDynamicClient() *fakedynamic.FakeDynamicClient {
 	return client
 }
 
-func newMultipartUploadRequest(t *testing.T, fields map[string]string, fileFieldPresent bool) (*http.Request, string) {
+func newMultipartUploadRequestWithFile(t *testing.T, fields map[string]string, filename string, fileContent []byte) (*http.Request, string) {
 	t.Helper()
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
@@ -68,12 +68,12 @@ func newMultipartUploadRequest(t *testing.T, fields map[string]string, fileField
 			t.Fatalf("write field: %v", err)
 		}
 	}
-	if fileFieldPresent {
-		part, err := writer.CreateFormFile("file", "movie.mp4")
+	if filename != "" {
+		part, err := writer.CreateFormFile("file", filename)
 		if err != nil {
 			t.Fatalf("create form file: %v", err)
 		}
-		if _, err := part.Write([]byte("fake video bytes")); err != nil {
+		if _, err := part.Write(fileContent); err != nil {
 			t.Fatalf("write file content: %v", err)
 		}
 	}
@@ -84,6 +84,16 @@ func newMultipartUploadRequest(t *testing.T, fields map[string]string, fileField
 	req := httptest.NewRequest(http.MethodPost, "/v1/admin/contents/upload", body)
 	req.Header.Set(echo.HeaderContentType, writer.FormDataContentType())
 	return req, writer.FormDataContentType()
+}
+
+func newMultipartUploadRequest(t *testing.T, fields map[string]string, fileFieldPresent bool) (*http.Request, string) {
+	filename := ""
+	var content []byte
+	if fileFieldPresent {
+		filename = "movie.mp4"
+		content = []byte("fake video bytes")
+	}
+	return newMultipartUploadRequestWithFile(t, fields, filename, content)
 }
 
 func TestUploadHandler_UploadVideo_MissingFile(t *testing.T) {
@@ -310,6 +320,161 @@ func TestUploadHandler_UploadVideo_UnknownChannelId(t *testing.T) {
 	err := h.UploadVideo(c)
 	if err == nil {
 		t.Fatal("expected error when channel_id is unknown, got nil")
+	}
+	he := err.(*echo.HTTPError)
+	if he.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", he.Code)
+	}
+}
+
+func TestUploadHandler_UploadMarkdownDocument_Success(t *testing.T) {
+	var gotObjectKey string
+	var gotContentType string
+	var gotUploadedBytes []byte
+	var gotParams pgRepo.CreateContentParams
+
+	mdBytes := []byte("# アーキテクチャ設計書\n\nこれはMarkdownドキュメントです。\n")
+	minioClient := &mockMinioPutObjecter{
+		putObjectFn: func(ctx context.Context, bucketName, objectName string, reader io.Reader, objectSize int64, opts minio.PutObjectOptions) (minio.UploadInfo, error) {
+			gotObjectKey = objectName
+			gotContentType = opts.ContentType
+			data, err := io.ReadAll(reader)
+			if err != nil {
+				return minio.UploadInfo{}, err
+			}
+			gotUploadedBytes = data
+			return minio.UploadInfo{}, nil
+		},
+	}
+	contentRepo := &mockContentCreator{
+		createFn: func(ctx context.Context, params pgRepo.CreateContentParams) (*domain.Content, error) {
+			gotParams = params
+			return &domain.Content{
+				ID:               "doc-1",
+				ShortID:          params.ShortID,
+				ContentType:      params.ContentType,
+				ChannelID:        params.ChannelID,
+				Title:            params.Title,
+				Description:      params.Description,
+				Tags:             params.Tags,
+				Status:           params.Status,
+				DocumentKey:      params.DocumentKey,
+				DocumentMimeType: params.DocumentMimeType,
+				PublishedAt:      params.PublishedAt,
+			}, nil
+		},
+	}
+
+	dynClient := newFakeDynamicClient()
+	dynClient.PrependReactor("create", "workflows", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		t.Fatal("Argo Workflow should not be triggered for document uploads")
+		return true, nil, nil
+	})
+
+	h := handler.NewUploadHandler(contentRepo, minioClient, "pechka", dynClient, newSnowflakeNode(t), "pechka")
+	e := echo.New()
+
+	req, _ := newMultipartUploadRequestWithFile(t, map[string]string{
+		"title":       "設計書",
+		"description": "システム設計ドキュメント",
+		"tags":        "design, md",
+	}, "architecture.md", mdBytes)
+	req.Header.Set(domain.HeaderChannelID, "tech-feed")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	if err := h.UploadVideo(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", rec.Code)
+	}
+	if gotParams.ContentType != domain.ContentTypeDocument {
+		t.Errorf("expected content_type document, got %s", gotParams.ContentType)
+	}
+	if gotParams.Status != domain.ContentStatusReady {
+		t.Errorf("expected status ready, got %s", gotParams.Status)
+	}
+	if gotParams.DocumentMimeType == nil || *gotParams.DocumentMimeType != domain.MimeTypeMarkdown {
+		t.Errorf("expected document_mime_type %q, got %v", domain.MimeTypeMarkdown, gotParams.DocumentMimeType)
+	}
+	wantKey := "resources/documents/" + gotParams.ShortID + "/document.md"
+	if gotObjectKey != wantKey {
+		t.Errorf("expected object key %q, got %q", wantKey, gotObjectKey)
+	}
+	if gotParams.DocumentKey == nil || *gotParams.DocumentKey != wantKey {
+		t.Errorf("expected DocumentKey %q, got %v", wantKey, gotParams.DocumentKey)
+	}
+	if gotContentType != "text/markdown; charset=utf-8" {
+		t.Errorf("expected MinIO Content-Type text/markdown; charset=utf-8, got %q", gotContentType)
+	}
+	if !bytes.Equal(gotUploadedBytes, mdBytes) {
+		t.Errorf("uploaded bytes mismatch: got %q, want %q", string(gotUploadedBytes), string(mdBytes))
+	}
+}
+
+func TestUploadHandler_UploadPDFDocument_SuccessAndInvalidHeader(t *testing.T) {
+	var gotObjectKey string
+	var gotParams pgRepo.CreateContentParams
+
+	pdfBytes := []byte("%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n")
+	minioClient := &mockMinioPutObjecter{
+		putObjectFn: func(ctx context.Context, bucketName, objectName string, reader io.Reader, objectSize int64, opts minio.PutObjectOptions) (minio.UploadInfo, error) {
+			gotObjectKey = objectName
+			return minio.UploadInfo{}, nil
+		},
+	}
+	contentRepo := &mockContentCreator{
+		createFn: func(ctx context.Context, params pgRepo.CreateContentParams) (*domain.Content, error) {
+			gotParams = params
+			return &domain.Content{
+				ID:               "pdf-1",
+				ShortID:          params.ShortID,
+				ContentType:      params.ContentType,
+				Title:            params.Title,
+				Status:           params.Status,
+				DocumentKey:      params.DocumentKey,
+				DocumentMimeType: params.DocumentMimeType,
+			}, nil
+		},
+	}
+
+	h := handler.NewUploadHandler(contentRepo, minioClient, "pechka", newFakeDynamicClient(), newSnowflakeNode(t), "pechka")
+	e := echo.New()
+
+	req, _ := newMultipartUploadRequestWithFile(t, map[string]string{
+		"title":      "論文PDF",
+		"channel_id": "tech-feed",
+	}, "paper.pdf", pdfBytes)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	if err := h.UploadVideo(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", rec.Code)
+	}
+	wantKey := "resources/documents/" + gotParams.ShortID + "/document.pdf"
+	if gotObjectKey != wantKey {
+		t.Errorf("expected object key %q, got %q", wantKey, gotObjectKey)
+	}
+	if gotParams.DocumentMimeType == nil || *gotParams.DocumentMimeType != domain.MimeTypePDF {
+		t.Errorf("expected document_mime_type %q, got %v", domain.MimeTypePDF, gotParams.DocumentMimeType)
+	}
+
+	// Invalid PDF without %PDF- magic header must be rejected with 400
+	badReq, _ := newMultipartUploadRequestWithFile(t, map[string]string{
+		"title":      "偽PDF",
+		"channel_id": "tech-feed",
+	}, "fake.pdf", []byte("not a valid pdf header"))
+	badRec := httptest.NewRecorder()
+	badCtx := e.NewContext(badReq, badRec)
+
+	err := h.UploadVideo(badCtx)
+	if err == nil {
+		t.Fatal("expected error for invalid PDF header, got nil")
 	}
 	he := err.(*echo.HTTPError)
 	if he.Code != http.StatusBadRequest {

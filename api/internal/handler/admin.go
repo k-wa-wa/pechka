@@ -56,14 +56,17 @@ func (h *AdminHandler) WithChannelRepository(channelRepo pgChannelRepository) *A
 }
 
 type createContentRequest struct {
-	ContentType     domain.ContentType `json:"content_type" validate:"required"`
-	ChannelID       *string            `json:"channel_id"`
-	DiscID          *string            `json:"disc_id"`
-	Title           string             `json:"title" validate:"required"`
-	Description     string             `json:"description"`
-	DurationSeconds *int               `json:"duration_seconds"`
-	Is360           bool               `json:"is_360"`
-	Tags            []string           `json:"tags"`
+	ContentType      domain.ContentType    `json:"content_type" validate:"required"`
+	ChannelID        *string               `json:"channel_id"`
+	DiscID           *string               `json:"disc_id"`
+	Title            string                `json:"title" validate:"required"`
+	Description      string                `json:"description"`
+	DurationSeconds  *int                  `json:"duration_seconds"`
+	Is360            bool                  `json:"is_360"`
+	Tags             []string              `json:"tags"`
+	DocumentKey      *string               `json:"document_key"`
+	DocumentMimeType *string               `json:"document_mime_type"`
+	Status           *domain.ContentStatus `json:"status"`
 }
 
 func (h *AdminHandler) CreateContent(c echo.Context) error {
@@ -73,6 +76,9 @@ func (h *AdminHandler) CreateContent(c echo.Context) error {
 	}
 	if req.Title == "" || req.ContentType == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "title and content_type are required")
+	}
+	if req.DocumentMimeType != nil && *req.DocumentMimeType != "" && !domain.IsSupportedDocumentMimeType(*req.DocumentMimeType) {
+		return echo.NewHTTPError(http.StatusBadRequest, "unsupported document_mime_type")
 	}
 
 	ctx := c.Request().Context()
@@ -87,17 +93,24 @@ func (h *AdminHandler) CreateContent(c echo.Context) error {
 		tags = []string{}
 	}
 
+	status := domain.ContentStatusPending
+	if req.Status != nil && *req.Status != "" {
+		status = *req.Status
+	}
+
 	content, err := h.contentRepo.Create(ctx, pgRepo.CreateContentParams{
-		ShortID:         shortID,
-		ContentType:     req.ContentType,
-		ChannelID:       channelID,
-		DiscID:          req.DiscID,
-		Title:           req.Title,
-		Description:     req.Description,
-		DurationSeconds: req.DurationSeconds,
-		Is360:           req.Is360,
-		Tags:            tags,
-		Status:          domain.ContentStatusPending,
+		ShortID:          shortID,
+		ContentType:      req.ContentType,
+		ChannelID:        channelID,
+		DiscID:           req.DiscID,
+		Title:            req.Title,
+		Description:      req.Description,
+		DurationSeconds:  req.DurationSeconds,
+		Is360:            req.Is360,
+		Tags:             tags,
+		Status:           status,
+		DocumentKey:      req.DocumentKey,
+		DocumentMimeType: req.DocumentMimeType,
 	})
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
