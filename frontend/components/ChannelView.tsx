@@ -1,56 +1,56 @@
-'use client'
+"use client";
 
-import Link from 'next/link'
-import type { Channel, MongoContent } from '@/lib/types'
-import ContentCard from '@/components/ContentCard'
-import FilterBar from '@/components/FilterBar'
-import { CONTENT_TYPES } from '@/components/HomeView'
-import { useLanguage } from '@/lib/i18n/LanguageContext'
+import Link from "next/link";
+import ContentCard from "@/components/ContentCard";
+import FilterBar from "@/components/FilterBar";
+import { CONTENT_TYPES } from "@/components/HomeView";
+import { useLanguage } from "@/lib/i18n/LanguageContext";
+import type { Channel, MongoContent } from "@/lib/types";
 
 interface Props {
-  channel: Channel
-  contents: MongoContent[]
-  currentType: string
+  channel: Channel;
+  contents: MongoContent[];
+  currentType: string;
 }
 
 export default function ChannelView({ channel, contents, currentType }: Props) {
-  const { t } = useLanguage()
+  const { t } = useLanguage();
 
   return (
     <div
       style={{
         maxWidth: 1280,
-        margin: '0 auto',
-        padding: '32px 24px',
+        margin: "0 auto",
+        padding: "32px 24px",
       }}
     >
       {/* Channel Header */}
       <div
         style={{
-          backgroundColor: 'var(--card)',
-          border: '1px solid var(--line)',
-          borderRadius: 'var(--radius-lg)',
-          padding: '24px',
+          backgroundColor: "var(--card)",
+          border: "1px solid var(--line)",
+          borderRadius: "var(--radius-lg)",
+          padding: "24px",
           marginBottom: 32,
         }}
       >
         <div
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
             gap: 12,
             marginBottom: 8,
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <h1
               style={{
                 margin: 0,
                 fontSize: 24,
                 fontWeight: 700,
-                color: 'var(--fg)',
+                color: "var(--fg)",
               }}
             >
               {channel.name}
@@ -58,12 +58,12 @@ export default function ChannelView({ channel, contents, currentType }: Props) {
             <span
               style={{
                 fontSize: 12,
-                padding: '2px 8px',
-                borderRadius: 'var(--radius-sm)',
-                backgroundColor: 'var(--accent-subtle)',
-                color: 'var(--accent)',
-                border: '1px solid var(--accent-border)',
-                fontFamily: 'monospace',
+                padding: "2px 8px",
+                borderRadius: "var(--radius-sm)",
+                backgroundColor: "var(--accent-subtle)",
+                color: "var(--accent)",
+                border: "1px solid var(--accent-border)",
+                fontFamily: "monospace",
               }}
             >
               {channel.id}
@@ -73,20 +73,20 @@ export default function ChannelView({ channel, contents, currentType }: Props) {
             href="/"
             style={{
               fontSize: 13,
-              color: 'var(--muted)',
-              textDecoration: 'none',
+              color: "var(--muted)",
+              textDecoration: "none",
             }}
           >
-            ← {t('nav.home')}
+            ← {t("nav.home")}
           </Link>
         </div>
 
         {channel.description && (
           <p
             style={{
-              margin: '8px 0 0',
+              margin: "8px 0 0",
               fontSize: 14,
-              color: 'var(--muted)',
+              color: "var(--muted)",
               lineHeight: 1.6,
             }}
           >
@@ -98,10 +98,10 @@ export default function ChannelView({ channel, contents, currentType }: Props) {
       {/* Section header + filter */}
       <div
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
           gap: 12,
           marginBottom: 24,
         }}
@@ -111,10 +111,10 @@ export default function ChannelView({ channel, contents, currentType }: Props) {
             margin: 0,
             fontSize: 18,
             fontWeight: 700,
-            color: 'var(--fg)',
+            color: "var(--fg)",
           }}
         >
-          {t('home.title')} ({contents.length})
+          {t("home.title")} ({contents.length})
         </h2>
         <FilterBar
           types={CONTENT_TYPES}
@@ -126,18 +126,18 @@ export default function ChannelView({ channel, contents, currentType }: Props) {
       {contents.length === 0 ? (
         <div
           style={{
-            textAlign: 'center',
-            padding: '64px 0',
-            color: 'var(--muted)',
+            textAlign: "center",
+            padding: "64px 0",
+            color: "var(--muted)",
           }}
         >
-          {t('home.noContents')}
+          {t("home.noContents")}
         </div>
       ) : (
         <div
           style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
             gap: 16,
           }}
         >
@@ -147,5 +147,5 @@ export default function ChannelView({ channel, contents, currentType }: Props) {
         </div>
       )}
     </div>
-  )
+  );
 }

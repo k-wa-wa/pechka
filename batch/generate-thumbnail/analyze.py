@@ -9,8 +9,15 @@ import sys
 import tempfile
 from pathlib import Path
 
-import boto3
-import psycopg2
+try:
+    import boto3
+except ImportError:  # pragma: no cover
+    boto3 = None  # type: ignore[assignment]
+
+try:
+    import psycopg2
+except ImportError:  # pragma: no cover
+    psycopg2 = None  # type: ignore[assignment]
 
 SAMPLE_INTERVAL_SEC = 120
 MAX_THUMBNAILS = 5
@@ -21,12 +28,17 @@ def get_duration_seconds(input_path: str) -> float:
     """Probe media duration via ffprobe (reads container metadata only, no decode)."""
     result = subprocess.run(
         [
-            "ffprobe", "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
             input_path,
         ],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     try:
         return float(result.stdout.strip())
@@ -39,11 +51,19 @@ def extract_frame_at(input_path: str, timestamp: float, output_path: Path) -> bo
     try:
         subprocess.run(
             [
-                "ffmpeg", "-ss", str(timestamp), "-i", input_path,
-                "-frames:v", "1",
-                "-vf", "scale=320:-1",
-                "-pix_fmt", "yuvj420p",
-                "-q:v", "2",
+                "ffmpeg",
+                "-ss",
+                str(timestamp),
+                "-i",
+                input_path,
+                "-frames:v",
+                "1",
+                "-vf",
+                "scale=320:-1",
+                "-pix_fmt",
+                "yuvj420p",
+                "-q:v",
+                "2",
                 str(output_path),
             ],
             check=True,
@@ -76,13 +96,19 @@ def brightness_score(path: str) -> float:
     """Compute mean brightness using ffprobe/ffmpeg."""
     result = subprocess.run(
         [
-            "ffprobe", "-v", "quiet",
-            "-show_entries", "frame_tags=lavfi.signalstats.YAVG",
-            "-f", "lavfi",
+            "ffprobe",
+            "-v",
+            "quiet",
+            "-show_entries",
+            "frame_tags=lavfi.signalstats.YAVG",
+            "-f",
+            "lavfi",
             f"movie={path},signalstats",
-            "-of", "default=noprint_wrappers=1:nokey=1",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
         ],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     try:
         return float(result.stdout.strip())
@@ -172,7 +198,7 @@ def main() -> None:
         aws_access_key_id=access_key,
         aws_secret_access_key=secret_key,
     )
-    
+
     print(f"Generating presigned URL for MinIO object: {args.input}...")
     presigned_url = s3_client.generate_presigned_url(
         "get_object",
@@ -212,5 +238,5 @@ def main() -> None:
         conn.close()
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()

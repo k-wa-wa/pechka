@@ -39,6 +39,12 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
+      - name: Go Format Check
+        run: test -z "$(gofmt -s -l .)"
+
+      - name: Go Vet
+        run: go vet ./...
+
       - name: Build
         run: CGO_ENABLED=0 go build ./...
 
@@ -63,6 +69,12 @@ jobs:
 
       - name: Download dependencies
         run: go mod download
+
+      - name: Go Format Check
+        run: test -z "$(gofmt -s -l .)"
+
+      - name: Go Vet
+        run: go vet ./...
 
       - name: Build
         run: CGO_ENABLED=0 go build ./...

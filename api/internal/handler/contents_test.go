@@ -15,9 +15,9 @@ import (
 )
 
 type mockMongoContentRepo struct {
-	listFn             func(ctx context.Context, params mongoRepo.ListParams) ([]*domain.MongoContent, error)
-	getByShortIDFn     func(ctx context.Context, shortID string) (*domain.MongoContent, error)
-	getVariantsFn      func(ctx context.Context, shortID string) ([]domain.MongoVariant, error)
+	listFn         func(ctx context.Context, params mongoRepo.ListParams) ([]*domain.MongoContent, error)
+	getByShortIDFn func(ctx context.Context, shortID string) (*domain.MongoContent, error)
+	getVariantsFn  func(ctx context.Context, shortID string) ([]domain.MongoVariant, error)
 }
 
 func (m *mockMongoContentRepo) List(ctx context.Context, params mongoRepo.ListParams) ([]*domain.MongoContent, error) {

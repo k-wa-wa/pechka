@@ -1,217 +1,213 @@
 import type {
+  AdminContentsResponse,
   Channel,
+  Content,
+  ContentStatus,
+  ContentType,
+  InsertSubtitleCueRequest,
   MongoContent,
   MongoVariant,
   SearchResult,
-  Content,
-  UpdateContentRequest,
-  ContentStatus,
-  ContentType,
+  SubtitleCue,
   SubtitleTrack,
   SubtitleTrackStatus,
-  SubtitleCue,
+  UpdateContentRequest,
   UpdateSubtitleCueRequest,
-  InsertSubtitleCueRequest,
-  AdminContentsResponse,
   UploadContentRequest,
   UploadContentResponse,
-} from './types'
+} from "./types";
 
 // Server components use API_URL (internal k8s service); browser uses relative URL via nginx
 const API_BASE =
-  typeof window === 'undefined'
-    ? (process.env.API_URL ?? 'http://api:8080')
-    : (process.env.NEXT_PUBLIC_API_URL ?? '')
+  typeof window === "undefined"
+    ? (process.env.API_URL ?? "http://api:8080")
+    : (process.env.NEXT_PUBLIC_API_URL ?? "");
 
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url, options)
+  const res = await fetch(url, options);
   if (!res.ok) {
-    throw new Error(`API error ${res.status}: ${res.statusText}`)
+    throw new Error(`API error ${res.status}: ${res.statusText}`);
   }
-  return res.json() as Promise<T>
+  return res.json() as Promise<T>;
 }
 
 export async function getChannels(): Promise<Channel[]> {
   return fetchJson<Channel[]>(`${API_BASE}/api/v1/channels`, {
-    cache: 'no-store',
-  })
+    cache: "no-store",
+  });
 }
 
 export async function getChannel(id: string): Promise<Channel> {
   return fetchJson<Channel>(`${API_BASE}/api/v1/channels/${encodeURIComponent(id)}`, {
-    cache: 'no-store',
-  })
+    cache: "no-store",
+  });
 }
 
 export async function getContents(params?: {
-  limit?: number
-  offset?: number
-  content_type?: ContentType
-  channel_id?: string
+  limit?: number;
+  offset?: number;
+  content_type?: ContentType;
+  channel_id?: string;
 }): Promise<MongoContent[]> {
-  const query = new URLSearchParams()
-  if (params?.limit != null) query.set('limit', String(params.limit))
-  if (params?.offset != null) query.set('offset', String(params.offset))
-  if (params?.content_type) query.set('content_type', params.content_type)
-  if (params?.channel_id) query.set('channel_id', params.channel_id)
-  const qs = query.toString()
-  return fetchJson<MongoContent[]>(`${API_BASE}/api/v1/contents${qs ? `?${qs}` : ''}`, {
-    cache: 'no-store',
-  })
+  const query = new URLSearchParams();
+  if (params?.limit != null) query.set("limit", String(params.limit));
+  if (params?.offset != null) query.set("offset", String(params.offset));
+  if (params?.content_type) query.set("content_type", params.content_type);
+  if (params?.channel_id) query.set("channel_id", params.channel_id);
+  const qs = query.toString();
+  return fetchJson<MongoContent[]>(`${API_BASE}/api/v1/contents${qs ? `?${qs}` : ""}`, {
+    cache: "no-store",
+  });
 }
 
 export async function getContent(shortId: string): Promise<MongoContent> {
   return fetchJson<MongoContent>(`${API_BASE}/api/v1/contents/${shortId}`, {
-    cache: 'no-store',
-  })
+    cache: "no-store",
+  });
 }
 
 export async function getVariants(shortId: string): Promise<MongoVariant[]> {
   return fetchJson<MongoVariant[]>(`${API_BASE}/api/v1/contents/${shortId}/variants`, {
-    cache: 'no-store',
-  })
+    cache: "no-store",
+  });
 }
 
 export async function searchContents(
   q: string,
-  params?: { limit?: number; offset?: number }
+  params?: { limit?: number; offset?: number },
 ): Promise<SearchResult[]> {
-  const query = new URLSearchParams({ q })
-  if (params?.limit != null) query.set('limit', String(params.limit))
-  if (params?.offset != null) query.set('offset', String(params.offset))
-  return fetchJson<SearchResult[]>(`${API_BASE}/api/v1/search?${query.toString()}`)
+  const query = new URLSearchParams({ q });
+  if (params?.limit != null) query.set("limit", String(params.limit));
+  if (params?.offset != null) query.set("offset", String(params.offset));
+  return fetchJson<SearchResult[]>(`${API_BASE}/api/v1/search?${query.toString()}`);
 }
 
 export async function getAdminContents(params?: {
-  status?: ContentStatus
-  limit?: number
-  offset?: number
+  status?: ContentStatus;
+  limit?: number;
+  offset?: number;
 }): Promise<AdminContentsResponse> {
-  const query = new URLSearchParams()
-  if (params?.status) query.set('status', params.status)
-  if (params?.limit != null) query.set('limit', String(params.limit))
-  if (params?.offset != null) query.set('offset', String(params.offset))
-  const qs = query.toString()
+  const query = new URLSearchParams();
+  if (params?.status) query.set("status", params.status);
+  if (params?.limit != null) query.set("limit", String(params.limit));
+  if (params?.offset != null) query.set("offset", String(params.offset));
+  const qs = query.toString();
   return fetchJson<AdminContentsResponse>(
-    `${API_BASE}/api/v1/admin/contents${qs ? `?${qs}` : ''}`,
-    { cache: 'no-store' }
-  )
+    `${API_BASE}/api/v1/admin/contents${qs ? `?${qs}` : ""}`,
+    { cache: "no-store" },
+  );
 }
 
-export async function updateContent(
-  id: string,
-  body: UpdateContentRequest
-): Promise<Content> {
+export async function updateContent(id: string, body: UpdateContentRequest): Promise<Content> {
   return fetchJson<Content>(`${API_BASE}/api/v1/admin/contents/${id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-  })
+  });
 }
 
 // Uses XMLHttpRequest (not fetch) because upload progress needs xhr.upload.onprogress.
 export function uploadContent(
   file: File,
   metadata: UploadContentRequest,
-  onProgress?: (percent: number) => void
+  onProgress?: (percent: number) => void,
 ): Promise<UploadContentResponse> {
   return new Promise((resolve, reject) => {
-    const formData = new FormData()
-    formData.append('file', file)
-    formData.append('title', metadata.title)
-    if (metadata.description) formData.append('description', metadata.description)
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("title", metadata.title);
+    if (metadata.description) formData.append("description", metadata.description);
     // API は tags を単一フィールドのカンマ区切り文字列として受け取る(api/internal/handler/upload.go)
-    if (metadata.tags && metadata.tags.length > 0) formData.append('tags', metadata.tags.join(','))
+    if (metadata.tags && metadata.tags.length > 0) formData.append("tags", metadata.tags.join(","));
 
-    const xhr = new XMLHttpRequest()
-    xhr.open('POST', `${API_BASE}/api/v1/admin/contents/upload`)
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${API_BASE}/api/v1/admin/contents/upload`);
     if (metadata.channel_id) {
-      xhr.setRequestHeader('X-Channel-Id', metadata.channel_id)
+      xhr.setRequestHeader("X-Channel-Id", metadata.channel_id);
     }
     xhr.upload.onprogress = (e) => {
       if (onProgress && e.lengthComputable) {
-        onProgress(Math.round((e.loaded / e.total) * 100))
+        onProgress(Math.round((e.loaded / e.total) * 100));
       }
-    }
+    };
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
-          resolve(JSON.parse(xhr.responseText) as UploadContentResponse)
+          resolve(JSON.parse(xhr.responseText) as UploadContentResponse);
         } catch {
-          reject(new Error('Invalid response from server'))
+          reject(new Error("Invalid response from server"));
         }
       } else {
-        reject(new Error(`API error ${xhr.status}: ${xhr.statusText}`))
+        reject(new Error(`API error ${xhr.status}: ${xhr.statusText}`));
       }
-    }
-    xhr.onerror = () => reject(new Error('Network error'))
-    xhr.send(formData)
-  })
+    };
+    xhr.onerror = () => reject(new Error("Network error"));
+    xhr.send(formData);
+  });
 }
 
 export async function archiveContent(id: string): Promise<Content> {
   return fetchJson<Content>(`${API_BASE}/api/v1/admin/contents/${id}/archive`, {
-    method: 'POST',
-  })
+    method: "POST",
+  });
 }
 
 export async function unarchiveContent(id: string): Promise<Content> {
   return fetchJson<Content>(`${API_BASE}/api/v1/admin/contents/${id}/unarchive`, {
-    method: 'POST',
-  })
+    method: "POST",
+  });
 }
 
 export async function getSubtitleTracks(contentId: string): Promise<SubtitleTrack[]> {
-  return fetchJson<SubtitleTrack[]>(
-    `${API_BASE}/api/v1/admin/contents/${contentId}/subtitles`,
-    { cache: 'no-store' }
-  )
+  return fetchJson<SubtitleTrack[]>(`${API_BASE}/api/v1/admin/contents/${contentId}/subtitles`, {
+    cache: "no-store",
+  });
 }
 
 export async function updateSubtitleTrackStatus(
   trackId: string,
-  status: SubtitleTrackStatus
+  status: SubtitleTrackStatus,
 ): Promise<SubtitleTrack> {
   return fetchJson<SubtitleTrack>(`${API_BASE}/api/v1/admin/subtitles/${trackId}/status`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ status }),
-  })
+  });
 }
 
 export async function getSubtitleCues(trackId: string): Promise<SubtitleCue[]> {
   return fetchJson<SubtitleCue[]>(`${API_BASE}/api/v1/admin/subtitles/${trackId}/cues`, {
-    cache: 'no-store',
-  })
+    cache: "no-store",
+  });
 }
 
 export async function updateSubtitleCue(
   cueId: string,
-  body: UpdateSubtitleCueRequest
+  body: UpdateSubtitleCueRequest,
 ): Promise<SubtitleCue> {
   return fetchJson<SubtitleCue>(`${API_BASE}/api/v1/admin/subtitles/cues/${cueId}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-  })
+  });
 }
 
 export async function insertSubtitleCue(
   trackId: string,
-  body: InsertSubtitleCueRequest
+  body: InsertSubtitleCueRequest,
 ): Promise<SubtitleCue> {
   return fetchJson<SubtitleCue>(`${API_BASE}/api/v1/admin/subtitles/${trackId}/cues`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-  })
+  });
 }
 
 export async function deleteSubtitleCue(cueId: string): Promise<void> {
   const res = await fetch(`${API_BASE}/api/v1/admin/subtitles/cues/${cueId}`, {
-    method: 'DELETE',
-  })
+    method: "DELETE",
+  });
   if (!res.ok) {
-    throw new Error(`API error ${res.status}: ${res.statusText}`)
+    throw new Error(`API error ${res.status}: ${res.statusText}`);
   }
 }

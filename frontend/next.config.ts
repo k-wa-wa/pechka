@@ -1,30 +1,35 @@
-import type { NextConfig } from 'next'
+import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: 'standalone',
-  allowedDevOrigins: ['192.168.1.151', '192.168.*', '10.*', '172.*', 'localhost:*'],
+  output: "standalone",
+  allowedDevOrigins: ["192.168.1.151", "192.168.*", "10.*", "172.*", "localhost:*"],
   images: {
     remotePatterns: [
-      { protocol: 'http', hostname: '*' },
-      { protocol: 'https', hostname: '*' },
+      { protocol: "http", hostname: "*" },
+      { protocol: "https", hostname: "*" },
     ],
   },
-  // Local mock API mode (`npm run dev:mock`): proxy same-origin /api/v1/*
+  // Transpile aframe for SSR compatibility
+  transpilePackages: ["aframe"],
+
+  // Route API and resources requests to the local mock server during dev:mock.
+  //
+  // Next.js rewrites run on the Node.js dev server and seamlessly forward
   // browser requests to the mock server, mirroring the nginx reverse proxy
   // used in preview/prod so lib/api.ts doesn't need CORS-aware branching.
   async rewrites() {
-    if (!process.env.MOCK_API_URL) return []
+    if (!process.env.MOCK_API_URL) return [];
     return [
       {
-        source: '/api/v1/:path*',
+        source: "/api/v1/:path*",
         destination: `${process.env.MOCK_API_URL}/api/v1/:path*`,
       },
       {
-        source: '/resources/:path*',
+        source: "/resources/:path*",
         destination: `${process.env.MOCK_API_URL}/resources/:path*`,
       },
-    ]
+    ];
   },
-}
+};
 
-export default nextConfig
+export default nextConfig;

@@ -10,6 +10,7 @@ on:
     branches: [master]
     paths:
       - 'api/**'
+      - 'scripts/**'
       - '.github/workflows/api.yml'
   pull_request:
 
@@ -33,11 +34,20 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
+      - name: Go Format Check
+        run: test -z "$(gofmt -s -l .)"
+
+      - name: Go Vet
+        run: go vet ./...
+
+      - name: Check Required Test Files
+        run: ../scripts/check-required-tests.sh
+
       - name: Build
         run: CGO_ENABLED=0 go build ./...
 
       - name: Test
-        run: CGO_ENABLED=0 go test ./...
+        run: go test -race ./...
 
   docker-build-push:
     name: Docker Build and Push

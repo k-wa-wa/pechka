@@ -61,7 +61,7 @@ type VariantInfo struct {
 	Codecs      *string
 }
 
-func IntPtr(v int) *int     { return &v }
+func IntPtr(v int) *int       { return &v }
 func StrPtr(v string) *string { return &v }
 
 func BuildVariantInfo(variantType string) VariantInfo {

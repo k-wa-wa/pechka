@@ -10,9 +10,21 @@ import sys
 import tempfile
 from pathlib import Path
 
-import boto3
-import psycopg2
-import psycopg2.extras
+try:
+    import boto3
+except ImportError:  # pragma: no cover
+    boto3 = None  # type: ignore[assignment]
+
+try:
+    import psycopg2
+    import psycopg2.extras
+except ImportError:  # pragma: no cover
+    psycopg2 = None  # type: ignore[assignment]
+
+try:
+    from faster_whisper import WhisperModel
+except ImportError:  # pragma: no cover
+    WhisperModel = None  # type: ignore[assignment]
 
 WHISPER_MODEL = "large-v3"
 CPU_THREADS = int(os.environ.get("CPU_THREADS", "4"))
@@ -30,9 +42,17 @@ def extract_audio(source_url: str, output_wav: str) -> None:
     """ffmpegにMinIOの署名付きURLを直接渡し、フルダウンロードせず音声のみ抽出する。"""
     subprocess.run(
         [
-            "ffmpeg", "-y",
-            "-i", source_url,
-            "-vn", "-ac", "1", "-ar", "16000", "-acodec", "pcm_s16le",
+            "ffmpeg",
+            "-y",
+            "-i",
+            source_url,
+            "-vn",
+            "-ac",
+            "1",
+            "-ar",
+            "16000",
+            "-acodec",
+            "pcm_s16le",
             output_wav,
         ],
         check=True,
@@ -40,10 +60,13 @@ def extract_audio(source_url: str, output_wav: str) -> None:
 
 
 def transcribe(wav_path: str) -> list[dict]:
-    from faster_whisper import WhisperModel
-
     print(f"Loading faster-whisper {WHISPER_MODEL} (int8, cpu, {CPU_THREADS} threads)...")
-    model = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8", cpu_threads=CPU_THREADS)
+    model = WhisperModel(
+        WHISPER_MODEL,
+        device="cpu",
+        compute_type="int8",
+        cpu_threads=CPU_THREADS,
+    )
 
     print(f"Starting transcription (vad_filter={VAD_FILTER})...")
     segments, info = model.transcribe(
@@ -58,7 +81,13 @@ def transcribe(wav_path: str) -> list[dict]:
     results = []
     for seg in segments:
         text = seg.text.strip()
-        results.append({"start_ms": int(seg.start * 1000), "end_ms": int(seg.end * 1000), "text": text})
+        results.append(
+            {
+                "start_ms": int(seg.start * 1000),
+                "end_ms": int(seg.end * 1000),
+                "text": text,
+            }
+        )
         print(f"  [{seg.start:7.2f} -> {seg.end:7.2f}] {text}")
     return results
 
@@ -127,7 +156,15 @@ def register_track(conn, content_id: str, language: str, segments: list[dict]) -
         track_id = cur.fetchone()[0]
 
         rows = [
-            (track_id, seq, seg["start_ms"], seg["end_ms"], seg["text"], seg["text"], seg["flagged"])
+            (
+                track_id,
+                seq,
+                seg["start_ms"],
+                seg["end_ms"],
+                seg["text"],
+                seg["text"],
+                seg["flagged"],
+            )
             for seq, seg in enumerate(segments)
         ]
         psycopg2.extras.execute_values(
@@ -140,7 +177,10 @@ def register_track(conn, content_id: str, language: str, segments: list[dict]) -
         )
     conn.commit()
     flagged_count = sum(1 for s in segments if s["flagged"])
-    print(f"Registered track {track_id}: {len(segments)} cues ({flagged_count} flagged) [status=draft]")
+    print(
+        f"Registered track {track_id}: {len(segments)} cues "
+        f"({flagged_count} flagged) [status=draft]"
+    )
 
 
 def main() -> None:
@@ -164,7 +204,10 @@ def main() -> None:
     finally:
         guard_conn.close()
     if reason is not None:
-        print(f"Refusing to overwrite: {reason}. Aborting without re-transcribing.", file=sys.stderr)
+        print(
+            f"Refusing to overwrite: {reason}. Aborting without re-transcribing.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     endpoint = minio_url.rstrip("/")
@@ -201,5 +244,5 @@ def main() -> None:
         conn.close()
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()
