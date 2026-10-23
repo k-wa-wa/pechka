@@ -1,14 +1,14 @@
-import { getAdminContents, getChannels } from '@/lib/api'
-import AdminView from '@/components/AdminView'
-import type { Metadata } from 'next'
+import type { Metadata } from "next";
+import AdminView from "@/components/AdminView";
+import { getAdminContents, getChannels } from "@/lib/api";
 
-export const dynamic = 'force-dynamic'
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: 'Admin — pechka',
-}
+  title: "Admin — pechka",
+};
 
-const PAGE_SIZE = 20
+const PAGE_SIZE = 20;
 
 export default async function AdminPage() {
   const [data, channels] = await Promise.all([
@@ -19,7 +19,7 @@ export default async function AdminPage() {
       offset: 0,
     })),
     getChannels().catch(() => []),
-  ])
+  ]);
 
   return (
     <AdminView
@@ -29,5 +29,5 @@ export default async function AdminPage() {
       offset={data.offset}
       channels={channels}
     />
-  )
+  );
 }

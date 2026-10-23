@@ -283,7 +283,7 @@ func RunTransform(ctx context.Context, osArgs []string) error {
 		defer db.Close()
 
 		vSpec := shared.BuildVariantInfo(*mode)
-		
+
 		log.Printf("Registering variant %s to content %s...", *mode, *contentID)
 		if err := shared.RegisterVariant(ctx, db, *contentID, *shortID, *mode, vSpec); err != nil {
 			return fmt.Errorf("failed to register variant %s: %w", *mode, err)

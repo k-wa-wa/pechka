@@ -1,0 +1,31 @@
+name: K8s Manifest Lint
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'k8s/**'
+      - '.yamllint'
+      - '.github/workflows/k8s.yml'
+  pull_request:
+    paths:
+      - 'k8s/**'
+      - '.yamllint'
+      - '.github/workflows/k8s.yml'
+
+jobs:
+  lint-k8s:
+    name: Lint K8s Manifests
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v14
+
+      - name: Run k8s/lint.sh
+        run: ./k8s/lint.sh

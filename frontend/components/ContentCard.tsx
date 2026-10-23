@@ -1,87 +1,113 @@
-'use client'
+"use client";
 
-import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import type { MongoContent, ContentType } from '@/lib/types'
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import type { ContentType, MongoContent } from "@/lib/types";
 
 const CONTENT_TYPE_LABEL: Record<ContentType, string> = {
-  video: 'Video',
-  image_gallery: 'Gallery',
-  vr360: 'VR360',
-  document: 'Document',
-}
+  video: "Video",
+  image_gallery: "Gallery",
+  vr360: "VR360",
+  document: "Document",
+};
 
-const CONTENT_TYPE_ICON: Record<ContentType, React.ReactNode> = {
+const _CONTENT_TYPE_ICON: Record<ContentType, React.ReactNode> = {
   video: (
-    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="1.5">
+    <svg
+      width="32"
+      height="32"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="var(--muted)"
+      strokeWidth="1.5"
+    >
       <polygon points="5 3 19 12 5 21 5 3" />
     </svg>
   ),
   image_gallery: (
-    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="1.5">
+    <svg
+      width="32"
+      height="32"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="var(--muted)"
+      strokeWidth="1.5"
+    >
       <rect x="3" y="3" width="18" height="18" rx="2" />
       <circle cx="8.5" cy="8.5" r="1.5" />
       <polyline points="21 15 16 10 5 21" />
     </svg>
   ),
   vr360: (
-    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="1.5">
+    <svg
+      width="32"
+      height="32"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="var(--muted)"
+      strokeWidth="1.5"
+    >
       <circle cx="12" cy="12" r="10" />
       <ellipse cx="12" cy="12" rx="10" ry="4" />
       <line x1="12" y1="2" x2="12" y2="22" />
     </svg>
   ),
   document: (
-    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="1.5">
+    <svg
+      width="32"
+      height="32"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="var(--muted)"
+      strokeWidth="1.5"
+    >
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
       <polyline points="14 2 14 8 20 8" />
     </svg>
   ),
-}
+};
 
 function formatDuration(seconds: number): string {
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = seconds % 60
-  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-  return `${m}:${String(s).padStart(2, '0')}`
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 interface Props {
-  content: MongoContent
+  content: MongoContent;
 }
 
 export default function ContentCard({ content }: Props) {
-  const router = useRouter()
-  const thumbnailUrl = content.thumbnail_key
-    ? `/thumbnails/${content.thumbnail_key}`
-    : null
+  const router = useRouter();
+  const thumbnailUrl = content.thumbnail_key ? `/thumbnails/${content.thumbnail_key}` : null;
 
   return (
     <Link
       href={`/contents/${content.short_id}`}
       className="content-card"
       style={{
-        display: 'block',
-        backgroundColor: 'var(--card)',
-        border: '1px solid var(--line)',
-        borderRadius: 'var(--radius-md)',
-        overflow: 'hidden',
-        transition: 'border-color 0.15s, transform var(--duration-release) var(--ease-spring)',
-        cursor: 'pointer',
+        display: "block",
+        backgroundColor: "var(--card)",
+        border: "1px solid var(--line)",
+        borderRadius: "var(--radius-md)",
+        overflow: "hidden",
+        transition: "border-color 0.15s, transform var(--duration-release) var(--ease-spring)",
+        cursor: "pointer",
       }}
     >
       {/* Thumbnail */}
       <div
         style={{
-          width: '100%',
-          aspectRatio: '16/9',
-          backgroundColor: 'var(--bg)',
-          position: 'relative',
-          overflow: 'hidden',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
+          width: "100%",
+          aspectRatio: "16/9",
+          backgroundColor: "var(--bg)",
+          position: "relative",
+          overflow: "hidden",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
         }}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -89,27 +115,27 @@ export default function ContentCard({ content }: Props) {
           src={thumbnailUrl || `/images/placeholder-${content.content_type}.svg`}
           alt={content.title}
           onError={(e) => {
-            const fallback = `/images/placeholder-${content.content_type}.svg`
+            const fallback = `/images/placeholder-${content.content_type}.svg`;
             if (!e.currentTarget.src.endsWith(fallback)) {
-              e.currentTarget.src = fallback
+              e.currentTarget.src = fallback;
             }
           }}
-          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+          style={{ width: "100%", height: "100%", objectFit: "cover" }}
         />
 
         {/* Duration badge */}
         {content.duration_seconds != null && (
           <span
             style={{
-              position: 'absolute',
+              position: "absolute",
               bottom: 8,
               right: 8,
-              backgroundColor: 'rgba(0,0,0,0.75)',
-              color: 'var(--fg)',
+              backgroundColor: "rgba(0,0,0,0.75)",
+              color: "var(--fg)",
               fontSize: 12,
-              padding: '2px 6px',
-              borderRadius: 'var(--radius-sm)',
-              fontVariantNumeric: 'tabular-nums',
+              padding: "2px 6px",
+              borderRadius: "var(--radius-sm)",
+              fontVariantNumeric: "tabular-nums",
             }}
           >
             {formatDuration(content.duration_seconds)}
@@ -119,15 +145,15 @@ export default function ContentCard({ content }: Props) {
         {/* Content type badge */}
         <span
           style={{
-            position: 'absolute',
+            position: "absolute",
             top: 8,
             left: 8,
-            backgroundColor: 'var(--accent-emphasis)',
-            color: 'var(--accent)',
+            backgroundColor: "var(--accent-emphasis)",
+            color: "var(--accent)",
             fontSize: 11,
-            padding: '2px 6px',
-            borderRadius: 'var(--radius-sm)',
-            border: '1px solid var(--accent-border)',
+            padding: "2px 6px",
+            borderRadius: "var(--radius-sm)",
+            border: "1px solid var(--accent-border)",
           }}
         >
           {CONTENT_TYPE_LABEL[content.content_type]}
@@ -135,36 +161,36 @@ export default function ContentCard({ content }: Props) {
       </div>
 
       {/* Info */}
-      <div style={{ padding: '12px' }}>
+      <div style={{ padding: "12px" }}>
         {(content.channel_name || content.channel_id) && (
           <div style={{ marginBottom: 4 }}>
             <span
-              role={content.channel_id ? 'link' : undefined}
+              role={content.channel_id ? "link" : undefined}
               tabIndex={content.channel_id ? 0 : undefined}
               onClick={(e) => {
-                if (!content.channel_id) return
-                e.preventDefault()
-                e.stopPropagation()
-                router.push(`/channels/${content.channel_id}`)
+                if (!content.channel_id) return;
+                e.preventDefault();
+                e.stopPropagation();
+                router.push(`/channels/${content.channel_id}`);
               }}
               onKeyDown={(e) => {
-                if (!content.channel_id) return
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  router.push(`/channels/${content.channel_id}`)
+                if (!content.channel_id) return;
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  router.push(`/channels/${content.channel_id}`);
                 }
               }}
               className="channel-card-link"
               style={{
                 fontSize: 11,
                 fontWeight: 500,
-                color: 'var(--muted)',
-                display: 'inline-block',
-                maxWidth: '100%',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
+                color: "var(--muted)",
+                display: "inline-block",
+                maxWidth: "100%",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
               }}
             >
               {content.channel_name || content.channel_id}
@@ -176,12 +202,12 @@ export default function ContentCard({ content }: Props) {
             margin: 0,
             fontSize: 14,
             fontWeight: 600,
-            color: 'var(--fg)',
+            color: "var(--fg)",
             lineHeight: 1.4,
-            overflow: 'hidden',
-            display: '-webkit-box',
+            overflow: "hidden",
+            display: "-webkit-box",
             WebkitLineClamp: 2,
-            WebkitBoxOrient: 'vertical',
+            WebkitBoxOrient: "vertical",
           }}
         >
           {content.title}
@@ -190,8 +216,8 @@ export default function ContentCard({ content }: Props) {
         {content.tags.length > 0 && (
           <div
             style={{
-              display: 'flex',
-              flexWrap: 'wrap',
+              display: "flex",
+              flexWrap: "wrap",
               gap: 4,
               marginTop: 8,
             }}
@@ -201,18 +227,18 @@ export default function ContentCard({ content }: Props) {
                 key={tag}
                 style={{
                   fontSize: 11,
-                  padding: '2px 6px',
-                  borderRadius: 'var(--radius-sm)',
-                  backgroundColor: 'var(--accent-subtle)',
-                  color: 'var(--accent)',
-                  border: '1px solid var(--accent-border)',
+                  padding: "2px 6px",
+                  borderRadius: "var(--radius-sm)",
+                  backgroundColor: "var(--accent-subtle)",
+                  color: "var(--accent)",
+                  border: "1px solid var(--accent-border)",
                 }}
               >
                 {tag}
               </span>
             ))}
             {content.tags.length > 3 && (
-              <span style={{ fontSize: 11, color: 'var(--muted)', padding: '2px 0' }}>
+              <span style={{ fontSize: 11, color: "var(--muted)", padding: "2px 0" }}>
                 +{content.tags.length - 3}
               </span>
             )}
@@ -237,5 +263,5 @@ export default function ContentCard({ content }: Props) {
         }
       `}</style>
     </Link>
-  )
+  );
 }

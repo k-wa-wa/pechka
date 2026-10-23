@@ -1,31 +1,27 @@
-'use client'
+"use client";
 
-import type { MongoContent } from '@/lib/types'
-import ContentCard from '@/components/ContentCard'
-import Carousel from '@/components/Carousel'
-import FilterBar, { FilterOption } from '@/components/FilterBar'
-import { useLanguage } from '@/lib/i18n/LanguageContext'
+import Carousel from "@/components/Carousel";
+import ContentCard from "@/components/ContentCard";
+import FilterBar, { type FilterOption } from "@/components/FilterBar";
+import { useLanguage } from "@/lib/i18n/LanguageContext";
+import type { MongoContent } from "@/lib/types";
 
 export const CONTENT_TYPES: FilterOption[] = [
-  { value: '', labelKey: 'filter.all' },
-  { value: 'video', label: 'Video' },
-  { value: 'image_gallery', label: 'Gallery' },
-  { value: 'vr360', label: 'VR360' },
-  { value: 'document', label: 'Document' },
-]
+  { value: "", labelKey: "filter.all" },
+  { value: "video", label: "Video" },
+  { value: "image_gallery", label: "Gallery" },
+  { value: "vr360", label: "VR360" },
+  { value: "document", label: "Document" },
+];
 
 interface Props {
-  carouselReady: MongoContent[]
-  gridItems: MongoContent[]
-  currentType: string
+  carouselReady: MongoContent[];
+  gridItems: MongoContent[];
+  currentType: string;
 }
 
-export default function HomeView({
-  carouselReady,
-  gridItems,
-  currentType,
-}: Props) {
-  const { t } = useLanguage()
+export default function HomeView({ carouselReady, gridItems, currentType }: Props) {
+  const { t } = useLanguage();
 
   return (
     <div>
@@ -36,17 +32,17 @@ export default function HomeView({
       <div
         style={{
           maxWidth: 1280,
-          margin: '0 auto',
-          padding: '32px 24px',
+          margin: "0 auto",
+          padding: "32px 24px",
         }}
       >
         {/* Section header + filter */}
         <div
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
             gap: 12,
             marginBottom: 24,
           }}
@@ -56,10 +52,10 @@ export default function HomeView({
               margin: 0,
               fontSize: 20,
               fontWeight: 700,
-              color: 'var(--fg)',
+              color: "var(--fg)",
             }}
           >
-            {t('home.title')}
+            {t("home.title")}
           </h1>
           <FilterBar types={CONTENT_TYPES} currentType={currentType} />
         </div>
@@ -67,18 +63,18 @@ export default function HomeView({
         {gridItems.length === 0 ? (
           <div
             style={{
-              textAlign: 'center',
-              padding: '64px 0',
-              color: 'var(--muted)',
+              textAlign: "center",
+              padding: "64px 0",
+              color: "var(--muted)",
             }}
           >
-            {t('home.noContents')}
+            {t("home.noContents")}
           </div>
         ) : (
           <div
             style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
               gap: 16,
             }}
           >
@@ -89,5 +85,5 @@ export default function HomeView({
         )}
       </div>
     </div>
-  )
+  );
 }

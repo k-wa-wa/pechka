@@ -1,36 +1,31 @@
-import type { Metadata, Viewport } from 'next'
-import './globals.css'
-import Header from '@/components/Header'
-import { LanguageProvider } from '@/lib/i18n/LanguageContext'
+import type { Metadata, Viewport } from "next";
+import "./globals.css";
+import Header from "@/components/Header";
+import { LanguageProvider } from "@/lib/i18n/LanguageContext";
 
 export const metadata: Metadata = {
-  title: 'pechka',
-  description: 'Media streaming platform',
+  title: "pechka",
+  description: "Media streaming platform",
   appleWebApp: {
-    title: 'pechka',
+    title: "pechka",
     capable: true,
-    statusBarStyle: 'black-translucent',
+    statusBarStyle: "black-translucent",
   },
-}
+};
 
 export const viewport: Viewport = {
-  themeColor: '#191816',
-}
+  themeColor: "#191816",
+};
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ja">
       <body>
         <LanguageProvider>
           <Header />
-          <main style={{ minHeight: 'calc(100vh - 60px)' }}>{children}</main>
+          <main style={{ minHeight: "calc(100vh - 60px)" }}>{children}</main>
         </LanguageProvider>
       </body>
     </html>
-  )
+  );
 }
-
