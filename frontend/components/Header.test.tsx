@@ -61,11 +61,13 @@ describe("Header", () => {
     renderHeader();
     const button = screen.getByLabelText("Menu");
 
-    expect(button.getAttribute("aria-controls")).toBe("mobile-drawer");
+    expect(button.hasAttribute("aria-controls")).toBe(false);
     expect(button.getAttribute("aria-expanded")).toBe("false");
 
     fireEvent.click(button);
     expect(button.getAttribute("aria-expanded")).toBe("true");
-    expect(document.getElementById("mobile-drawer")).not.toBeNull();
+    const controls = button.getAttribute("aria-controls");
+    expect(controls).toBe("mobile-drawer");
+    expect(document.getElementById(controls as string)).not.toBeNull();
   });
 });

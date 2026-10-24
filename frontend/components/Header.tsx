@@ -191,7 +191,7 @@ export default function Header() {
           }}
           aria-label="Menu"
           aria-expanded={drawerOpen}
-          aria-controls="mobile-drawer"
+          aria-controls={drawerOpen ? "mobile-drawer" : undefined}
         >
           <svg
             width="22"
