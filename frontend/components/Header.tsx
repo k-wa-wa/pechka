@@ -26,9 +26,20 @@ export default function Header() {
   }, []);
 
   // Close drawer on route change
+  // biome-ignore lint/correctness/useExhaustiveDependencies: pathname is the trigger
   useEffect(() => {
     setDrawerOpen(false);
-  }, []);
+  }, [pathname]);
+
+  // Close drawer on Escape (only while open)
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setDrawerOpen(false);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [drawerOpen]);
 
   const navLinks = [
     { href: "/", label: t("nav.home") },
@@ -179,6 +190,8 @@ export default function Header() {
             padding: 4,
           }}
           aria-label="Menu"
+          aria-expanded={drawerOpen}
+          aria-controls="mobile-drawer"
         >
           <svg
             width="22"
@@ -215,6 +228,7 @@ export default function Header() {
             padding: "12px 24px",
           }}
           className="mobile-drawer"
+          id="mobile-drawer"
         >
           {navLinks.map((link) => (
             <Link
