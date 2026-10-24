@@ -28,7 +28,7 @@ export default function SettingsModal({ isOpen, onClose }: Props) {
       style={{
         position: "fixed",
         inset: 0,
-        backgroundColor: "rgba(0, 0, 0, 0.6)",
+        backgroundColor: "var(--overlay-scrim-light)",
         backdropFilter: "blur(4px)",
         zIndex: 200,
         display: "flex",
@@ -45,7 +45,7 @@ export default function SettingsModal({ isOpen, onClose }: Props) {
           borderRadius: "var(--radius-lg)",
           width: "100%",
           maxWidth: 480,
-          boxShadow: "0 12px 32px rgba(0, 0, 0, 0.5)",
+          boxShadow: "0 12px 32px var(--shadow-color)",
           overflow: "hidden",
         }}
         onClick={(e) => e.stopPropagation()}

@@ -168,7 +168,7 @@ export default function VideoPlayer({ variants, shortId, hasSubtitles }: Props) 
           position: "relative",
           width: "100%",
           aspectRatio: "16/9",
-          backgroundColor: "#000",
+          backgroundColor: "var(--video-letterbox)",
           borderRadius: "var(--radius-md)",
           overflow: "hidden",
         }}
@@ -199,7 +199,7 @@ export default function VideoPlayer({ variants, shortId, hasSubtitles }: Props) 
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              backgroundColor: "rgba(0,0,0,0.7)",
+              backgroundColor: "var(--overlay-scrim)",
               color: "var(--warn)",
               fontSize: 14,
               textAlign: "center",

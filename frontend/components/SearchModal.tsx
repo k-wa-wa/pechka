@@ -92,7 +92,7 @@ export default function SearchModal({ isOpen, onClose }: Props) {
         alignItems: "flex-start",
         justifyContent: "center",
         paddingTop: "15vh",
-        backgroundColor: "rgba(0,0,0,0.6)",
+        backgroundColor: "var(--overlay-scrim-light)",
       }}
       onClick={onClose}
     >
@@ -105,7 +105,7 @@ export default function SearchModal({ isOpen, onClose }: Props) {
           border: "1px solid var(--line)",
           borderRadius: "var(--radius-lg)",
           overflow: "hidden",
-          boxShadow: "0 24px 48px rgba(0,0,0,0.6)",
+          boxShadow: "0 24px 48px var(--shadow-color-strong)",
         }}
         onClick={(e) => e.stopPropagation()}
       >

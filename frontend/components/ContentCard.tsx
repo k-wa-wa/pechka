@@ -130,7 +130,7 @@ export default function ContentCard({ content }: Props) {
               position: "absolute",
               bottom: 8,
               right: 8,
-              backgroundColor: "rgba(0,0,0,0.75)",
+              backgroundColor: "var(--media-badge-bg)",
               color: "var(--fg)",
               fontSize: 12,
               padding: "2px 6px",

@@ -122,7 +122,7 @@ export default function AdminTable({ initialContents, channels, onUploaded }: Pr
             borderRadius: "var(--radius-md)",
             border: "none",
             backgroundColor: "var(--accent)",
-            color: "#191816",
+            color: "var(--on-accent)",
             cursor: "pointer",
             fontSize: 13,
             fontWeight: 600,

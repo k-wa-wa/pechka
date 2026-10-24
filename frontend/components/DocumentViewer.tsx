@@ -503,7 +503,7 @@ export default function DocumentViewer({
             minHeight: 600,
             border: "none",
             display: "block",
-            backgroundColor: "#ffffff",
+            backgroundColor: "var(--document-paper)",
           }}
         />
       ) : loading ? (
