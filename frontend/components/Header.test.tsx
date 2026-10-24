@@ -57,6 +57,21 @@ describe("Header", () => {
     expect(document.getElementById("mobile-drawer")).toBeNull();
   });
 
+  it("does nothing when Escape is pressed while the drawer is closed", () => {
+    renderHeader();
+    const button = screen.getByLabelText("Menu");
+
+    expect(() => {
+      act(() => {
+        fireEvent.keyDown(window, { key: "Escape" });
+      });
+    }).not.toThrow();
+
+    expect(document.getElementById("mobile-drawer")).toBeNull();
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+    expect(button.hasAttribute("aria-controls")).toBe(false);
+  });
+
   it("exposes aria-expanded and aria-controls on the hamburger", () => {
     renderHeader();
     const button = screen.getByLabelText("Menu");
