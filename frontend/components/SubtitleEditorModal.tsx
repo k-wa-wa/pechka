@@ -112,7 +112,7 @@ export default function SubtitleEditorModal({ content, onClose }: Props) {
         position: "fixed",
         inset: 0,
         zIndex: 200,
-        backgroundColor: "rgba(0,0,0,0.7)",
+        backgroundColor: "var(--overlay-scrim)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",

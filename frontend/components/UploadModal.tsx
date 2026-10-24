@@ -63,7 +63,7 @@ export default function UploadModal({ channels, onClose, onUploaded }: Props) {
         position: "fixed",
         inset: 0,
         zIndex: 200,
-        backgroundColor: "rgba(0,0,0,0.7)",
+        backgroundColor: "var(--overlay-scrim)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -79,7 +79,7 @@ export default function UploadModal({ channels, onClose, onUploaded }: Props) {
           border: "1px solid var(--line)",
           borderRadius: "var(--radius-lg)",
           overflow: "hidden",
-          boxShadow: "0 24px 48px rgba(0,0,0,0.5)",
+          boxShadow: "0 24px 48px var(--shadow-color)",
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -328,7 +328,7 @@ export default function UploadModal({ channels, onClose, onUploaded }: Props) {
               borderRadius: "var(--radius-md)",
               border: "none",
               backgroundColor: canUpload ? "var(--accent)" : "var(--accent-emphasis)",
-              color: canUpload ? "#191816" : "var(--muted)",
+              color: canUpload ? "var(--on-accent)" : "var(--muted)",
               cursor: canUpload ? "pointer" : "not-allowed",
               fontSize: 14,
               fontWeight: 600,

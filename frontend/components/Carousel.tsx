@@ -166,8 +166,7 @@ export default function Carousel({ items }: Props) {
             style={{
               position: "absolute",
               inset: 0,
-              background:
-                "linear-gradient(to top, rgba(25,24,22,0.95) 0%, rgba(25,24,22,0.3) 50%, transparent 100%)",
+              background: "var(--hero-scrim-gradient)",
               pointerEvents: "none",
             }}
           />
@@ -209,7 +208,7 @@ export default function Carousel({ items }: Props) {
                 fontWeight: 700,
                 color: "var(--fg)",
                 lineHeight: 1.3,
-                textShadow: "0 1px 4px rgba(0,0,0,0.6)",
+                textShadow: "0 1px 4px var(--shadow-color-strong)",
               }}
             >
               {item.title}
@@ -251,7 +250,7 @@ export default function Carousel({ items }: Props) {
               left: 12,
               top: "50%",
               transform: "translateY(-50%)",
-              backgroundColor: "rgba(33, 31, 28, 0.8)",
+              backgroundColor: "var(--card-translucent)",
               border: "1px solid var(--line)",
               borderRadius: "50%",
               width: 36,
@@ -289,7 +288,7 @@ export default function Carousel({ items }: Props) {
               right: 12,
               top: "50%",
               transform: "translateY(-50%)",
-              backgroundColor: "rgba(33, 31, 28, 0.8)",
+              backgroundColor: "var(--card-translucent)",
               border: "1px solid var(--line)",
               borderRadius: "50%",
               width: 36,
@@ -333,7 +332,7 @@ export default function Carousel({ items }: Props) {
               onClick={() => setIsPlaying((p) => !p)}
               className="carousel-ctrl-btn"
               style={{
-                backgroundColor: "rgba(33, 31, 28, 0.8)",
+                backgroundColor: "var(--card-translucent)",
                 border: "1px solid var(--line)",
                 borderRadius: "50%",
                 width: 24,
