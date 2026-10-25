@@ -1,5 +1,8 @@
 import http from "node:http";
 
+// 画面・スナップショットに出る時刻を固定する（VRT の差分を防ぐ）。モックの既存データより後の日時にする
+const MOCK_NOW = "2025-06-01T00:00:00Z";
+
 const CHANNELS = [
   {
     id: "tech-feed",
@@ -440,7 +443,7 @@ const server = http.createServer(async (req, res) => {
     if (body.description != null) item.description = body.description;
     if (body.tags != null) item.tags = body.tags;
     if (body.status != null) item.status = body.status;
-    item.updated_at = new Date().toISOString();
+    item.updated_at = MOCK_NOW;
 
     // Sync to public CONTENTS mock so changes are immediately visible on / and /channels/:id
     const pubItem = CONTENTS.find((c) => c.short_id === item.short_id);
@@ -482,7 +485,7 @@ const server = http.createServer(async (req, res) => {
     const isMarkdown = uploadedFilename.endsWith(".md") || uploadedFilename.endsWith(".markdown");
     const isPdf = uploadedFilename.endsWith(".pdf");
     const isDoc = isMarkdown || isPdf;
-    const now = new Date().toISOString();
+    const now = MOCK_NOW;
     const shortId = `up${Date.now()}`;
     const docKey = isMarkdown
       ? `resources/documents/${shortId}/document.md`
@@ -544,7 +547,7 @@ const server = http.createServer(async (req, res) => {
       send(res, 404, { error: "not found" });
       return;
     }
-    item.archived_at = new Date().toISOString();
+    item.archived_at = MOCK_NOW;
     send(res, 200, item);
     return;
   }
@@ -581,7 +584,7 @@ const server = http.createServer(async (req, res) => {
     }
     const body = await readJsonBody(req);
     track.status = body.status;
-    track.updated_at = new Date().toISOString();
+    track.updated_at = MOCK_NOW;
     send(res, 200, track);
     return;
   }
@@ -606,7 +609,7 @@ const server = http.createServer(async (req, res) => {
       text: body.text,
       original_text: body.text,
       flagged: false,
-      updated_at: new Date().toISOString(),
+      updated_at: MOCK_NOW,
     };
     SUBTITLE_CUES[trackId] = [...(SUBTITLE_CUES[trackId] ?? []), cue];
     send(res, 200, cue);
@@ -624,7 +627,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     const body = await readJsonBody(req);
-    Object.assign(cue, body, { updated_at: new Date().toISOString() });
+    Object.assign(cue, body, { updated_at: MOCK_NOW });
     send(res, 200, cue);
     return;
   }
