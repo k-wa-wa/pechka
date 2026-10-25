@@ -12,8 +12,68 @@ on:
       - 'frontend/**'
       - '.github/workflows/frontend.yml'
   pull_request:
+  # Update VRT Snapshots が GITHUB_TOKEN で push した後に起動する（その push では pull_request が起動しないため）。
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "プレビューを更新する PR 番号（dispatch したブランチの PR）。空ならテストだけ走らせる"
+        required: false
+        type: string
 
 jobs:
+  # プレビュー系のジョブが使う PR 番号と head SHA を求める。空ならプレビュー系は走らない。
+  pr-context:
+    name: Resolve PR context
+    runs-on: ubuntu-latest
+    outputs:
+      number: ${{ steps.resolve.outputs.number }}
+      head_sha: ${{ steps.resolve.outputs.head_sha }}
+    steps:
+      - name: Resolve PR number and head SHA
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          REF_NAME: ${{ github.ref_name }}
+          EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
+          EVENT_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            pull_request)
+              if [ "$EVENT_PR_HEAD_REPO" != "$REPO" ]; then
+                echo "フォークからの PR なのでプレビューは作らない。"
+                exit 0
+              fi
+              echo "number=${EVENT_PR_NUMBER}" >> "$GITHUB_OUTPUT"
+              echo "head_sha=${EVENT_PR_HEAD_SHA}" >> "$GITHUB_OUTPUT"
+              ;;
+            workflow_dispatch)
+              if [ -z "$INPUT_PR_NUMBER" ]; then
+                echo "pr_number が無いのでテストだけ走らせる。"
+                exit 0
+              fi
+              if ! printf '%s' "$INPUT_PR_NUMBER" | grep -Eq '^[0-9]+$'; then
+                echo "::error::pr_number が数字ではない: ${INPUT_PR_NUMBER}"
+                exit 1
+              fi
+              PR_JSON=$(gh api "repos/${REPO}/pulls/${INPUT_PR_NUMBER}")
+              STATE=$(printf '%s' "$PR_JSON" | jq -r '.state')
+              HEAD_REPO=$(printf '%s' "$PR_JSON" | jq -r '.head.repo.full_name')
+              HEAD_REF=$(printf '%s' "$PR_JSON" | jq -r '.head.ref')
+              if [ "$STATE" != "open" ] || [ "$HEAD_REPO" != "$REPO" ] || [ "$HEAD_REF" != "$REF_NAME" ]; then
+                echo "::error::PR #${INPUT_PR_NUMBER} (state=${STATE}, head=${HEAD_REPO}:${HEAD_REF}) は ${REPO}:${REF_NAME} の open な PR ではない。"
+                exit 1
+              fi
+              # dispatch のチェックアウトはブランチの head（= github.sha）なので、それをイメージのタグに使う。
+              echo "number=${INPUT_PR_NUMBER}" >> "$GITHUB_OUTPUT"
+              echo "head_sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
   test-frontend:
     name: Test (Frontend)
     runs-on: ubuntu-latest
@@ -106,8 +166,8 @@ jobs:
 
   push-preview-image:
     name: Push Preview Image
-    needs: [test-frontend, test-vrt]
-    if: always() && needs.test-frontend.result == 'success' && (needs.test-vrt.result == 'success' || needs.test-vrt.result == 'failure') && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    needs: [pr-context, test-frontend, test-vrt]
+    if: always() && needs.test-frontend.result == 'success' && (needs.test-vrt.result == 'success' || needs.test-vrt.result == 'failure') && needs.pr-context.result == 'success' && needs.pr-context.outputs.number != ''
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -129,21 +189,23 @@ jobs:
           context: ./frontend
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}-frontend:pr-${{ github.event.pull_request.number }}
-            ghcr.io/${{ github.repository }}-frontend:sha-${{ github.event.pull_request.head.sha }}
+            ghcr.io/${{ github.repository }}-frontend:pr-${{ needs.pr-context.outputs.number }}
+            ghcr.io/${{ github.repository }}-frontend:sha-${{ needs.pr-context.outputs.head_sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Comment VRT report link on PR
-        if: github.event_name == 'pull_request'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_NUMBER: ${{ needs.pr-context.outputs.number }}
         run: |
           COMMENT_ID=$(gh api repos/${{ github.repository }}/issues/"${PR_NUMBER}"/comments --jq '.[] | select(.body | contains("🎭 VRT Report")) | .id' | head -n 1)
 
           COMMENT_BODY=$(cat <<EOF
+          ### 🌐 プレビュー
+          🔗 [トップページ](https://pechka-pr-${PR_NUMBER}.wpcapp.net/)
+
           ### 🎭 VRT Report (Playwright)
           VRT の実行結果はプレビュー環境で確認できます：
           🔗 [VRT Report](https://pechka-pr-${PR_NUMBER}.wpcapp.net/vrt-report/index.html)
@@ -163,8 +225,8 @@ jobs:
 
   push-vrt-report-image:
     name: Push VRT Report Image
-    needs: [test-frontend, test-vrt]
-    if: always() && needs.test-frontend.result == 'success' && (needs.test-vrt.result == 'success' || needs.test-vrt.result == 'failure') && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    needs: [pr-context, test-frontend, test-vrt]
+    if: always() && needs.test-frontend.result == 'success' && (needs.test-vrt.result == 'success' || needs.test-vrt.result == 'failure') && needs.pr-context.result == 'success' && needs.pr-context.outputs.number != ''
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -192,14 +254,14 @@ jobs:
           context: ./vrt-report
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}-vrt-report:pr-${{ github.event.pull_request.number }}
+            ghcr.io/${{ github.repository }}-vrt-report:pr-${{ needs.pr-context.outputs.number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
   push-storybook-report-image:
     name: Push Storybook Report Image
-    needs: [test-frontend]
-    if: needs.test-frontend.result == 'success' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    needs: [pr-context, test-frontend]
+    if: needs.test-frontend.result == 'success' && needs.pr-context.outputs.number != ''
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -227,7 +289,7 @@ jobs:
           context: ./storybook-report
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}-storybook-report:pr-${{ github.event.pull_request.number }}
+            ghcr.io/${{ github.repository }}-storybook-report:pr-${{ needs.pr-context.outputs.number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
