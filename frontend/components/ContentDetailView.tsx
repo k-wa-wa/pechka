@@ -27,34 +27,6 @@ export default function ContentDetailView({ content, variants }: Props) {
       >
         {/* Document Header Section */}
         <header style={{ marginBottom: 24 }}>
-          {/* Tags */}
-          {content.tags.length > 0 && (
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 6,
-                marginBottom: 16,
-              }}
-            >
-              {content.tags.map((tag) => (
-                <span
-                  key={tag}
-                  style={{
-                    fontSize: 12,
-                    padding: "3px 8px",
-                    borderRadius: "var(--radius-sm)",
-                    backgroundColor: "var(--accent-subtle)",
-                    color: "var(--accent)",
-                    border: "1px solid var(--accent-border)",
-                  }}
-                >
-                  {tag}
-                </span>
-              ))}
-            </div>
-          )}
-
           {/* Title */}
           <h1
             style={{
@@ -81,24 +53,7 @@ export default function ContentDetailView({ content, variants }: Props) {
             }}
           >
             {content.channel_id && (
-              <Link
-                href={`/channels/${content.channel_id}`}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "3px 10px",
-                  borderRadius: "var(--radius-full)",
-                  backgroundColor: "var(--card)",
-                  border: "1px solid var(--line)",
-                  color: "var(--fg)",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  textDecoration: "none",
-                }}
-              >
-                <span>{content.channel_name || content.channel_id}</span>
-              </Link>
+              <ChannelLink channelId={content.channel_id} channelName={content.channel_name} />
             )}
             {content.published_at && (
               <span>
@@ -125,6 +80,9 @@ export default function ContentDetailView({ content, variants }: Props) {
               {content.description}
             </p>
           )}
+
+          {/* Tags */}
+          <TagList tags={content.tags} />
         </header>
 
         {/* Document Viewer Body */}
@@ -157,34 +115,6 @@ export default function ContentDetailView({ content, variants }: Props) {
           padding: isVr ? "0 24px" : undefined,
         }}
       >
-        {/* Tags */}
-        {content.tags.length > 0 && (
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 6,
-              marginBottom: 16,
-            }}
-          >
-            {content.tags.map((tag) => (
-              <span
-                key={tag}
-                style={{
-                  fontSize: 12,
-                  padding: "3px 8px",
-                  borderRadius: "var(--radius-sm)",
-                  backgroundColor: "var(--accent-subtle)",
-                  color: "var(--accent)",
-                  border: "1px solid var(--accent-border)",
-                }}
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
-        )}
-
         {/* Title */}
         <h1
           style={{
@@ -211,24 +141,7 @@ export default function ContentDetailView({ content, variants }: Props) {
           }}
         >
           {content.channel_id && (
-            <Link
-              href={`/channels/${content.channel_id}`}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "3px 10px",
-                borderRadius: "var(--radius-full)",
-                backgroundColor: "var(--card)",
-                border: "1px solid var(--line)",
-                color: "var(--fg)",
-                fontSize: 12,
-                fontWeight: 600,
-                textDecoration: "none",
-              }}
-            >
-              <span>{content.channel_name || content.channel_id}</span>
-            </Link>
+            <ChannelLink channelId={content.channel_id} channelName={content.channel_name} />
           )}
           {content.duration_seconds != null && (
             <span>
@@ -263,7 +176,69 @@ export default function ContentDetailView({ content, variants }: Props) {
             {content.description}
           </p>
         )}
+
+        {/* Tags */}
+        <TagList tags={content.tags} />
       </div>
+    </div>
+  );
+}
+
+function ChannelLink({ channelId, channelName }: { channelId: string; channelName?: string }) {
+  return (
+    <Link
+      href={`/channels/${channelId}`}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "4px 10px",
+        borderRadius: "var(--radius-full)",
+        backgroundColor: "var(--accent-subtle)",
+        border: "1px solid var(--accent-border)",
+        color: "var(--accent)",
+        fontSize: 13,
+        fontWeight: 600,
+        textDecoration: "none",
+      }}
+    >
+      <svg
+        aria-hidden="true"
+        data-testid="channel-icon"
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <rect x="2" y="7" width="20" height="15" rx="2" />
+        <polyline points="17 2 12 7 7 2" />
+      </svg>
+      <span>{channelName || channelId}</span>
+      <span aria-hidden="true">›</span>
+    </Link>
+  );
+}
+
+function TagList({ tags }: { tags: string[] }) {
+  if (tags.length === 0) return null;
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexWrap: "wrap",
+        gap: "4px 12px",
+        marginTop: 12,
+        fontSize: 13,
+        color: "var(--muted)",
+      }}
+    >
+      {tags.map((tag) => (
+        <span key={tag}>#{tag}</span>
+      ))}
     </div>
   );
 }
