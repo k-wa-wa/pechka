@@ -22,6 +22,8 @@ jobs:
   build:
     name: Build, Verify and Push Image
     runs-on: ubuntu-latest
+    # 通常は数分で終わる。起動待ち (最大 15 分) と trivy (最大 30 分) の上限に pull・push の時間を足して、ハングしても 1 時間で止める。
+    timeout-minutes: 60
     env:
       IMAGE: ghcr.io/${{ github.repository }}/aivisspeech-engine
       # trivy-operator (nuage-monitoring-stack の trivy-operator チャート 0.38.1) と同じ trivy の版
@@ -145,7 +147,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 動作確認を通したイメージそのものを push する。
+      # 動作確認を通したイメージそのものを push する。意図しないタグを送らないよう、タグを明示する。
       - name: Push Docker image
         if: github.ref == 'refs/heads/master' && github.event_name == 'push'
-        run: docker push --all-tags "${IMAGE}"
+        run: |
+          docker push "${IMAGE}:sha-${GITHUB_SHA}"
+          docker push "${IMAGE}:latest"
