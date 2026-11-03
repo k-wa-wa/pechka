@@ -7,7 +7,7 @@ resources:
 # 既存のnginx Podに新しい設定が反映されない(k8sがマウント済みファイルを更新しても、
 # nginxプロセス自身はreload/restartされるまで古い設定を読み続ける)。
 # api/frontendはPRごとにイメージタグが変わり自然にPodが作り直されるため気付きにくいが、
-# nginxのイメージは固定タグ(nginx:1.27-alpine)で変わらないため、この問題の影響を直接受ける
+# nginxのイメージは固定タグ(nginx:1.30-alpine)で変わらないため、この問題の影響を直接受ける
 # (413がclient_max_body_size修正後も再現していた実際の原因)。
 # configMapGeneratorでハッシュ付きリソース名にすると、内容が変わるたびに新しいConfigMap名
 # になり、Deploymentのvolumes[].configMap.nameもkustomizeが自動で追従書き換えるため、
