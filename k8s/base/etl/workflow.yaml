@@ -131,6 +131,7 @@ spec:
                   value: "{{tasks.init-db.outputs.parameters.content-id}}"
           - name: thumbnail
             dependencies: [load]
+            when: "{{inputs.parameters.mkv-files-json}} != '[]'"
             withParam: "{{inputs.parameters.mkv-files-json}}"
             template: generate-thumbnail
             arguments:
@@ -382,6 +383,7 @@ spec:
           - name: short-id
             valueFrom:
               path: /tmp/short-id
+              default: "" # init以外のphaseまたはSkipped時は生成されないためdefaultを置く
 
     # 6. generate-thumbnail (Generates thumbnails for content)
     - name: generate-thumbnail
@@ -389,7 +391,9 @@ spec:
         parameters:
           - name: mkv-path
           - name: content-id
+            default: ""
           - name: short-id
+            default: ""
       container:
         image: ghcr.io/k-wa-wa/pechka/etl-generate-thumbnail:latest
         imagePullPolicy: Always
