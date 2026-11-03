@@ -5,7 +5,8 @@ metadata:
   namespace: pechka
 spec:
   # 毎週月曜 JST 08:00 (UTC 日曜 23:00) 実行予定
-  schedule: "0 23 * * 0"
+  schedules:
+    - "0 23 * * 0"
   timezone: "Asia/Tokyo"
   # 一旦自動実行しないよう一時停止状態に設定
   suspend: true

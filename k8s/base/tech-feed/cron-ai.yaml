@@ -5,7 +5,8 @@ metadata:
   namespace: pechka
 spec:
   # 毎日 JST 06:00 (UTC 21:00) 実行予定
-  schedule: "0 21 * * *"
+  schedules:
+    - "0 21 * * *"
   timezone: "Asia/Tokyo"
   suspend: false
   concurrencyPolicy: "Forbid"
