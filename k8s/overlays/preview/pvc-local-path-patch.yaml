@@ -15,3 +15,11 @@ metadata:
   namespace: pechka
 spec:
   storageClassName: local-path
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: elasticsearch-green-pvc
+  namespace: pechka
+spec:
+  storageClassName: local-path
