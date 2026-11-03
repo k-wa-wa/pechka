@@ -1,0 +1,93 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: elasticsearch-green-pvc
+  namespace: pechka
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: elasticsearch-green
+  namespace: pechka
+spec:
+  serviceName: elasticsearch-green
+  replicas: 1
+  selector:
+    matchLabels:
+      app: elasticsearch-green
+  template:
+    metadata:
+      labels:
+        app: elasticsearch-green
+    spec:
+      initContainers:
+        - name: install-kuromoji
+          image: elasticsearch:8.19.23
+          command:
+            - sh
+            - -c
+            - |
+              if ! bin/elasticsearch-plugin list | grep -q analysis-kuromoji; then
+                bin/elasticsearch-plugin install --batch analysis-kuromoji
+              fi
+              cp -r /usr/share/elasticsearch/plugins/. /tmp/plugins/
+          volumeMounts:
+            - name: plugins
+              mountPath: /tmp/plugins
+      containers:
+        - name: elasticsearch
+          image: elasticsearch:8.19.23
+          ports:
+            - containerPort: 9200
+            - containerPort: 9300
+          env:
+            - name: ES_JAVA_OPTS
+              value: "-Xms512m -Xmx512m"
+          volumeMounts:
+            - name: data
+              mountPath: /usr/share/elasticsearch/data
+            - name: config
+              mountPath: /usr/share/elasticsearch/config/elasticsearch.yml
+              subPath: elasticsearch.yml
+            - name: plugins
+              mountPath: /usr/share/elasticsearch/plugins
+          readinessProbe:
+            httpGet:
+              path: /_cluster/health
+              port: 9200
+            initialDelaySeconds: 30
+            periodSeconds: 10
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: elasticsearch-green-pvc
+        - name: config
+          configMap:
+            name: elasticsearch-config
+            items:
+              - key: elasticsearch.yml
+                path: elasticsearch.yml
+        - name: plugins
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch-green
+  namespace: pechka
+spec:
+  selector:
+    app: elasticsearch-green
+  ports:
+    - name: http
+      port: 9200
+      targetPort: 9200
+    - name: transport
+      port: 9300
+      targetPort: 9300
