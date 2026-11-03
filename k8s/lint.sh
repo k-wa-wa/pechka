@@ -37,14 +37,19 @@ for OVERLAY in "${OVERLAYS[@]}"; do
   # kubeconform (スキーマチェック)
   echo "Validating with kubeconform..."
   # Argo Workflowsなどのカスタムリソース定義(CRD)に対応するため、外部のCRDカタログも参照します。
-  if echo "$MANIFESTS" | kubeconform -summary -strict -ignore-missing-schemas \
+  # 巨大なCRDを含む場合に標準入力パイプだとkubeconformのバッファ競合でパース失敗することがあるため、一時ファイル経由で検証します。
+  MANIFESTS_FILE=$(mktemp --suffix=.yaml)
+  echo "$MANIFESTS" > "$MANIFESTS_FILE"
+  if kubeconform -summary -strict -ignore-missing-schemas \
     -schema-location default \
-    -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'; then
+    -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+    "$MANIFESTS_FILE"; then
     echo "kubeconform passed!"
   else
     echo "kubeconform failed!"
     FAILED=1
   fi
+  rm -f "$MANIFESTS_FILE"
 
   # pluto (非推奨/廃止APIチェック)
   echo "Checking for deprecated APIs with pluto..."
