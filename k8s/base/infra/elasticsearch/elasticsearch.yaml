@@ -97,7 +97,7 @@ metadata:
   namespace: pechka
 spec:
   selector:
-    app: elasticsearch
+    app: elasticsearch-green
   ports:
     - name: http
       port: 9200
