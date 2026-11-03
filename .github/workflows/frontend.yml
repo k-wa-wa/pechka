@@ -87,7 +87,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -135,7 +135,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -187,6 +187,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: ./frontend
+          pull: true
           push: true
           tags: |
             ghcr.io/${{ github.repository }}-frontend:pr-${{ needs.pr-context.outputs.number }}
@@ -252,6 +253,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: ./vrt-report
+          pull: true
           push: true
           tags: |
             ghcr.io/${{ github.repository }}-vrt-report:pr-${{ needs.pr-context.outputs.number }}
@@ -287,6 +289,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: ./storybook-report
+          pull: true
           push: true
           tags: |
             ghcr.io/${{ github.repository }}-storybook-report:pr-${{ needs.pr-context.outputs.number }}
