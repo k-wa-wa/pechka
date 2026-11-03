@@ -30,7 +30,7 @@ metadata:
   name: elasticsearch-green
   namespace: pechka
 spec:
-  serviceName: elasticsearch
+  serviceName: elasticsearch-green
   replicas: 1
   selector:
     matchLabels:
