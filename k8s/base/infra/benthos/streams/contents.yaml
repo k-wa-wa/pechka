@@ -130,12 +130,4 @@ output:
                   index: pechka_contents
                   id: '${! json("short_id") }'
                   action: index
-              - fallback:
-                  - elasticsearch_v8:
-                      urls:
-                        - "http://elasticsearch-green:9200"
-                      index: pechka_contents
-                      id: '${! json("short_id") }'
-                      action: index
-                  - drop: {}
     - stdout: {}
