@@ -15,7 +15,7 @@ data:
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: elasticsearch-pvc
+  name: elasticsearch-green-pvc
   namespace: pechka
 spec:
   accessModes:
@@ -27,22 +27,22 @@ spec:
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: elasticsearch
+  name: elasticsearch-green
   namespace: pechka
 spec:
-  serviceName: elasticsearch
+  serviceName: elasticsearch-green
   replicas: 1
   selector:
     matchLabels:
-      app: elasticsearch
+      app: elasticsearch-green
   template:
     metadata:
       labels:
-        app: elasticsearch
+        app: elasticsearch-green
     spec:
       initContainers:
         - name: install-kuromoji
-          image: elasticsearch:8.13.0
+          image: elasticsearch:8.19.23
           command:
             - sh
             - -c
@@ -56,7 +56,7 @@ spec:
               mountPath: /tmp/plugins
       containers:
         - name: elasticsearch
-          image: elasticsearch:8.13.0
+          image: elasticsearch:8.19.23
           ports:
             - containerPort: 9200
             - containerPort: 9300
@@ -80,7 +80,7 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: elasticsearch-pvc
+            claimName: elasticsearch-green-pvc
         - name: config
           configMap:
             name: elasticsearch-config
