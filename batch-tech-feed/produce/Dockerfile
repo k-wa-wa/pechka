@@ -1,5 +1,5 @@
 # 1. Build Go binary
-FROM golang:1.25-bookworm AS builder
+FROM golang:1.26-bookworm AS builder
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -10,7 +10,8 @@ RUN CGO_ENABLED=0 go build -o /produce main.go
 FROM node:22-bookworm-slim
 
 # fonts-noto-cjk と Remotion (Chrome Headless) の動的依存ライブラリを追加
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends \
     ffmpeg \
     fonts-noto-cjk \
     libnspr4 \

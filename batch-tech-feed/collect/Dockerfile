@@ -1,5 +1,5 @@
 # テキスト収集・選定・一次情報検証・台本生成を行う軽量イメージ。
-FROM golang:1.25-bookworm AS builder
+FROM golang:1.26-alpine AS builder
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
