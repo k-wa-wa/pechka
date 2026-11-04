@@ -6,6 +6,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /api ./cmd/api
 
 FROM gcr.io/distroless/static-debian12
+USER 65532:65532
 COPY --from=builder /api /api
 EXPOSE 8080
 ENTRYPOINT ["/api"]
