@@ -94,8 +94,11 @@ jobs:
           cd remotion
           npm ci
 
+  # 本番は :latest のイメージを使う。PR から push するとマージ前に本番のイメージが
+  # PR の内容に置き換わるため、push (master・タグ) のときだけ動かす。
   push-image:
     name: Push Image
+    if: github.event_name == 'push'
     needs: [test-collect, test-produce]
     runs-on: ubuntu-latest
     strategy:
