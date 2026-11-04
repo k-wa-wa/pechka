@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: aivisspeech
-          image: ghcr.io/aivis-project/aivisspeech-engine:latest
+          image: ghcr.io/k-wa-wa/pechka/aivisspeech-engine:latest
           ports:
             - containerPort: 10101
               name: http
