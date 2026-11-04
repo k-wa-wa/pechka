@@ -19,10 +19,27 @@ spec:
       labels:
         app: frontend
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: frontend
           image: ghcr.io/k-wa-wa/pechka-frontend:latest
           imagePullPolicy: Always
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: next-cache
+              mountPath: /app/.next/cache
           ports:
             - containerPort: 3000
           env:
@@ -49,6 +66,11 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: next-cache
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
