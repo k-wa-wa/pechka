@@ -145,6 +145,28 @@ type RouterParams struct {
 
 // setupRouter configures middleware and registers routes on an Echo instance.
 func setupRouter(p RouterParams) *echo.Echo {
+	if p.ChannelsHandler == nil {
+		panic("setupRouter: ChannelsHandler is required")
+	}
+	if p.ContentsHandler == nil {
+		panic("setupRouter: ContentsHandler is required")
+	}
+	if p.SubtitlesHandler == nil {
+		panic("setupRouter: SubtitlesHandler is required")
+	}
+	if p.SearchHandler == nil {
+		panic("setupRouter: SearchHandler is required")
+	}
+	if p.IngestHandler == nil {
+		panic("setupRouter: IngestHandler is required")
+	}
+	if p.AdminHandler == nil {
+		panic("setupRouter: AdminHandler is required")
+	}
+	if p.UploadHandler == nil {
+		panic("setupRouter: UploadHandler is required")
+	}
+
 	e := echo.New()
 	e.HideBanner = true
 	e.IPExtractor = echo.ExtractIPFromRealIPHeader()
@@ -205,48 +227,34 @@ func setupRouter(p RouterParams) *echo.Echo {
 
 	v1 := e.Group("/api/v1")
 
-	if p.ChannelsHandler != nil {
-		v1.GET("/channels", p.ChannelsHandler.List)
-		v1.GET("/channels/:id", p.ChannelsHandler.Get)
-	}
-	if p.ContentsHandler != nil {
-		v1.GET("/contents", p.ContentsHandler.List)
-		v1.GET("/contents/:short_id", p.ContentsHandler.Get)
-		v1.GET("/contents/:short_id/variants", p.ContentsHandler.GetVariants)
-	}
-	if p.SubtitlesHandler != nil {
-		v1.GET("/contents/:short_id/subtitles/:lang", p.SubtitlesHandler.GetVTT)
-	}
-	if p.SearchHandler != nil {
-		v1.GET("/search", p.SearchHandler.Search)
-	}
-	if p.IngestHandler != nil {
-		v1.POST("/contents/ingest", p.IngestHandler.TriggerIngest, apiMiddleware.IPFilter(p.AllowedIPRange))
-	}
+	v1.GET("/channels", p.ChannelsHandler.List)
+	v1.GET("/channels/:id", p.ChannelsHandler.Get)
+	v1.GET("/contents", p.ContentsHandler.List)
+	v1.GET("/contents/:short_id", p.ContentsHandler.Get)
+	v1.GET("/contents/:short_id/variants", p.ContentsHandler.GetVariants)
+	v1.GET("/contents/:short_id/subtitles/:lang", p.SubtitlesHandler.GetVTT)
+	v1.GET("/search", p.SearchHandler.Search)
+	v1.POST("/contents/ingest", p.IngestHandler.TriggerIngest, apiMiddleware.IPFilter(p.AllowedIPRange))
 
 	admin := v1.Group("/admin")
 	// admin配下は元々IP制限が掛かっていなかった(ingestのみ個別適用)。
 	// 字幕admin CRUD追加を機に、admin全体へ一括で適用する。
 	admin.Use(apiMiddleware.IPFilter(p.AllowedIPRange))
-	if p.AdminHandler != nil {
-		admin.GET("/contents", p.AdminHandler.ListContents)
-		admin.POST("/contents", p.AdminHandler.CreateContent)
-		admin.PUT("/contents/:id", p.AdminHandler.UpdateContent)
-		admin.DELETE("/contents/:id", p.AdminHandler.DeleteContent)
-		admin.POST("/contents/:id/archive", p.AdminHandler.ArchiveContent)
-		admin.POST("/contents/:id/unarchive", p.AdminHandler.UnarchiveContent)
-		admin.GET("/discs", p.AdminHandler.ListDiscs)
-		admin.POST("/discs", p.AdminHandler.CreateDisc)
-		admin.GET("/contents/:content_id/subtitles", p.AdminHandler.ListSubtitleTracks)
-		admin.PUT("/subtitles/:track_id/status", p.AdminHandler.UpdateSubtitleTrackStatus)
-		admin.GET("/subtitles/:track_id/cues", p.AdminHandler.ListSubtitleCues)
-		admin.POST("/subtitles/:track_id/cues", p.AdminHandler.InsertSubtitleCue)
-		admin.PUT("/subtitles/cues/:cue_id", p.AdminHandler.UpdateSubtitleCue)
-		admin.DELETE("/subtitles/cues/:cue_id", p.AdminHandler.DeleteSubtitleCue)
-	}
-	if p.UploadHandler != nil {
-		admin.POST("/contents/upload", p.UploadHandler.UploadVideo)
-	}
+	admin.GET("/contents", p.AdminHandler.ListContents)
+	admin.POST("/contents", p.AdminHandler.CreateContent)
+	admin.POST("/contents/upload", p.UploadHandler.UploadVideo)
+	admin.PUT("/contents/:id", p.AdminHandler.UpdateContent)
+	admin.DELETE("/contents/:id", p.AdminHandler.DeleteContent)
+	admin.POST("/contents/:id/archive", p.AdminHandler.ArchiveContent)
+	admin.POST("/contents/:id/unarchive", p.AdminHandler.UnarchiveContent)
+	admin.GET("/discs", p.AdminHandler.ListDiscs)
+	admin.POST("/discs", p.AdminHandler.CreateDisc)
+	admin.GET("/contents/:content_id/subtitles", p.AdminHandler.ListSubtitleTracks)
+	admin.PUT("/subtitles/:track_id/status", p.AdminHandler.UpdateSubtitleTrackStatus)
+	admin.GET("/subtitles/:track_id/cues", p.AdminHandler.ListSubtitleCues)
+	admin.POST("/subtitles/:track_id/cues", p.AdminHandler.InsertSubtitleCue)
+	admin.PUT("/subtitles/cues/:cue_id", p.AdminHandler.UpdateSubtitleCue)
+	admin.DELETE("/subtitles/cues/:cue_id", p.AdminHandler.DeleteSubtitleCue)
 
 	return e
 }

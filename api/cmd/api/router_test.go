@@ -15,6 +15,7 @@ import (
 
 	"github.com/k-wa-wa/pechka/api/internal/domain"
 	"github.com/k-wa-wa/pechka/api/internal/handler"
+	elasticRepo "github.com/k-wa-wa/pechka/api/internal/repository/elastic"
 	mongoRepo "github.com/k-wa-wa/pechka/api/internal/repository/mongo"
 	pgRepo "github.com/k-wa-wa/pechka/api/internal/repository/postgres"
 )
@@ -71,6 +72,28 @@ func (m *mockMongoContentRepo) GetVariantsByShortID(ctx context.Context, shortID
 		return m.getVariantsFn(ctx, shortID)
 	}
 	return []domain.MongoVariant{}, nil
+}
+
+type mockMongoSubtitleRepo struct {
+	getByShortIDAndLangFn func(ctx context.Context, shortID, language string) (*domain.MongoSubtitle, error)
+}
+
+func (m *mockMongoSubtitleRepo) GetByShortIDAndLanguage(ctx context.Context, shortID, language string) (*domain.MongoSubtitle, error) {
+	if m.getByShortIDAndLangFn != nil {
+		return m.getByShortIDAndLangFn(ctx, shortID, language)
+	}
+	return nil, mongo.ErrNoDocuments
+}
+
+type mockElasticContentRepo struct {
+	searchFn func(ctx context.Context, query string, limit, offset int) ([]*elasticRepo.SearchResult, error)
+}
+
+func (m *mockElasticContentRepo) Search(ctx context.Context, query string, limit, offset int) ([]*elasticRepo.SearchResult, error) {
+	if m.searchFn != nil {
+		return m.searchFn(ctx, query, limit, offset)
+	}
+	return []*elasticRepo.SearchResult{}, nil
 }
 
 type mockPgContentRepo struct {
@@ -190,17 +213,23 @@ func (m *mockPgSubtitleRepo) DeleteCue(ctx context.Context, id string) error {
 	return nil
 }
 
-func setupTestRouter(allowedIPRange string) (*RouterParams, *mockChannelRepo, *mockMongoContentRepo, *mockPgContentRepo) {
+func setupTestRouter(allowedIPRange string) (*RouterParams, *mockChannelRepo, *mockMongoContentRepo, *mockPgContentRepo, *mockMongoSubtitleRepo, *mockElasticContentRepo) {
 	chRepo := &mockChannelRepo{}
 	mgRepo := &mockMongoContentRepo{}
 	pgContRepo := &mockPgContentRepo{}
 	pgDisc := &mockPgDiscRepo{}
 	pgSub := &mockPgSubtitleRepo{}
+	mgSub := &mockMongoSubtitleRepo{}
+	esRepo := &mockElasticContentRepo{}
 
 	sfNode, _ := snowflake.NewNode(1)
 	contentsH := handler.NewContentsHandler(mgRepo)
 	channelsH := handler.NewChannelsHandler(chRepo)
+	subtitlesH := handler.NewSubtitlesHandler(mgSub)
+	searchH := handler.NewSearchHandler(esRepo)
 	adminH := handler.NewAdminHandler(pgContRepo, pgDisc, pgSub, sfNode).WithChannelRepository(chRepo)
+	ingestH := handler.NewIngestHandler(nil, "test-ns").WithChannelRepository(chRepo)
+	uploadH := handler.NewUploadHandler(pgContRepo, nil, "test-bucket", nil, sfNode, "test-ns").WithChannelRepository(chRepo)
 
 	reg := prometheus.NewRegistry()
 
@@ -210,14 +239,99 @@ func setupTestRouter(allowedIPRange string) (*RouterParams, *mockChannelRepo, *m
 		MetricsGatherer:   reg,
 		ContentsHandler:   contentsH,
 		ChannelsHandler:   channelsH,
+		SubtitlesHandler:  subtitlesH,
+		SearchHandler:     searchH,
 		AdminHandler:      adminH,
+		IngestHandler:     ingestH,
+		UploadHandler:     uploadH,
 	}
 
-	return params, chRepo, mgRepo, pgContRepo
+	return params, chRepo, mgRepo, pgContRepo, mgSub, esRepo
+}
+
+func TestSetupRouter_PanicsOnMissingHandler(t *testing.T) {
+	params, _, _, _, _, _ := setupTestRouter("")
+
+	t.Run("Panics when ChannelsHandler is nil", func(t *testing.T) {
+		p := *params
+		p.ChannelsHandler = nil
+		defer func() {
+			if r := recover(); r == nil {
+				t.Errorf("expected panic, got nil")
+			}
+		}()
+		_ = setupRouter(p)
+	})
+
+	t.Run("Panics when ContentsHandler is nil", func(t *testing.T) {
+		p := *params
+		p.ContentsHandler = nil
+		defer func() {
+			if r := recover(); r == nil {
+				t.Errorf("expected panic, got nil")
+			}
+		}()
+		_ = setupRouter(p)
+	})
+
+	t.Run("Panics when SubtitlesHandler is nil", func(t *testing.T) {
+		p := *params
+		p.SubtitlesHandler = nil
+		defer func() {
+			if r := recover(); r == nil {
+				t.Errorf("expected panic, got nil")
+			}
+		}()
+		_ = setupRouter(p)
+	})
+
+	t.Run("Panics when SearchHandler is nil", func(t *testing.T) {
+		p := *params
+		p.SearchHandler = nil
+		defer func() {
+			if r := recover(); r == nil {
+				t.Errorf("expected panic, got nil")
+			}
+		}()
+		_ = setupRouter(p)
+	})
+
+	t.Run("Panics when AdminHandler is nil", func(t *testing.T) {
+		p := *params
+		p.AdminHandler = nil
+		defer func() {
+			if r := recover(); r == nil {
+				t.Errorf("expected panic, got nil")
+			}
+		}()
+		_ = setupRouter(p)
+	})
+
+	t.Run("Panics when IngestHandler is nil", func(t *testing.T) {
+		p := *params
+		p.IngestHandler = nil
+		defer func() {
+			if r := recover(); r == nil {
+				t.Errorf("expected panic, got nil")
+			}
+		}()
+		_ = setupRouter(p)
+	})
+
+	t.Run("Panics when UploadHandler is nil", func(t *testing.T) {
+		p := *params
+		p.UploadHandler = nil
+		defer func() {
+			if r := recover(); r == nil {
+				t.Errorf("expected panic, got nil")
+			}
+		}()
+		_ = setupRouter(p)
+	})
 }
 
 func TestRouter_Health(t *testing.T) {
-	params, _, _, _ := setupTestRouter("")
+	params, _, _, _, _, _ := setupTestRouter("")
 	router := setupRouter(*params)
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
@@ -239,7 +353,7 @@ func TestRouter_Health(t *testing.T) {
 }
 
 func TestRouter_Metrics(t *testing.T) {
-	params, _, _, _ := setupTestRouter("")
+	params, _, _, _, _, _ := setupTestRouter("")
 	router := setupRouter(*params)
 
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
@@ -257,7 +371,7 @@ func TestRouter_Metrics(t *testing.T) {
 }
 
 func TestRouter_Channels(t *testing.T) {
-	params, chRepo, _, _ := setupTestRouter("")
+	params, chRepo, _, _, _, _ := setupTestRouter("")
 	router := setupRouter(*params)
 
 	t.Run("GET /api/v1/channels - List Channels", func(t *testing.T) {
@@ -324,7 +438,7 @@ func TestRouter_Channels(t *testing.T) {
 }
 
 func TestRouter_Contents(t *testing.T) {
-	params, _, mgRepo, _ := setupTestRouter("")
+	params, _, mgRepo, _, _, _ := setupTestRouter("")
 	router := setupRouter(*params)
 
 	t.Run("GET /api/v1/contents - List", func(t *testing.T) {
@@ -378,10 +492,149 @@ func TestRouter_Contents(t *testing.T) {
 			t.Fatalf("expected 404, got %d", rec.Code)
 		}
 	})
+
+	t.Run("GET /api/v1/contents/:short_id/variants - Found", func(t *testing.T) {
+		mgRepo.getVariantsFn = func(_ context.Context, shortID string) ([]domain.MongoVariant, error) {
+			return []domain.MongoVariant{
+				{VariantType: "720p", HLSKey: "res/720p.m3u8"},
+			}, nil
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/contents/short123/variants", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rec.Code)
+		}
+
+		var variants []domain.MongoVariant
+		if err := json.Unmarshal(rec.Body.Bytes(), &variants); err != nil {
+			t.Fatalf("failed to unmarshal variants: %v", err)
+		}
+		if len(variants) != 1 || variants[0].VariantType != "720p" {
+			t.Errorf("unexpected variants: %+v", variants)
+		}
+	})
+}
+
+func TestRouter_Subtitles(t *testing.T) {
+	params, _, _, _, mgSub, _ := setupTestRouter("")
+	router := setupRouter(*params)
+
+	t.Run("GET /api/v1/contents/:short_id/subtitles/:lang - Found", func(t *testing.T) {
+		mgSub.getByShortIDAndLangFn = func(_ context.Context, shortID, language string) (*domain.MongoSubtitle, error) {
+			return &domain.MongoSubtitle{
+				ShortID:  shortID,
+				Language: language,
+				Cues: []domain.MongoCue{
+					{
+						StartMs: 1000,
+						EndMs:   4000,
+						Text:    "Hello world",
+					},
+				},
+			}, nil
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/contents/short123/subtitles/ja", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rec.Code)
+		}
+		if !strings.Contains(rec.Body.String(), "WEBVTT") || !strings.Contains(rec.Body.String(), "Hello world") {
+			t.Errorf("unexpected vtt body: %s", rec.Body.String())
+		}
+	})
+
+	t.Run("GET /api/v1/contents/:short_id/subtitles/:lang - Not Found (404)", func(t *testing.T) {
+		mgSub.getByShortIDAndLangFn = func(_ context.Context, _, _ string) (*domain.MongoSubtitle, error) {
+			return nil, mongo.ErrNoDocuments
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/contents/short123/subtitles/en", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d", rec.Code)
+		}
+	})
+}
+
+func TestRouter_Search(t *testing.T) {
+	params, _, _, _, _, esRepo := setupTestRouter("")
+	router := setupRouter(*params)
+
+	t.Run("GET /api/v1/search - With query", func(t *testing.T) {
+		esRepo.searchFn = func(_ context.Context, query string, limit, offset int) ([]*elasticRepo.SearchResult, error) {
+			return []*elasticRepo.SearchResult{
+				{ShortID: "c1", Title: "Result 1"},
+			}, nil
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/search?q=test", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rec.Code)
+		}
+
+		var results []*elasticRepo.SearchResult
+		if err := json.Unmarshal(rec.Body.Bytes(), &results); err != nil {
+			t.Fatalf("failed to unmarshal search results: %v", err)
+		}
+		if len(results) != 1 || results[0].Title != "Result 1" {
+			t.Errorf("unexpected results: %+v", results)
+		}
+	})
+
+	t.Run("GET /api/v1/search - Missing query (400)", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/search", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d", rec.Code)
+		}
+	})
+}
+
+func TestRouter_Ingest_And_Upload_Routing(t *testing.T) {
+	params, _, _, _, _, _ := setupTestRouter("192.168.1.0/24")
+	router := setupRouter(*params)
+
+	t.Run("POST /api/v1/contents/ingest - Reaches handler and rejects empty body (400)", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/contents/ingest", strings.NewReader(`{}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = "192.168.1.50:54321"
+		rec := httptest.NewRecorder()
+
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: body=%s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("POST /api/v1/admin/contents/upload - Reaches handler and rejects non-multipart (400)", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/contents/upload", strings.NewReader("bad"))
+		req.RemoteAddr = "192.168.1.50:54321"
+		rec := httptest.NewRecorder()
+
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: body=%s", rec.Code, rec.Body.String())
+		}
+	})
 }
 
 func TestRouter_IPFilter(t *testing.T) {
-	params, _, _, pgContRepo := setupTestRouter("192.168.1.0/24")
+	params, _, _, pgContRepo, _, _ := setupTestRouter("192.168.1.0/24")
 	pgContRepo.listFn = func(_ context.Context, _ pgRepo.ListContentsParams) ([]*domain.Content, error) {
 		return []*domain.Content{}, nil
 	}
@@ -423,10 +676,51 @@ func TestRouter_IPFilter(t *testing.T) {
 			t.Fatalf("expected 403, got %d", rec.Code)
 		}
 	})
+
+	t.Run("Spoofed X-Real-IP from untrusted direct peer is rejected with 403 Forbidden", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/contents", nil)
+		// 203.0.113.5 is an untrusted public IP (RFC 5737 TEST-NET-3).
+		req.RemoteAddr = "203.0.113.5:54321"
+		req.Header.Set("X-Real-IP", "192.168.1.50")
+		rec := httptest.NewRecorder()
+
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("expected 403, got %d: spoofed X-Real-IP must not be trusted from external peer", rec.Code)
+		}
+	})
+
+	t.Run("Spoofed X-Forwarded-For from untrusted direct peer is ignored and rejected with 403 Forbidden", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/contents", nil)
+		req.RemoteAddr = "203.0.113.5:54321"
+		req.Header.Set("X-Forwarded-For", "192.168.1.50")
+		rec := httptest.NewRecorder()
+
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("expected 403, got %d: spoofed X-Forwarded-For must be ignored", rec.Code)
+		}
+	})
+
+	t.Run("Spoofed X-Forwarded-For alone from trusted peer does not bypass IPFilter (rejected with 403)", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/contents", nil)
+		// Even if direct connection is loopback, ExtractIPFromRealIPHeader only respects X-Real-IP, not XFF.
+		req.RemoteAddr = "127.0.0.1:54321"
+		req.Header.Set("X-Forwarded-For", "192.168.1.50")
+		rec := httptest.NewRecorder()
+
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("expected 403, got %d: XFF header must not be used by ExtractIPFromRealIPHeader", rec.Code)
+		}
+	})
 }
 
 func TestRouter_RequestID(t *testing.T) {
-	params, _, _, _ := setupTestRouter("")
+	params, _, _, _, _, _ := setupTestRouter("")
 	router := setupRouter(*params)
 
 	t.Run("Propagates incoming X-Request-ID", func(t *testing.T) {
@@ -462,7 +756,7 @@ func TestRouter_RequestID(t *testing.T) {
 }
 
 func TestRouter_ErrorResponses(t *testing.T) {
-	params, _, _, _ := setupTestRouter("")
+	params, _, _, _, _, _ := setupTestRouter("")
 	router := setupRouter(*params)
 
 	t.Run("404 Not Found on unmapped route returns JSON error format", func(t *testing.T) {
