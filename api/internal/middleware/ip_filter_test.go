@@ -50,7 +50,9 @@ func TestIPFilter(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := echo.New()
+			e.IPExtractor = echo.ExtractIPFromRealIPHeader()
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.RemoteAddr = "127.0.0.1:12345"
 			req.Header.Set(echo.HeaderXRealIP, tt.clientIP)
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)

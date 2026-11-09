@@ -15,6 +15,7 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/prometheus/client_golang/prometheus"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"k8s.io/client-go/dynamic"
@@ -110,9 +111,57 @@ func main() {
 	ingestH := handler.NewIngestHandler(dynClient, k8sNamespace).WithChannelRepository(pgChannel)
 	uploadH := handler.NewUploadHandler(pgContent, minioClient, cfg.MinioBucket, dynClient, sfNode, k8sNamespace).WithChannelRepository(pgChannel)
 
+	e := setupRouter(RouterParams{
+		AllowedIPRange:   cfg.AllowedIPRange,
+		ContentsHandler:  contentsH,
+		ChannelsHandler:  channelsH,
+		SubtitlesHandler: subtitlesH,
+		SearchHandler:    searchH,
+		AdminHandler:     adminH,
+		IngestHandler:    ingestH,
+		UploadHandler:    uploadH,
+	})
+
+	slog.Info("starting server", "port", cfg.Port)
+	if err := e.Start(":" + cfg.Port); err != nil {
+		slog.Error("server stopped", "error", err)
+		os.Exit(1)
+	}
+}
+
+// RouterParams holds dependencies and configuration for setting up the Echo router.
+type RouterParams struct {
+	AllowedIPRange    string
+	MetricsRegisterer prometheus.Registerer
+	MetricsGatherer   prometheus.Gatherer
+	ContentsHandler   *handler.ContentsHandler
+	ChannelsHandler   *handler.ChannelsHandler
+	SubtitlesHandler  *handler.SubtitlesHandler
+	SearchHandler     *handler.SearchHandler
+	AdminHandler      *handler.AdminHandler
+	IngestHandler     *handler.IngestHandler
+	UploadHandler     *handler.UploadHandler
+}
+
+// setupRouter configures middleware and registers routes on an Echo instance.
+func setupRouter(p RouterParams) *echo.Echo {
 	e := echo.New()
 	e.HideBanner = true
-	e.Use(echoprometheus.NewMiddleware("pechka_api"))
+	e.IPExtractor = echo.ExtractIPFromRealIPHeader()
+
+	reg := p.MetricsRegisterer
+	gath := p.MetricsGatherer
+	if reg == nil {
+		reg = prometheus.DefaultRegisterer
+	}
+	if gath == nil {
+		gath = prometheus.DefaultGatherer
+	}
+
+	e.Use(echoprometheus.NewMiddlewareWithConfig(echoprometheus.MiddlewareConfig{
+		Subsystem:  "pechka_api",
+		Registerer: reg,
+	}))
 	e.Use(middleware.RequestID())
 	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
 		LogStatus:   true,
@@ -150,44 +199,56 @@ func main() {
 	e.GET("/health", func(c echo.Context) error {
 		return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 	})
-	e.GET("/metrics", echoprometheus.NewHandler())
+	e.GET("/metrics", echoprometheus.NewHandlerWithConfig(echoprometheus.HandlerConfig{
+		Gatherer: gath,
+	}))
 
 	v1 := e.Group("/api/v1")
 
-	v1.GET("/channels", channelsH.List)
-	v1.GET("/channels/:id", channelsH.Get)
-	v1.GET("/contents", contentsH.List)
-	v1.GET("/contents/:short_id", contentsH.Get)
-	v1.GET("/contents/:short_id/variants", contentsH.GetVariants)
-	v1.GET("/contents/:short_id/subtitles/:lang", subtitlesH.GetVTT)
-	v1.GET("/search", searchH.Search)
-	v1.POST("/contents/ingest", ingestH.TriggerIngest, apiMiddleware.IPFilter(cfg.AllowedIPRange))
+	if p.ChannelsHandler != nil {
+		v1.GET("/channels", p.ChannelsHandler.List)
+		v1.GET("/channels/:id", p.ChannelsHandler.Get)
+	}
+	if p.ContentsHandler != nil {
+		v1.GET("/contents", p.ContentsHandler.List)
+		v1.GET("/contents/:short_id", p.ContentsHandler.Get)
+		v1.GET("/contents/:short_id/variants", p.ContentsHandler.GetVariants)
+	}
+	if p.SubtitlesHandler != nil {
+		v1.GET("/contents/:short_id/subtitles/:lang", p.SubtitlesHandler.GetVTT)
+	}
+	if p.SearchHandler != nil {
+		v1.GET("/search", p.SearchHandler.Search)
+	}
+	if p.IngestHandler != nil {
+		v1.POST("/contents/ingest", p.IngestHandler.TriggerIngest, apiMiddleware.IPFilter(p.AllowedIPRange))
+	}
 
 	admin := v1.Group("/admin")
 	// admin配下は元々IP制限が掛かっていなかった(ingestのみ個別適用)。
 	// 字幕admin CRUD追加を機に、admin全体へ一括で適用する。
-	admin.Use(apiMiddleware.IPFilter(cfg.AllowedIPRange))
-	admin.GET("/contents", adminH.ListContents)
-	admin.POST("/contents", adminH.CreateContent)
-	admin.POST("/contents/upload", uploadH.UploadVideo)
-	admin.PUT("/contents/:id", adminH.UpdateContent)
-	admin.DELETE("/contents/:id", adminH.DeleteContent)
-	admin.POST("/contents/:id/archive", adminH.ArchiveContent)
-	admin.POST("/contents/:id/unarchive", adminH.UnarchiveContent)
-	admin.GET("/discs", adminH.ListDiscs)
-	admin.POST("/discs", adminH.CreateDisc)
-	admin.GET("/contents/:content_id/subtitles", adminH.ListSubtitleTracks)
-	admin.PUT("/subtitles/:track_id/status", adminH.UpdateSubtitleTrackStatus)
-	admin.GET("/subtitles/:track_id/cues", adminH.ListSubtitleCues)
-	admin.POST("/subtitles/:track_id/cues", adminH.InsertSubtitleCue)
-	admin.PUT("/subtitles/cues/:cue_id", adminH.UpdateSubtitleCue)
-	admin.DELETE("/subtitles/cues/:cue_id", adminH.DeleteSubtitleCue)
-
-	slog.Info("starting server", "port", cfg.Port)
-	if err := e.Start(":" + cfg.Port); err != nil {
-		slog.Error("server stopped", "error", err)
-		os.Exit(1)
+	admin.Use(apiMiddleware.IPFilter(p.AllowedIPRange))
+	if p.AdminHandler != nil {
+		admin.GET("/contents", p.AdminHandler.ListContents)
+		admin.POST("/contents", p.AdminHandler.CreateContent)
+		admin.PUT("/contents/:id", p.AdminHandler.UpdateContent)
+		admin.DELETE("/contents/:id", p.AdminHandler.DeleteContent)
+		admin.POST("/contents/:id/archive", p.AdminHandler.ArchiveContent)
+		admin.POST("/contents/:id/unarchive", p.AdminHandler.UnarchiveContent)
+		admin.GET("/discs", p.AdminHandler.ListDiscs)
+		admin.POST("/discs", p.AdminHandler.CreateDisc)
+		admin.GET("/contents/:content_id/subtitles", p.AdminHandler.ListSubtitleTracks)
+		admin.PUT("/subtitles/:track_id/status", p.AdminHandler.UpdateSubtitleTrackStatus)
+		admin.GET("/subtitles/:track_id/cues", p.AdminHandler.ListSubtitleCues)
+		admin.POST("/subtitles/:track_id/cues", p.AdminHandler.InsertSubtitleCue)
+		admin.PUT("/subtitles/cues/:cue_id", p.AdminHandler.UpdateSubtitleCue)
+		admin.DELETE("/subtitles/cues/:cue_id", p.AdminHandler.DeleteSubtitleCue)
 	}
+	if p.UploadHandler != nil {
+		admin.POST("/contents/upload", p.UploadHandler.UploadVideo)
+	}
+
+	return e
 }
 
 // currentNamespace は Argo Workflow を起動する先の namespace を返す。
