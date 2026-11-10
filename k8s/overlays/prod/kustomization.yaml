@@ -23,3 +23,6 @@ configMapGenerator:
     behavior: merge
     literals:
       - allowed-ip-range=10.0.0.0/8
+      - s3-endpoint-1=10.20.1.61:9000
+      - s3-endpoint-2=10.20.1.62:9000
+      - s3-endpoint-3=10.20.1.63:9000

@@ -18,3 +18,4 @@ configMapGenerator:
     namespace: pechka
     files:
       - nginx.conf
+      - upstream.conf.template

@@ -33,10 +33,31 @@ spec:
                 command: ["/bin/sleep", "5"]
           ports:
             - containerPort: 80
+          env:
+            - name: S3_ENDPOINT_1
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: s3-endpoint-1
+            - name: S3_ENDPOINT_2
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: s3-endpoint-2
+            - name: S3_ENDPOINT_3
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: s3-endpoint-3
           volumeMounts:
             - name: config
               mountPath: /etc/nginx/nginx.conf
               subPath: nginx.conf
+            - name: config
+              mountPath: /etc/nginx/templates/upstream.conf.template
+              subPath: upstream.conf.template
+            - name: conf-d
+              mountPath: /etc/nginx/conf.d
             - name: cache
               mountPath: /var/cache/nginx
           livenessProbe:
@@ -62,6 +83,8 @@ spec:
         - name: config
           configMap:
             name: nginx-config
+        - name: conf-d
+          emptyDir: {}
         - name: cache
           emptyDir: {}
 ---

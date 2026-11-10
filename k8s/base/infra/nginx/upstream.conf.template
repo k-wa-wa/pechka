@@ -1,0 +1,5 @@
+upstream s3_backend {
+    server ${S3_ENDPOINT_1} max_fails=1 fail_timeout=10s;
+    server ${S3_ENDPOINT_2} max_fails=1 fail_timeout=10s;
+    server ${S3_ENDPOINT_3} max_fails=1 fail_timeout=10s;
+}
