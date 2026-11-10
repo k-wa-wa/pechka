@@ -30,11 +30,16 @@ spec:
             - sh
             - -c
             - |
-              # 実装ごとにヘルスチェックのパスが異なる (MinIO: /minio/health/live, SeaweedFS: /healthz) ため、
-              # パスに依存せず、HTTP の応答が返る (接続できる) ことだけを待つ。
-              target_url="http://${MINIO_URL:-nginx:9000}"
-              until curl -s -o /dev/null -m 5 "$target_url/"; do
-                echo "Waiting for S3..."
+              target_url="http://${MINIO_URL:?MINIO_URL is required}"
+              # Nginx 経由でプロキシされるため、バックエンド未疎通による 5xx (502/503/504) や接続断 (000)
+              # の間はリトライし、S3 バックエンドが正常応答 (< 500) を返すまで待つ。
+              while true; do
+                code=$(curl -s -o /dev/null -w '%{http_code}' -m 5 "$target_url/" || echo "000")
+                if [ "$code" != "000" ] && [ "$code" -lt 500 ]; then
+                  echo "S3 is ready (HTTP $code)"
+                  break
+                fi
+                echo "Waiting for S3 backend (status: $code)..."
                 sleep 5
               done
       containers:
@@ -67,7 +72,7 @@ spec:
                   --user "$MINIO_ROOT_USER:$MINIO_ROOT_PASSWORD" "$@"
               }
               bucket=pechka
-              target_url="http://${MINIO_URL:-nginx:9000}"
+              target_url="http://${MINIO_URL:?MINIO_URL is required}"
               if [ "$(req -I "$target_url/$bucket")" = "200" ]; then
                 echo "bucket $bucket: already exists"
               else
