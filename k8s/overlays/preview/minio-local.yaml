@@ -19,8 +19,10 @@
 # - s3mockはJava/Spring Boot製であり、最初のHTTPリクエスト受信時にDispatcherServletの
 #   初期化および初期バケット(pechka)のファイルストア作成を同期的に遅延実行する。
 #   tcpSocket probeだとHTTP初期化前にPodがReadyになり初回アクセスが約3秒ブロックされるため、
-#   startupProbeおよびreadinessProbeで `httpGet: /pechka` を叩いてReady前に
-#   ウォームアップを完了させる。
+#   startupProbeで `httpGet: /pechka` を叩いてReady前にウォームアップを完了させる。
+#   初回初期化（約3秒）でタイムアウト（context deadline exceeded）しないよう timeoutSeconds: 5 を設定する。
+# - readinessProbe では、アップロードやHLS生成物の増加に伴うバケット走査負荷とNotReady誤判定を防ぐため、
+#   `path: /pechka?max-keys=1` で応答量を絞り、timeoutSeconds: 3 としている。
 #
 # データはemptyDir(preview環境の破棄と同時に消える想定。PRごとに複製が要る規模ではない)。
 apiVersion: apps/v1
@@ -50,15 +52,16 @@ spec:
             httpGet:
               path: /pechka
               port: 9090
-            initialDelaySeconds: 5
+            initialDelaySeconds: 2
             periodSeconds: 2
+            timeoutSeconds: 5
             failureThreshold: 30
           readinessProbe:
             httpGet:
-              path: /pechka
+              path: /pechka?max-keys=1
               port: 9090
-            initialDelaySeconds: 2
             periodSeconds: 5
+            timeoutSeconds: 3
           resources:
             requests:
               cpu: 50m
