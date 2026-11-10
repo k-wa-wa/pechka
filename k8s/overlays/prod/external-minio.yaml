@@ -15,6 +15,10 @@ metadata:
 spec:
   type: ExternalName
   externalName: minio.external-service.svc.cluster.local
+  ports:
+    - name: api
+      port: 9000
+      targetPort: 9000
 ---
 # k8s/base/infra/nginx/nginx.yaml の @minio_prod_fallback がprod/preview共通で参照する別名。
 # prodでは minio と全く同じ実体なので、フォールバックが呼ばれても同じ404が返るだけで実害はない
@@ -30,3 +34,7 @@ metadata:
 spec:
   type: ExternalName
   externalName: minio.external-service.svc.cluster.local
+  ports:
+    - name: api
+      port: 9000
+      targetPort: 9000

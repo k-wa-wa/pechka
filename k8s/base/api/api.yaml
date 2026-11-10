@@ -10,7 +10,7 @@ metadata:
     keel.sh/monitorContainers: "api"
     keel.sh/matchTag: "true"
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: api
@@ -30,6 +30,10 @@ spec:
         - name: api
           image: ghcr.io/k-wa-wa/pechka-api:latest
           imagePullPolicy: Always
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sleep", "5"]
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

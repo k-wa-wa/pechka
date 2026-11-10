@@ -2,6 +2,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - nginx.yaml
+  - pdb.yaml
 
 # nginx.confを直接埋め込んだ静的ConfigMapは、内容を変更してもリソース名が変わらないため
 # 既存のnginx Podに新しい設定が反映されない(k8sがマウント済みファイルを更新しても、
