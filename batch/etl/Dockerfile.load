@@ -5,7 +5,8 @@ RUN go mod download
 COPY batch/etl/ ./
 RUN CGO_ENABLED=0 GOOS=linux go build -o /pechka-etl .
 
-FROM alpine:3.20
-RUN apk add --no-cache ca-certificates
+FROM alpine:3.22
+RUN apk upgrade --no-cache \
+    && apk add --no-cache ca-certificates
 COPY --from=builder /pechka-etl /usr/local/bin/pechka-etl
 ENTRYPOINT ["/usr/local/bin/pechka-etl", "load"]
