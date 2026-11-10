@@ -2,10 +2,16 @@ package main
 
 import (
 	"context"
+	"errors"
+	"hash/fnv"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"strconv"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/bwmarrin/snowflake"
 	"github.com/elastic/go-elasticsearch/v8"
@@ -87,7 +93,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	sfNode, err := snowflake.NewNode(1)
+	nodeID := resolveNodeID(1)
+	slog.Info("initializing snowflake node", "node_id", nodeID)
+	sfNode, err := snowflake.NewNode(nodeID)
 	if err != nil {
 		slog.Error("snowflake node init failed", "error", err)
 		os.Exit(1)
@@ -122,11 +130,27 @@ func main() {
 		UploadHandler:    uploadH,
 	})
 
-	slog.Info("starting server", "port", cfg.Port)
-	if err := e.Start(":" + cfg.Port); err != nil {
-		slog.Error("server stopped", "error", err)
+	go func() {
+		slog.Info("starting server", "port", cfg.Port)
+		if err := e.Start(":" + cfg.Port); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Error("server stopped unexpectedly", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	slog.Info("shutting down server gracefully...")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := e.Shutdown(shutdownCtx); err != nil {
+		slog.Error("server shutdown failed", "error", err)
 		os.Exit(1)
 	}
+	slog.Info("server shutdown complete")
 }
 
 // RouterParams holds dependencies and configuration for setting up the Echo router.
@@ -271,4 +295,20 @@ func currentNamespace() string {
 		}
 	}
 	return "pechka"
+}
+
+// resolveNodeID は環境変数 NODE_ID または Downward API POD_NAME から 0-1023 の Snowflake ノード ID を決定する。
+// 未指定時は fallbackNodeID を返す。
+func resolveNodeID(fallbackNodeID int64) int64 {
+	if envNode := os.Getenv("NODE_ID"); envNode != "" {
+		if id, err := strconv.ParseInt(envNode, 10, 64); err == nil && id >= 0 && id <= 1023 {
+			return id
+		}
+	}
+	if podName := os.Getenv("POD_NAME"); podName != "" {
+		h := fnv.New32a()
+		_, _ = h.Write([]byte(podName))
+		return int64(h.Sum32() % 1024)
+	}
+	return fallbackNodeID
 }

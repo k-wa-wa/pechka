@@ -1,5 +1,5 @@
-# nuage-cluster リポジトリの external-service namespace が実IPを一元管理する。
-# ここでは同名serviceでDNS転送するだけなので、IPをこのリポジトリ側で持つ必要はない。
+# Cilium Ingress が ExternalName Service へのルーティングに対応していない（EDS でバックエンドを解決するため 503 になる）ため、
+# minio Service はセレクタなしの Service とし、対応する EndpointSlice を配置して実体 (10.20.1.60:9000) へ転送する。
 # postgres-migrate / minio-setup (PreSyncフック) が待機先としてこのServiceを参照するため、通常Syncフェーズ
 # （PreSyncの後）任せだと、namespaceが作り直された場合にServiceが未作成のままフックが終わらず
 # デッドロックする。secrets/secrets.yaml の postgres-secret と同じ理由でPreSyncフック化し、
@@ -13,12 +13,32 @@ metadata:
     argocd.argoproj.io/hook: PreSync
     argocd.argoproj.io/sync-wave: "-1"
 spec:
-  type: ExternalName
-  externalName: minio.external-service.svc.cluster.local
   ports:
     - name: api
+      protocol: TCP
       port: 9000
       targetPort: 9000
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: minio-slice
+  namespace: pechka
+  labels:
+    kubernetes.io/service-name: minio
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/sync-wave: "-1"
+addressType: IPv4
+ports:
+  - name: api
+    port: 9000
+    protocol: TCP
+endpoints:
+  - addresses:
+      - 10.20.1.60
+    conditions:
+      ready: true
 ---
 # k8s/base/infra/nginx/nginx.yaml の @minio_prod_fallback がprod/preview共通で参照する別名。
 # prodでは minio と全く同じ実体なので、フォールバックが呼ばれても同じ404が返るだけで実害はない
@@ -37,4 +57,3 @@ spec:
   ports:
     - name: api
       port: 9000
-      targetPort: 9000

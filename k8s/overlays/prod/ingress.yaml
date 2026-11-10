@@ -40,13 +40,13 @@ metadata:
   name: pechka-ingress-s3-internal
   namespace: pechka
   annotations:
-    nginx.ingress.kubernetes.io/whitelist-source-range: "10.0.0.0/8,192.168.5.0/24"
+    cert-manager.io/cluster-issuer: "letsencrypt-cloudflare-prod"
 spec:
   ingressClassName: cilium
   tls:
     - hosts:
         - s3.wpcapp.net
-      secretName: wpcapp-net-wildcard-tls
+      secretName: pechka-s3-tls-secret
   rules:
     - host: s3.wpcapp.net
       http:
