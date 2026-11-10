@@ -1,12 +1,10 @@
-package shared_test
+package shared
 
 import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/k-wa-wa/pechka/batch-tech-feed/shared"
 )
 
 func TestStripTags(t *testing.T) {
@@ -44,7 +42,7 @@ func TestStripTags(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := shared.StripTags(tt.input)
+			got := StripTags(tt.input)
 			if got != tt.expected {
 				t.Errorf("got %q, want %q", got, tt.expected)
 			}
@@ -93,7 +91,7 @@ func TestTruncate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := shared.Truncate(tt.input, tt.limit)
+			got := Truncate(tt.input, tt.limit)
 			if got != tt.expected {
 				t.Errorf("got %q, want %q", got, tt.expected)
 			}
@@ -118,7 +116,7 @@ func TestIsPrimaryDomain(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := shared.IsPrimaryDomain(tt.url)
+			got := IsPrimaryDomain(tt.url)
 			if got != tt.expected {
 				t.Errorf("IsPrimaryDomain(%q) = %v; want %v", tt.url, got, tt.expected)
 			}
@@ -127,50 +125,57 @@ func TestIsPrimaryDomain(t *testing.T) {
 }
 
 func TestSetPrimaryDomainPatterns(t *testing.T) {
-	// Restore default patterns at the end of the test
-	origPatterns := []string{
-		`(?i)github\.com/[^/]+/[^/]+`,
-		`(?i)([a-z0-9-]+\.)?openai\.com`,
-		`(?i)([a-z0-9-]+\.)?anthropic\.com`,
-		`(?i)([a-z0-9-]+\.)?moonshot\.cn`,
-		`(?i)kubernetes\.io`,
-		`(?i)cncf\.io`,
-		`(?i)aws\.amazon\.com`,
-		`(?i)blog\.cloudflare\.com`,
-		`(?i)qwenlm\.github\.io`,
-		`(?i)([a-z0-9-]+\.)?nvidia\.com`,
-		`(?i)([a-z0-9-]+\.)?amd\.com`,
-		`(?i)([a-z0-9-]+\.)?intel\.com`,
-		`(?i)huggingface\.co`,
-		`(?i)arxiv\.org`,
-		`(?i)([a-z0-9-]+\.)?google(blog)?\.(com|dev)`,
-		`(?i)research\.google`,
-		`(?i)([a-z0-9-]+\.)?microsoft\.com`,
-	}
-	defer shared.SetPrimaryDomainPatterns(origPatterns)
+	patternsMu.RLock()
+	origPatterns := primaryDomainPatterns
+	patternsMu.RUnlock()
+	defer func() {
+		patternsMu.Lock()
+		primaryDomainPatterns = origPatterns
+		patternsMu.Unlock()
+	}()
 
-	// Custom patterns
-	shared.SetPrimaryDomainPatterns([]string{`(?i)custom-primary\.example\.com`})
+	t.Run("empty slice changes nothing", func(t *testing.T) {
+		SetPrimaryDomainPatterns([]string{})
+		patternsMu.RLock()
+		current := primaryDomainPatterns
+		patternsMu.RUnlock()
+		if len(current) != len(origPatterns) {
+			t.Errorf("expected no change on empty slice")
+		}
+	})
 
-	if !shared.IsPrimaryDomain("https://custom-primary.example.com/announcement") {
-		t.Errorf("expected custom pattern to match")
-	}
-	if shared.IsPrimaryDomain("https://other-domain.example.com") {
-		t.Errorf("expected non-matching pattern to return false")
-	}
+	t.Run("invalid regex strings ignored", func(t *testing.T) {
+		SetPrimaryDomainPatterns([]string{"[invalid-regex"})
+		patternsMu.RLock()
+		current := primaryDomainPatterns
+		patternsMu.RUnlock()
+		if len(current) != len(origPatterns) {
+			t.Errorf("expected no change when all patterns are invalid regex")
+		}
+	})
+
+	t.Run("valid custom pattern works", func(t *testing.T) {
+		SetPrimaryDomainPatterns([]string{`(?i)custom-primary\.example\.com`})
+		if !IsPrimaryDomain("https://custom-primary.example.com/announcement") {
+			t.Errorf("expected custom pattern to match")
+		}
+		if IsPrimaryDomain("https://other-domain.example.com") {
+			t.Errorf("expected non-matching pattern to return false")
+		}
+	})
 }
 
 func TestExtractPrimaryURL_NotFound(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(`<html><body><p>No primary links here, only <a href="https://example.org">example</a></p></body></html>`))
+		_, _ = w.Write([]byte(`<html><body><p>No primary links here, only <a href="https://example.org">example</a></p></body></html>`))
 	}))
 	defer srv.Close()
 
 	t.Setenv("BARE_WEB_PROXY_URL", "")
 
-	client := shared.NewHTTPClient()
-	_, err := shared.ExtractPrimaryURL(client, srv.URL)
+	client := NewHTTPClient()
+	_, err := ExtractPrimaryURL(client, srv.URL)
 	if err == nil {
 		t.Fatal("expected error when no primary source URL is found, got nil")
 	}
@@ -187,8 +192,8 @@ func TestFetchTextContent_HttpError(t *testing.T) {
 
 	t.Setenv("BARE_WEB_PROXY_URL", "")
 
-	client := shared.NewHTTPClient()
-	_, err := shared.FetchTextContent(client, srv.URL)
+	client := NewHTTPClient()
+	_, err := FetchTextContent(client, srv.URL)
 	if err == nil {
 		t.Fatal("expected error on 404, got nil")
 	}

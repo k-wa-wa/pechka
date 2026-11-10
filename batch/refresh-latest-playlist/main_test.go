@@ -46,7 +46,7 @@ func TestBuildPlaylist(t *testing.T) {
 			},
 			{
 				shortID:     "id-002",
-				title:       "Multi-line title or commas, here",
+				title:       "Commas, and quotes \"here\"",
 				publishedAt: time.Now().Add(-1 * time.Hour),
 			},
 		}
@@ -58,8 +58,24 @@ func TestBuildPlaylist(t *testing.T) {
 		if !contains(pl, "#EXTINF:-1,タイトル: 日本語 / 特殊文字 & < > \" '\nresources/hls/id-001/master.m3u8\n") {
 			t.Errorf("playlist missing first item, got: %s", pl)
 		}
-		if !contains(pl, "#EXTINF:-1,Multi-line title or commas, here\nresources/hls/id-002/master.m3u8\n") {
+		if !contains(pl, "#EXTINF:-1,Commas, and quotes \"here\"\nresources/hls/id-002/master.m3u8\n") {
 			t.Errorf("playlist missing second item, got: %s", pl)
+		}
+	})
+
+	t.Run("title with embedded newlines", func(t *testing.T) {
+		rows := []contentRow{
+			{
+				shortID:     "id-newline",
+				title:       "Line 1\nLine 2",
+				publishedAt: time.Now(),
+			},
+		}
+		pl := buildPlaylist(rows)
+		// Currently buildPlaylist formats title directly with %s, so newlines are preserved across lines
+		expected := "#EXTM3U\n#EXTINF:-1,Line 1\nLine 2\nresources/hls/id-newline/master.m3u8\n"
+		if pl != expected {
+			t.Errorf("expected %q, got %q", expected, pl)
 		}
 	})
 }

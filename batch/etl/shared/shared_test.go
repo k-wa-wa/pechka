@@ -1,7 +1,18 @@
 package shared
 
 import (
+	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
 func TestBuildVariantInfo(t *testing.T) {
@@ -149,5 +160,97 @@ func TestHelpers(t *testing.T) {
 	s := StrPtr("hello")
 	if s == nil || *s != "hello" {
 		t.Errorf("StrPtr failed: %v", s)
+	}
+}
+
+func TestPutObjectWithRetry_SuccessAndRetry(t *testing.T) {
+	var attempts int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		if r.Method == http.MethodGet && strings.Contains(r.URL.RawQuery, "location") {
+			w.Header().Set("Content-Type", "application/xml")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><LocationConstraint xmlns="http://s3.amazonaws.com/doc/2006-03-01/">us-east-1</LocationConstraint>`))
+			return
+		}
+		attempts++
+		if attempts == 1 {
+			// First attempt fails with 500
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		// Subsequent attempt succeeds
+		w.Header().Set("ETag", `"mock-etag"`)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	u, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	client, err := minio.New(u.Host, &minio.Options{
+		Creds:  credentials.NewStaticV4("mock-key", "mock-secret", ""),
+		Secure: false,
+	})
+	if err != nil {
+		t.Fatalf("failed to create minio client: %v", err)
+	}
+
+	ctx := context.Background()
+	content := "test content for retry upload"
+	reader := strings.NewReader(content)
+	info, err := PutObjectWithRetry(ctx, client, "mybucket", "test.txt", reader, int64(len(content)), minio.PutObjectOptions{})
+	if err != nil {
+		t.Fatalf("expected successful upload after retry, got: %v", err)
+	}
+	if attempts < 2 {
+		t.Errorf("expected at least 2 attempts due to retry, got %d", attempts)
+	}
+	if info.Size != int64(len(content)) {
+		t.Errorf("expected size %d, got %d", len(content), info.Size)
+	}
+}
+
+func TestFPutObjectWithRetry_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		if r.Method == http.MethodGet && strings.Contains(r.URL.RawQuery, "location") {
+			w.Header().Set("Content-Type", "application/xml")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><LocationConstraint xmlns="http://s3.amazonaws.com/doc/2006-03-01/">us-east-1</LocationConstraint>`))
+			return
+		}
+		w.Header().Set("ETag", `"mock-etag"`)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	u, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	client, err := minio.New(u.Host, &minio.Options{
+		Creds:  credentials.NewStaticV4("mock-key", "mock-secret", ""),
+		Secure: false,
+	})
+	if err != nil {
+		t.Fatalf("failed to create minio client: %v", err)
+	}
+
+	tmpFile := filepath.Join(t.TempDir(), "upload.txt")
+	if err := os.WriteFile(tmpFile, []byte("fput test content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	info, err := FPutObjectWithRetry(ctx, client, "mybucket", "upload.txt", tmpFile, minio.PutObjectOptions{})
+	if err != nil {
+		t.Fatalf("FPutObjectWithRetry failed: %v", err)
+	}
+	if info.Size != int64(len("fput test content")) {
+		t.Errorf("expected size %d, got %d", len("fput test content"), info.Size)
 	}
 }

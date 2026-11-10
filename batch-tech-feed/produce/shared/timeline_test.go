@@ -1,6 +1,7 @@
 package shared_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -124,30 +125,77 @@ func TestApplyDurations(t *testing.T) {
 }
 
 func TestManifestSaveAndLoad(t *testing.T) {
-	script := &shared.Script{
-		DigestDate: "2026-11-10",
-		Title:      "Demo Title",
-	}
-	entries := []*shared.Entry{
-		{Seq: 0, StartMs: 0, EndMs: 3000},
-	}
+	t.Run("empty entries results in zero TotalMs", func(t *testing.T) {
+		script := &shared.Script{
+			DigestDate: "2026-11-10",
+			Title:      "Empty Demo",
+		}
+		manifest := shared.ToManifest(script, nil, 30, "/tmp/empty.wav")
+		if manifest.TotalMs != 0 {
+			t.Errorf("expected TotalMs = 0 for empty entries, got %d", manifest.TotalMs)
+		}
+	})
 
-	manifest := shared.ToManifest(script, entries, 30, "/tmp/narration.wav")
-	if manifest.DigestDate != "2026-11-10" || manifest.TotalMs != 3000 || manifest.FPS != 30 {
-		t.Errorf("unexpected manifest content: %+v", manifest)
-	}
+	t.Run("save and unmarshal full manifest", func(t *testing.T) {
+		script := &shared.Script{
+			DigestDate: "2026-11-10",
+			Title:      "Demo Title",
+		}
+		entries := []*shared.Entry{
+			{
+				Seq:        0,
+				SectionSeq: 1,
+				Text:       "Narration line 1",
+				StartMs:    0,
+				EndMs:      3000,
+				State: shared.SlideState{
+					Layout: "bullets",
+					Title:  "Slide 1",
+				},
+			},
+		}
 
-	tmpDir := t.TempDir()
-	outPath := filepath.Join(tmpDir, "manifest.json")
-	if err := shared.SaveManifest(manifest, outPath); err != nil {
-		t.Fatalf("failed to save manifest: %v", err)
-	}
+		manifest := shared.ToManifest(script, entries, 30, "/tmp/narration.wav")
+		if manifest.DigestDate != "2026-11-10" || manifest.TotalMs != 3000 || manifest.FPS != 30 {
+			t.Errorf("unexpected manifest content: %+v", manifest)
+		}
 
-	data, err := os.ReadFile(outPath)
-	if err != nil {
-		t.Fatalf("failed to read saved manifest: %v", err)
-	}
-	if len(data) == 0 {
-		t.Error("manifest file is empty")
-	}
+		tmpDir := t.TempDir()
+		outPath := filepath.Join(tmpDir, "manifest.json")
+		if err := shared.SaveManifest(manifest, outPath); err != nil {
+			t.Fatalf("failed to save manifest: %v", err)
+		}
+
+		data, err := os.ReadFile(outPath)
+		if err != nil {
+			t.Fatalf("failed to read saved manifest: %v", err)
+		}
+
+		var loaded shared.Manifest
+		if err := json.Unmarshal(data, &loaded); err != nil {
+			t.Fatalf("failed to unmarshal saved manifest: %v", err)
+		}
+
+		if loaded.DigestDate != manifest.DigestDate {
+			t.Errorf("expected DigestDate %s, got %s", manifest.DigestDate, loaded.DigestDate)
+		}
+		if loaded.Title != manifest.Title {
+			t.Errorf("expected Title %s, got %s", manifest.Title, loaded.Title)
+		}
+		if loaded.FPS != manifest.FPS {
+			t.Errorf("expected FPS %d, got %d", manifest.FPS, loaded.FPS)
+		}
+		if loaded.TotalMs != manifest.TotalMs {
+			t.Errorf("expected TotalMs %d, got %d", manifest.TotalMs, loaded.TotalMs)
+		}
+		if loaded.Narration != manifest.Narration {
+			t.Errorf("expected Narration %s, got %s", manifest.Narration, loaded.Narration)
+		}
+		if len(loaded.Entries) != 1 {
+			t.Fatalf("expected 1 entry, got %d", len(loaded.Entries))
+		}
+		if loaded.Entries[0].Text != "Narration line 1" || loaded.Entries[0].DurationMs() != 3000 {
+			t.Errorf("unexpected entry data: %+v", loaded.Entries[0])
+		}
+	})
 }
