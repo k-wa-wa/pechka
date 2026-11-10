@@ -10,7 +10,7 @@ metadata:
     keel.sh/monitorContainers: "frontend"
     keel.sh/matchTag: "true"
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: frontend
@@ -19,6 +19,13 @@ spec:
       labels:
         app: frontend
     spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: frontend
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -29,6 +36,10 @@ spec:
         - name: frontend
           image: ghcr.io/k-wa-wa/pechka-frontend:latest
           imagePullPolicy: Always
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sleep", "5"]
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

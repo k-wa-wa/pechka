@@ -33,3 +33,4 @@ spec:
                 name: argo-server
                 port:
                   number: 2746
+
