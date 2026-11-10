@@ -10,8 +10,7 @@ metadata:
   name: minio-setup
   namespace: pechka
   annotations:
-    argocd.argoproj.io/hook: Sync
-    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/hook: PreSync
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
   template:
@@ -21,36 +20,35 @@ spec:
         - name: wait-for-minio
           image: curlimages/curl:latest
           env:
-            - name: MINIO_URL
+            - name: S3_ENDPOINT
               valueFrom:
                 configMapKeyRef:
                   name: pechka-config
-                  key: minio-url
+                  key: s3-endpoint-1
           command:
             - sh
             - -c
             - |
-              target_url="http://${MINIO_URL:?MINIO_URL is required}"
-              # Nginx 経由でプロキシされるため、バックエンド未疎通による 5xx (502/503/504) や接続断 (000)
-              # の間はリトライし、S3 バックエンドが正常応答 (< 500) を返すまで待つ。
+              target_url="http://${S3_ENDPOINT:?S3_ENDPOINT is required}"
+              # PreSync フェーズで S3 バックエンドに直接疎通確認を行い、応答があるまで待つ
               while true; do
                 code=$(curl -s -o /dev/null -w '%{http_code}' -m 5 "$target_url/" || echo "000")
                 if [ "$code" != "000" ] && [ "$code" -lt 500 ]; then
                   echo "S3 is ready (HTTP $code)"
                   break
                 fi
-                echo "Waiting for S3 backend (status: $code)..."
+                echo "Waiting for S3 backend at $target_url (status: $code)..."
                 sleep 5
               done
       containers:
         - name: s3-setup
           image: curlimages/curl:latest
           env:
-            - name: MINIO_URL
+            - name: S3_ENDPOINT
               valueFrom:
                 configMapKeyRef:
                   name: pechka-config
-                  key: minio-url
+                  key: s3-endpoint-1
             - name: MINIO_ROOT_USER
               valueFrom:
                 secretKeyRef:
@@ -72,7 +70,7 @@ spec:
                   --user "$MINIO_ROOT_USER:$MINIO_ROOT_PASSWORD" "$@"
               }
               bucket=pechka
-              target_url="http://${MINIO_URL:?MINIO_URL is required}"
+              target_url="http://${S3_ENDPOINT:?S3_ENDPOINT is required}"
               if [ "$(req -I "$target_url/$bucket")" = "200" ]; then
                 echo "bucket $bucket: already exists"
               else
