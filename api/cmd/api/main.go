@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"hash/fnv"
 	"log/slog"
 	"net/http"
@@ -93,7 +94,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	nodeID := resolveNodeID(1)
+	nodeID, err := resolveNodeID(1)
+	if err != nil {
+		slog.Error("failed to resolve node id", "error", err)
+		os.Exit(1)
+	}
 	slog.Info("initializing snowflake node", "node_id", nodeID)
 	sfNode, err := snowflake.NewNode(nodeID)
 	if err != nil {
@@ -298,17 +303,23 @@ func currentNamespace() string {
 }
 
 // resolveNodeID は環境変数 NODE_ID または Downward API POD_NAME から 0-1023 の Snowflake ノード ID を決定する。
-// 未指定時は fallbackNodeID を返す。
-func resolveNodeID(fallbackNodeID int64) int64 {
+// NODE_ID が指定されているが数値でない、または 0-1023 の範囲外の場合はエラーを返す。
+// NODE_ID が空で POD_NAME も空の場合は fallbackNodeID を返す。
+func resolveNodeID(fallbackNodeID int64) (int64, error) {
 	if envNode := os.Getenv("NODE_ID"); envNode != "" {
-		if id, err := strconv.ParseInt(envNode, 10, 64); err == nil && id >= 0 && id <= 1023 {
-			return id
+		id, err := strconv.ParseInt(envNode, 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("NODE_ID must be an integer: %w", err)
 		}
+		if id < 0 || id > 1023 {
+			return 0, fmt.Errorf("NODE_ID must be between 0 and 1023, got %d", id)
+		}
+		return id, nil
 	}
 	if podName := os.Getenv("POD_NAME"); podName != "" {
 		h := fnv.New32a()
 		_, _ = h.Write([]byte(podName))
-		return int64(h.Sum32() % 1024)
+		return int64(h.Sum32() % 1024), nil
 	}
-	return fallbackNodeID
+	return fallbackNodeID, nil
 }

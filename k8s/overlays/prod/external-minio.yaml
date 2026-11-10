@@ -1,5 +1,5 @@
-# nuage-cluster リポジトリの external-service namespace が実IPを一元管理する。
-# ここでは同名serviceでDNS転送するだけなので、IPをこのリポジトリ側で持つ必要はない。
+# アプリケーション本体用の minio Service は、nuage-cluster リポジトリの external-service namespace
+# が管理する Service (ExternalName) で名前解決する（IP をこの Service 定義で直接持たない）。
 # postgres-migrate / minio-setup (PreSyncフック) が待機先としてこのServiceを参照するため、通常Syncフェーズ
 # （PreSyncの後）任せだと、namespaceが作り直された場合にServiceが未作成のままフックが終わらず
 # デッドロックする。secrets/secrets.yaml の postgres-secret と同じ理由でPreSyncフック化し、
@@ -42,6 +42,14 @@ spec:
 # この Service は Ingress 専用であり PreSync フック (minio-setup 等) からは参照されないため、
 # PreSync フックは付与せず通常の同期リソースとして永続化する。
 # これにより、同期ごとに削除・再作成されて ClusterIP が再割り当てされる問題を完全に防止する。
+#
+# 注意:
+# minio-ingress-slice の endpoints (10.20.1.61-63) は nuage-cluster の
+# nix/hosts/swfs-cluster/nodes.nix および terraform/vpc/zone-private-persistent-fs/swfs-cluster.tf
+# に定義された swfs 実機 IP である。nuage-cluster 側で IP 変更やノード増減があった場合は、
+# 本マニフェスト側も手動追従が必要となる。
+# また、静的 EndpointSlice は Kubernetes の Pod/ノードヘルスチェックによる自動除外が行われないため、
+# ノード障害・再起動時の縮退は Envoy (Cilium Ingress) の outlier detection に依存する。
 apiVersion: v1
 kind: Service
 metadata:
