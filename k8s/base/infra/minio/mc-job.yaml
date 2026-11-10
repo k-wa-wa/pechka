@@ -32,11 +32,16 @@ spec:
               target_url="http://${S3_ENDPOINT:?S3_ENDPOINT is required}"
               # PreSync フェーズで S3 バックエンドに直接疎通確認を行い、応答があるまで待つ
               while true; do
-                code=$(curl -s -o /dev/null -w '%{http_code}' -m 5 "$target_url/" || echo "000")
-                if [ "$code" != "000" ] && [ "$code" -lt 500 ]; then
-                  echo "S3 is ready (HTTP $code)"
-                  break
-                fi
+                # 接続失敗時も curl は -w で "000" を出力して非 0 で終わる。`|| echo` で追記すると
+                # "000000" になり待機を抜けてしまうため、終了コードは無視して出力だけを使う。
+                code=$(curl -s -o /dev/null -w '%{http_code}' -m 5 "$target_url/") || true
+                # 有効な HTTP 応答 (1xx〜4xx) を受け取ったときだけ待機を抜ける
+                case "$code" in
+                  [1-4][0-9][0-9])
+                    echo "S3 is ready (HTTP $code)"
+                    break
+                    ;;
+                esac
                 echo "Waiting for S3 backend at $target_url (status: $code)..."
                 sleep 5
               done

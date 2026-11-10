@@ -45,6 +45,10 @@ class TestGenerate(unittest.TestCase):
         args = mock_run.call_args[0][0]
         self.assertIn("-reconnect", args)
         self.assertIn("-reconnect_streamed", args)
+        # 再接続オプションは入力オプションなので、-i より前に無いと効かない
+        input_index = args.index("-i")
+        for opt in ("-reconnect", "-reconnect_streamed", "-reconnect_delay_max"):
+            self.assertLess(args.index(opt), input_index, f"{opt} must precede -i")
 
     @patch("generate.subprocess.run")
     def test_extract_audio_local(self, mock_run):
