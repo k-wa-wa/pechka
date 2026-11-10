@@ -33,28 +33,4 @@ spec:
                 name: argo-server
                 port:
                   number: 2746
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: pechka-ingress-s3-internal
-  namespace: pechka
-  annotations:
-    cert-manager.io/cluster-issuer: "letsencrypt-cloudflare-prod"
-spec:
-  ingressClassName: cilium
-  tls:
-    - hosts:
-        - s3.wpcapp.net
-      secretName: pechka-s3-tls-secret
-  rules:
-    - host: s3.wpcapp.net
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: minio-ingress
-                port:
-                  number: 9000
+
