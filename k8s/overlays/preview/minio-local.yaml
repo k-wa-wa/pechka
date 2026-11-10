@@ -15,6 +15,13 @@
 #   configmap(minio-url: minio:9000)やnginx.confの `minio.pechka.svc.cluster.local:9000`
 #   参照は変更不要にしている。
 #
+# Probe設計:
+# - s3mockはJava/Spring Boot製であり、最初のHTTPリクエスト受信時にDispatcherServletの
+#   初期化および初期バケット(pechka)のファイルストア作成を同期的に遅延実行する。
+#   tcpSocket probeだとHTTP初期化前にPodがReadyになり初回アクセスが約3秒ブロックされるため、
+#   startupProbeおよびreadinessProbeで `httpGet: /pechka` を叩いてReady前に
+#   ウォームアップを完了させる。
+#
 # データはemptyDir(preview環境の破棄と同時に消える想定。PRごとに複製が要る規模ではない)。
 apiVersion: apps/v1
 kind: Deployment
@@ -39,10 +46,18 @@ spec:
           ports:
             - name: api
               containerPort: 9090
-          readinessProbe:
-            tcpSocket:
+          startupProbe:
+            httpGet:
+              path: /pechka
               port: 9090
-            initialDelaySeconds: 3
+            initialDelaySeconds: 5
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /pechka
+              port: 9090
+            initialDelaySeconds: 2
             periodSeconds: 5
           resources:
             requests:
