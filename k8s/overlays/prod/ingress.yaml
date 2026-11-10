@@ -11,6 +11,7 @@ spec:
     - hosts:
         - pechka.wpcapp.net
         - pechka-workflow.wpcapp.net
+        - s3.wpcapp.net
       secretName: pechka-tls-secret
   rules:
     - host: pechka.wpcapp.net
@@ -33,4 +34,14 @@ spec:
                 name: argo-server
                 port:
                   number: 2746
+    - host: s3.wpcapp.net
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nginx
+                port:
+                  number: 9000
 
