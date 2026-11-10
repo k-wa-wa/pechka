@@ -2,7 +2,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-  - https://github.com/argoproj/argo-workflows/releases/download/v4.1.6/install.yaml
+  - https://github.com/argoproj/argo-workflows/releases/download/v4.1.6/namespace-install.yaml
   - rbac.yaml
 
 patches:
@@ -14,6 +14,7 @@ patches:
         path: /spec/template/spec/containers/0/args
         value:
           - server
+          - --namespaced
           - --secure=false
           - --auth-mode=server
       - op: replace
