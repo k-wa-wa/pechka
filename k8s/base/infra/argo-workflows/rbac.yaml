@@ -4,15 +4,7 @@ metadata:
   name: argo-workflow-executor
   namespace: pechka
 rules:
-  # Pod の参照や exec/log
-  - apiGroups: [""]
-    resources: ["pods", "pods/exec", "pods/log"]
-    verbs: ["get", "list", "watch"]
-  # パラメータや成果物参照用
-  - apiGroups: [""]
-    resources: ["configmaps", "secrets"]
-    verbs: ["get", "list", "watch"]
-  # タスク実行結果通知用
+  # emissary executor のタスク実行結果通知用
   - apiGroups: ["argoproj.io"]
     resources: ["workflowtaskresults"]
     verbs: ["create", "patch"]
