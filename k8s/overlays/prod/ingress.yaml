@@ -55,6 +55,6 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: minio
+                name: minio-ingress
                 port:
                   number: 9000
