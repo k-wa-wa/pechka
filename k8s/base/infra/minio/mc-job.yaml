@@ -23,8 +23,8 @@ spec:
             - name: S3_ENDPOINT
               valueFrom:
                 configMapKeyRef:
-                  name: pechka-config
-                  key: s3-endpoint-1
+                  name: minio-setup-config
+                  key: s3-endpoint
           command:
             - sh
             - -c
@@ -47,8 +47,8 @@ spec:
             - name: S3_ENDPOINT
               valueFrom:
                 configMapKeyRef:
-                  name: pechka-config
-                  key: s3-endpoint-1
+                  name: minio-setup-config
+                  key: s3-endpoint
             - name: MINIO_ROOT_USER
               valueFrom:
                 secretKeyRef:

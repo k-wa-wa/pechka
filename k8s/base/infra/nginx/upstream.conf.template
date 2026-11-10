@@ -4,7 +4,11 @@ upstream s3_backend {
     server ${S3_ENDPOINT_3} max_fails=1 fail_timeout=10s;
 }
 
+# preview の読み取りフォールバック先 (本番 swfs 実ノード)。
+# 1 台だけだと、その 1 台の停止中にローカルに無いオブジェクトを要求すると connect timeout 後に 502 になるため 3 台並べる。
 upstream minio_prod_backend {
-    server ${S3_FALLBACK_ENDPOINT} max_fails=1 fail_timeout=10s;
+    server ${S3_FALLBACK_ENDPOINT_1} max_fails=1 fail_timeout=10s;
+    server ${S3_FALLBACK_ENDPOINT_2} max_fails=1 fail_timeout=10s;
+    server ${S3_FALLBACK_ENDPOINT_3} max_fails=1 fail_timeout=10s;
 }
 

@@ -46,7 +46,9 @@ spec:
   tls:
     - hosts:
         - s3.wpcapp.net
-      secretName: pechka-tls-secret
+      # 公開 Ingress と pechka-tls-secret を共有すると、cert-manager は他 Ingress が所有する
+      # Certificate を更新しないため s3.wpcapp.net が証明書に入らない。専用の Secret にする。
+      secretName: pechka-s3-tls-secret
   rules:
     - host: s3.wpcapp.net
       http:
