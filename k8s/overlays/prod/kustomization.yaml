@@ -7,7 +7,6 @@ resources:
   - ../../base
   - secrets/secrets.yaml
   - external-postgres.yaml
-  - external-minio.yaml
   - ingress.yaml
 
 
@@ -26,3 +25,4 @@ configMapGenerator:
       - s3-endpoint-1=10.20.1.61:9000
       - s3-endpoint-2=10.20.1.62:9000
       - s3-endpoint-3=10.20.1.63:9000
+      - s3-fallback-endpoint=10.20.1.61:9000

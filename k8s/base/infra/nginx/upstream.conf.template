@@ -3,3 +3,8 @@ upstream s3_backend {
     server ${S3_ENDPOINT_2} max_fails=1 fail_timeout=10s;
     server ${S3_ENDPOINT_3} max_fails=1 fail_timeout=10s;
 }
+
+upstream minio_prod_backend {
+    server ${S3_FALLBACK_ENDPOINT} max_fails=1 fail_timeout=10s;
+}
+

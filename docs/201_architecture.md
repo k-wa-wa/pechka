@@ -333,7 +333,8 @@ original.m3u8
 
 Phase 0〜4（クリーンアップ、インフラ・DB 基盤、API Service、フロントエンド、Bluray ETL パイプライン）は実装済み。本番環境（`k8s/overlays/prod`）については以下の通り。
 
-- PostgreSQL・MinIO は外部 DB（`external-service` namespace 上の実体）への `ExternalName` Service 参照に切り替え済み（`k8s/overlays/prod/external-postgres.yaml` / `external-minio.yaml`）。同一クラスタ内の検証用一時コンテナ運用ではない。
+- PostgreSQL は外部 DB（`external-service` namespace 上の実体）への `ExternalName` Service 参照（`k8s/overlays/prod/external-postgres.yaml`）。
+- S3 オブジェクトストレージ (SeaweedFS) はクラスタ内コンポーネントからのアクセスを Nginx（ポート 9000 リバースプロキシ）経由に一本化し、Nginx の upstream 冗長化（swfs 実ノード群への直通）により完全無停止化。`external-service` への依存は撤廃済み。
 - Secrets は SOPS（age 鍵）による暗号化運用済み（`k8s/overlays/prod/secrets/prod-secrets.yaml`）。`secrets.yaml` からは `<path:secrets/prod-secrets.yaml#...>` 参照でプレースホルダー展開する構成。
 - NFS 自動 Bluray 変換の CronWorkflow（旧 `etl-bluray-cron`）は削除済みで、現状は自動実行の仕組み自体が存在しない（`etl-bluray` の手動実行バッチのみ運用中）。
 

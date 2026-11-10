@@ -1,4 +1,4 @@
-# prodの実体（本文は k8s/overlays/prod/external-minio.yaml 参照）への別名Service。
+# prodの実体への別名Service。
 # "minio" 自体は minio-local.yaml のPRごとローカルコンテナが占有するため、
 # ここでは "minio-prod" という別名でのみ本番実体を参照する。
 # k8s/base/infra/nginx/nginx.yaml の @minio_prod_fallback (ローカルに無い既存コンテンツをGETしたときの

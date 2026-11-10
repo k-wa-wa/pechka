@@ -10,7 +10,8 @@ metadata:
   name: minio-setup
   namespace: pechka
   annotations:
-    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/sync-wave: "1"
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
   template:
@@ -19,13 +20,20 @@ spec:
       initContainers:
         - name: wait-for-minio
           image: curlimages/curl:latest
+          env:
+            - name: MINIO_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: minio-url
           command:
             - sh
             - -c
             - |
               # 実装ごとにヘルスチェックのパスが異なる (MinIO: /minio/health/live, SeaweedFS: /healthz) ため、
               # パスに依存せず、HTTP の応答が返る (接続できる) ことだけを待つ。
-              until curl -s -o /dev/null -m 5 http://minio:9000/; do
+              target_url="http://${MINIO_URL:-nginx:9000}"
+              until curl -s -o /dev/null -m 5 "$target_url/"; do
                 echo "Waiting for S3..."
                 sleep 5
               done
@@ -33,6 +41,11 @@ spec:
         - name: s3-setup
           image: curlimages/curl:latest
           env:
+            - name: MINIO_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: minio-url
             - name: MINIO_ROOT_USER
               valueFrom:
                 secretKeyRef:
@@ -54,10 +67,11 @@ spec:
                   --user "$MINIO_ROOT_USER:$MINIO_ROOT_PASSWORD" "$@"
               }
               bucket=pechka
-              if [ "$(req -I http://minio:9000/$bucket)" = "200" ]; then
+              target_url="http://${MINIO_URL:-nginx:9000}"
+              if [ "$(req -I "$target_url/$bucket")" = "200" ]; then
                 echo "bucket $bucket: already exists"
               else
-                code=$(req -X PUT http://minio:9000/$bucket)
+                code=$(req -X PUT "$target_url/$bucket")
                 [ "$code" = "200" ] || { echo "bucket $bucket: create failed (HTTP $code)"; exit 1; }
                 echo "bucket $bucket: created"
               fi
