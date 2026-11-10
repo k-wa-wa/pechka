@@ -1,12 +1,24 @@
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: Role
 metadata:
-  name: argo-default-admin
+  name: argo-workflow-executor
+  namespace: pechka
+rules:
+  # emissary executor のタスク実行結果通知用
+  - apiGroups: ["argoproj.io"]
+    resources: ["workflowtaskresults"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: argo-default-workflow-executor
+  namespace: pechka
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: argo-workflow-executor
 subjects:
   - kind: ServiceAccount
     name: default
     namespace: pechka
-roleRef:
-  kind: ClusterRole
-  name: cluster-admin
-  apiGroup: rbac.authorization.k8s.io
