@@ -196,6 +196,57 @@ spec:
               secretKeyRef:
                 name: minio-secret
                 key: MINIO_ROOT_PASSWORD
+          - &env-postgres-host-1
+            name: POSTGRES_HOST_1
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: postgres-host-1
+          - &env-postgres-host-2
+            name: POSTGRES_HOST_2
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: postgres-host-2
+          - &env-postgres-host-3
+            name: POSTGRES_HOST_3
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: postgres-host-3
+          - &env-postgres-port
+            name: POSTGRES_PORT
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: postgres-port
+          - &env-postgres-user
+            name: POSTGRES_USER
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: POSTGRES_USER
+          - &env-postgres-pass
+            name: POSTGRES_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: POSTGRES_PASSWORD
+          - &env-postgres-db
+            name: POSTGRES_DB
+            valueFrom:
+              secretKeyRef:
+                name: postgres-secret
+                key: POSTGRES_DB
+          - &env-ssl-mode
+            name: SSL_MODE
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: ssl-mode
+          - &env-postgres-dsn
+            name: POSTGRES_DSN
+            value: "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST_1):$(POSTGRES_PORT),$(POSTGRES_HOST_2):$(POSTGRES_PORT),$(POSTGRES_HOST_3):$(POSTGRES_PORT)/$(POSTGRES_DB)?target_session_attrs=read-write&sslmode=$(SSL_MODE)&connect_timeout=3"
           - &env-db-host
             name: DB_HOST
             valueFrom:
@@ -226,12 +277,6 @@ spec:
               secretKeyRef:
                 name: postgres-secret
                 key: POSTGRES_DB
-          - &env-ssl-mode
-            name: SSL_MODE
-            valueFrom:
-              configMapKeyRef:
-                name: pechka-config
-                key: ssl-mode
       outputs:
         parameters:
           - name: mkv-files-json
@@ -316,6 +361,14 @@ spec:
           - *env-db-pass
           - *env-db-name
           - *env-ssl-mode
+          - *env-postgres-host-1
+          - *env-postgres-host-2
+          - *env-postgres-host-3
+          - *env-postgres-port
+          - *env-postgres-user
+          - *env-postgres-pass
+          - *env-postgres-db
+          - *env-postgres-dsn
         volumeMounts:
           - name: transcode-temp
             mountPath: /tmp/transcode
@@ -374,6 +427,14 @@ spec:
           - *env-db-pass
           - *env-db-name
           - *env-ssl-mode
+          - *env-postgres-host-1
+          - *env-postgres-host-2
+          - *env-postgres-host-3
+          - *env-postgres-port
+          - *env-postgres-user
+          - *env-postgres-pass
+          - *env-postgres-db
+          - *env-postgres-dsn
       outputs:
         parameters:
           - name: content-id
@@ -423,8 +484,14 @@ spec:
           - *env-db-pass
           - *env-db-name
           - *env-ssl-mode
-          - name: POSTGRES_DSN
-            value: "postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=$(SSL_MODE)"
+          - *env-postgres-host-1
+          - *env-postgres-host-2
+          - *env-postgres-host-3
+          - *env-postgres-port
+          - *env-postgres-user
+          - *env-postgres-pass
+          - *env-postgres-db
+          - *env-postgres-dsn
 
     # 7. refresh-playlist (Refreshes final playback playlist)
     - name: refresh-playlist
@@ -450,3 +517,11 @@ spec:
           - *env-db-pass
           - *env-db-name
           - *env-ssl-mode
+          - *env-postgres-host-1
+          - *env-postgres-host-2
+          - *env-postgres-host-3
+          - *env-postgres-port
+          - *env-postgres-user
+          - *env-postgres-pass
+          - *env-postgres-db
+          - *env-postgres-dsn

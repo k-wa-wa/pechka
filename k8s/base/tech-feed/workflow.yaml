@@ -180,27 +180,37 @@ spec:
               secretKeyRef:
                 name: minio-secret
                 key: MINIO_ROOT_PASSWORD
-          - name: DB_HOST
+          - name: POSTGRES_HOST_1
             valueFrom:
               configMapKeyRef:
                 name: pechka-config
-                key: postgres-host
-          - name: DB_PORT
+                key: postgres-host-1
+          - name: POSTGRES_HOST_2
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: postgres-host-2
+          - name: POSTGRES_HOST_3
+            valueFrom:
+              configMapKeyRef:
+                name: pechka-config
+                key: postgres-host-3
+          - name: POSTGRES_PORT
             valueFrom:
               configMapKeyRef:
                 name: pechka-config
                 key: postgres-port
-          - name: DB_USER
+          - name: POSTGRES_USER
             valueFrom:
               secretKeyRef:
                 name: postgres-secret
                 key: POSTGRES_USER
-          - name: DB_PASSWORD
+          - name: POSTGRES_PASSWORD
             valueFrom:
               secretKeyRef:
                 name: postgres-secret
                 key: POSTGRES_PASSWORD
-          - name: DB_NAME
+          - name: POSTGRES_DB
             valueFrom:
               secretKeyRef:
                 name: postgres-secret
@@ -211,7 +221,7 @@ spec:
                 name: pechka-config
                 key: ssl-mode
           - name: POSTGRES_DSN
-            value: "postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=$(SSL_MODE)"
+            value: "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST_1):$(POSTGRES_PORT),$(POSTGRES_HOST_2):$(POSTGRES_PORT),$(POSTGRES_HOST_3):$(POSTGRES_PORT)/$(POSTGRES_DB)?target_session_attrs=read-write&sslmode=$(SSL_MODE)&connect_timeout=3"
       volumes:
         - name: work
           emptyDir:

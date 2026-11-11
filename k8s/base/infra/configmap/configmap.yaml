@@ -4,6 +4,9 @@ metadata:
   name: pechka-config
 data:
   postgres-host: "postgres"
+  postgres-host-1: "postgres"
+  postgres-host-2: "postgres"
+  postgres-host-3: "postgres"
   postgres-port: "5432"
   ssl-mode: "disable"
   mongo-host: "mongodb"
