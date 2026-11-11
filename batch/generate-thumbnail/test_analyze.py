@@ -64,7 +64,7 @@ class TestAnalyze(unittest.TestCase):
         mock_conn = MagicMock()
         mock_cur = MagicMock()
         mock_conn.cursor.return_value.__enter__.return_value = mock_cur
-        analyze.register_assets(mock_conn, "c-uuid", ["thumbnails/sid1/thumb_01.jpg"], "sid1/thumb_01.jpg")
+        analyze.register_assets(mock_conn, "c-uuid", ["thumbnails/sid1/thumb_01.jpg"], "thumbnails/sid1/thumb_01.jpg")
         self.assertEqual(mock_cur.execute.call_count, 2)
         mock_conn.commit.assert_called_once()
 
