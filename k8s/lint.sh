@@ -43,25 +43,27 @@ for OVERLAY in "${OVERLAYS[@]}"; do
     continue
   fi
 
+  # kubeconform (スキーマチェック) 用の一時ファイル作成
+  # 巨大なCRDを含む場合に標準入力パイプだとkubeconformのバッファ競合でパース失敗することがあるため、一時ファイル経由で検証します。
+  MANIFESTS_FILE=$(mktemp --suffix=.yaml)
+  echo "$MANIFESTS" > "$MANIFESTS_FILE"
+
   # Prod 環境の個別静的検証 (未上書きのベース値や存在しない Service 参照を防止)
+  # ※ set -euo pipefail の下で echo "$MANIFESTS" | grep -q を行うと SIGPIPE (141) で
+  # 検知条件式が偽になってしまうため、一時ファイルに対して直接 grep -qF を実行する。
   if [ "${OVERLAY}" = "k8s/overlays/prod" ]; then
     echo "Validating prod endpoints..."
-    if echo "$MANIFESTS" | grep -q 's3-fallback-endpoint: minio:9000'; then
+    if grep -qF 's3-fallback-endpoint: minio:9000' "$MANIFESTS_FILE"; then
       echo "❌ prod pechka-config has unresolved base fallback endpoint 'minio:9000' (minio service does not exist in prod)!"
       FAILED=1
     fi
-    if echo "$MANIFESTS" | grep -q 's3-endpoint: minio:9000'; then
+    if grep -qF 's3-endpoint: minio:9000' "$MANIFESTS_FILE"; then
       echo "❌ prod pechka-config has unresolved base endpoint 'minio:9000'!"
       FAILED=1
     fi
   fi
 
-  # kubeconform (スキーマチェック)
   echo "Validating with kubeconform..."
-  # Argo Workflowsなどのカスタムリソース定義(CRD)に対応するため、外部のCRDカタログも参照します。
-  # 巨大なCRDを含む場合に標準入力パイプだとkubeconformのバッファ競合でパース失敗することがあるため、一時ファイル経由で検証します。
-  MANIFESTS_FILE=$(mktemp --suffix=.yaml)
-  echo "$MANIFESTS" > "$MANIFESTS_FILE"
   if kubeconform -summary -strict -ignore-missing-schemas \
     -schema-location default \
     -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
