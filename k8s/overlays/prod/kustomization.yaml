@@ -21,21 +21,13 @@ configMapGenerator:
     behavior: merge
     literals:
       - allowed-ip-range=10.0.0.0/8
-      - s3-endpoint-1=10.20.1.61:9000
-      - s3-endpoint-2=10.20.1.62:9000
-      - s3-endpoint-3=10.20.1.63:9000
-      - s3-fallback-endpoint-1=10.20.1.61:9000
-      - s3-fallback-endpoint-2=10.20.1.62:9000
-      - s3-fallback-endpoint-3=10.20.1.63:9000
-      - postgres-host=10.20.1.41
-      - postgres-host-1=10.20.1.41
-      - postgres-host-2=10.20.1.42
-      - postgres-host-3=10.20.1.43
+      - s3-endpoint=minio.external-service.svc.cluster.local:9000
+      - postgres-host=postgres.external-service.svc.cluster.local
   - name: minio-setup-config
     behavior: merge
     literals:
-      - s3-endpoint=10.20.1.61:9000
+      - s3-endpoint=minio.external-service.svc.cluster.local:9000
   - name: postgres-migrate-config
     behavior: merge
     literals:
-      - POSTGRES_HOSTS=10.20.1.41,10.20.1.42,10.20.1.43
+      - POSTGRES_HOSTS=postgres.external-service.svc.cluster.local

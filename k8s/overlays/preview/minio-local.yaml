@@ -1,7 +1,7 @@
 # previewの書き込み先(アップロード・HLS生成物)はPRごとに使い捨てのローカルS3互換コンテナにする。
 # postgresと違い起動時にprodのデータをコピーしてこない(=最初は空)。読み取りは
 # k8s/base/infra/nginx/nginx.conf の @minio_prod_fallback が、ローカルに無い既存コンテンツ
-# (404)の GET/HEAD だけを本番 swfs 実ノード 3 台 (pechka-config の s3-fallback-endpoint-1〜3) へ中継する。
+# (404)の GET/HEAD だけを本番 swfs (pechka-config の s3-fallback-endpoint) へ中継する。
 #
 # 実装には adobe/s3mock を使う(本物のMinIOではない)。理由:
 # - MinIO本体のDockerイメージはライセンス方針変更により Docker Hub / quay.io とも
@@ -12,7 +12,7 @@
 #   MinIOのような別途バケット作成/匿名ポリシー設定Jobが不要になる(s3mockは全リクエストを
 #   無条件に許可するため、匿名DL許可の設定自体が要らない)。
 # - デフォルトポートは 9090(HTTP)/9191(HTTPS)。Service側で 9000 にマップし、
-#   pechka-config の s3-endpoint-1〜3 (minio:9000) 経由で Nginx から透過的にアクセス可能にしている。
+#   pechka-config の s3-endpoint (minio:9000) 経由で Nginx から透過的にアクセス可能にしている。
 #
 # Probe設計:
 # - s3mockはJava/Spring Boot製であり、最初のHTTPリクエスト受信時にDispatcherServletの

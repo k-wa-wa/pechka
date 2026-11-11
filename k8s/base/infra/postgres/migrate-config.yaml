@@ -3,7 +3,7 @@
 # 場合 (DR 等) に ConfigMap が無く CreateContainerConfigError のまま PreSync が終わらない。
 # postgres-migrations / postgres-secret と同じ理由で PreSync フック化し、
 # Job より小さい sync-wave を与える。
-# 通常時は prod overlay でマルチホスト (10.20.1.41,10.20.1.42,10.20.1.43) に上書きする。
+# 通常時は prod overlay で Headless Service (postgres.external-service.svc.cluster.local) に上書きする。
 apiVersion: v1
 kind: ConfigMap
 metadata:
