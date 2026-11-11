@@ -161,6 +161,13 @@ def upload_thumbnails(
     return keys
 
 
+def resolve_thumbnail_key(s3_keys: list[str]) -> str:
+    """代表サムネイルの DB 保存用キーを決定する。S3 完全キー（thumbnails/...）をそのまま返す。"""
+    if not s3_keys:
+        raise ValueError("s3_keys cannot be empty")
+    return s3_keys[0]
+
+
 def register_assets(conn, content_id: str, s3_keys: list[str], thumbnail_key: str) -> None:
     with conn.cursor() as cur:
         for key in s3_keys:
@@ -175,9 +182,7 @@ def register_assets(conn, content_id: str, s3_keys: list[str], thumbnail_key: st
         # contents.thumbnail_key に代表サムネイルを設定する。
         # CDC (Benthos) が contents テーブルの変更を購読しているため、
         # ここに書けば自動的に MongoDB の表示用ドキュメントへ反映される。
-        # フロントエンドは `/thumbnails/${thumbnail_key}` として参照する
-        # (nginx 側の rewrite が bucket 直下の "thumbnails/" プレフィックスを
-        # 付与するため、ここには含めない)。
+        # S3 完全キー形式（thumbnails/...）で保存する。
         cur.execute(
             "UPDATE contents SET thumbnail_key = %s WHERE id = %s",
             (thumbnail_key, content_id),
@@ -235,9 +240,8 @@ def main() -> None:
         )
         print(f"Uploaded: {s3_keys}")
 
-    # frontend が `/thumbnails/${thumbnail_key}` として参照する値
-    # (nginx が bucket 直下の "thumbnails/" プレフィックスを付与するため除去する)
-    thumbnail_key = s3_keys[0].removeprefix(THUMBNAIL_PREFIX)
+    # contents.thumbnail_key は S3 完全キー形式（thumbnails/...）で保存する
+    thumbnail_key = resolve_thumbnail_key(s3_keys)
 
     conn = psycopg2.connect(postgres_dsn)
     try:

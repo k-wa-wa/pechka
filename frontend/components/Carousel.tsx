@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { getPlaceholderUrl, getThumbnailUrl } from "@/lib/thumbnail";
 import type { ContentType, MongoContent } from "@/lib/types";
 
 const CONTENT_TYPE_LABEL: Record<ContentType, string> = {
@@ -19,6 +20,63 @@ function formatDuration(seconds: number): string {
   const s = seconds % 60;
   if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function CarouselSlideImage({ item }: { item: MongoContent }) {
+  const thumbnailUrl = getThumbnailUrl(item.thumbnail_key);
+  const placeholderUrl = getPlaceholderUrl(item.content_type);
+  const [isLoaded, setIsLoaded] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
+
+  useEffect(() => {
+    if (!thumbnailUrl) {
+      setIsLoaded(false);
+      return;
+    }
+    if (imgRef.current?.complete && imgRef.current.naturalWidth > 0) {
+      setIsLoaded(true);
+    } else {
+      setIsLoaded(false);
+    }
+  }, [thumbnailUrl]);
+
+  return (
+    <>
+      {/* Background placeholder */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={placeholderUrl}
+        alt={thumbnailUrl ? "" : item.title}
+        aria-hidden={thumbnailUrl ? true : undefined}
+        style={{
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          display: "block",
+        }}
+      />
+      {/* Thumbnail image (only visible after onLoad to prevent broken icon exposure) */}
+      {thumbnailUrl && (
+        /* eslint-disable-next-line @next/next/no-img-element */
+        <img
+          ref={imgRef}
+          src={thumbnailUrl}
+          alt={item.title}
+          onLoad={() => setIsLoaded(true)}
+          onError={() => setIsLoaded(false)}
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            opacity: isLoaded ? 1 : 0,
+            transition: "opacity 0.2s ease-in-out",
+          }}
+        />
+      )}
+    </>
+  );
 }
 
 interface Props {
@@ -141,22 +199,7 @@ export default function Carousel({ items }: Props) {
                   height: "100%",
                 }}
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={
-                    slideItem.thumbnail_key
-                      ? `/thumbnails/${slideItem.thumbnail_key}`
-                      : `/images/placeholder-${slideItem.content_type}.svg`
-                  }
-                  alt={slideItem.title}
-                  onError={(e) => {
-                    const fallback = `/images/placeholder-${slideItem.content_type}.svg`;
-                    if (!e.currentTarget.src.endsWith(fallback)) {
-                      e.currentTarget.src = fallback;
-                    }
-                  }}
-                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                />
+                <CarouselSlideImage item={slideItem} />
               </div>
             );
           })}

@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { getPlaceholderUrl, getThumbnailUrl } from "@/lib/thumbnail";
 import type { ContentType, MongoContent } from "@/lib/types";
 
 const CONTENT_TYPE_LABEL: Record<ContentType, string> = {
@@ -81,7 +83,22 @@ interface Props {
 
 export default function ContentCard({ content }: Props) {
   const router = useRouter();
-  const thumbnailUrl = content.thumbnail_key ? `/thumbnails/${content.thumbnail_key}` : null;
+  const thumbnailUrl = getThumbnailUrl(content.thumbnail_key);
+  const placeholderUrl = getPlaceholderUrl(content.content_type);
+  const [isLoaded, setIsLoaded] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
+
+  useEffect(() => {
+    if (!thumbnailUrl) {
+      setIsLoaded(false);
+      return;
+    }
+    if (imgRef.current?.complete && imgRef.current.naturalWidth > 0) {
+      setIsLoaded(true);
+    } else {
+      setIsLoaded(false);
+    }
+  }, [thumbnailUrl]);
 
   return (
     <Link
@@ -110,18 +127,35 @@ export default function ContentCard({ content }: Props) {
           justifyContent: "center",
         }}
       >
+        {/* Background placeholder */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={thumbnailUrl || `/images/placeholder-${content.content_type}.svg`}
-          alt={content.title}
-          onError={(e) => {
-            const fallback = `/images/placeholder-${content.content_type}.svg`;
-            if (!e.currentTarget.src.endsWith(fallback)) {
-              e.currentTarget.src = fallback;
-            }
-          }}
+          src={placeholderUrl}
+          alt={thumbnailUrl ? "" : content.title}
+          aria-hidden={thumbnailUrl ? true : undefined}
           style={{ width: "100%", height: "100%", objectFit: "cover" }}
         />
+
+        {/* Thumbnail image (only visible after onLoad to prevent broken icon exposure) */}
+        {thumbnailUrl && (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            ref={imgRef}
+            src={thumbnailUrl}
+            alt={content.title}
+            onLoad={() => setIsLoaded(true)}
+            onError={() => setIsLoaded(false)}
+            style={{
+              position: "absolute",
+              inset: 0,
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              opacity: isLoaded ? 1 : 0,
+              transition: "opacity 0.2s ease-in-out",
+            }}
+          />
+        )}
 
         {/* Duration badge */}
         {content.duration_seconds != null && (
