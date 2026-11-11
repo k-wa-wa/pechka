@@ -42,7 +42,7 @@ func (r *ContentRepository) Create(ctx context.Context, params CreateContentPara
 		return nil, fmt.Errorf("channel_id is required")
 	}
 
-	return WithRetry(ctx, r.pool, func() (*domain.Content, error) {
+	return WithRetryWrite(ctx, r.pool, func() (*domain.Content, error) {
 		row := r.pool.QueryRow(ctx, `
 			INSERT INTO contents (short_id, content_type, channel_id, disc_id, title, description, duration_seconds, is_360, tags, status, document_key, document_mime_type, published_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)

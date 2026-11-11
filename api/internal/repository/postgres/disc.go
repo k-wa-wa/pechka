@@ -21,7 +21,7 @@ type CreateDiscParams struct {
 }
 
 func (r *DiscRepository) Create(ctx context.Context, params CreateDiscParams) (*domain.Disc, error) {
-	return WithRetry(ctx, r.pool, func() (*domain.Disc, error) {
+	return WithRetryWrite(ctx, r.pool, func() (*domain.Disc, error) {
 		row := r.pool.QueryRow(ctx, `
 			INSERT INTO discs (label, disc_name) VALUES ($1, $2)
 			RETURNING id, label, disc_name, created_at

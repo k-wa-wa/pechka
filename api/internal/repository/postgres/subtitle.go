@@ -159,7 +159,7 @@ type InsertCueParams struct {
 // (track_id, seq) の一意性を保ったまま順序を維持する。シフトとINSERTの間は
 // 一時的にseqが重複しうるため、DEFERRABLE UNIQUE制約でコミット時にまとめて検査させる。
 func (r *SubtitleRepository) InsertCue(ctx context.Context, params InsertCueParams) (*domain.SubtitleCue, error) {
-	return WithRetry(ctx, r.pool, func() (*domain.SubtitleCue, error) {
+	return WithRetryWrite(ctx, r.pool, func() (*domain.SubtitleCue, error) {
 		tx, err := r.pool.Begin(ctx)
 		if err != nil {
 			return nil, err

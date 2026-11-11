@@ -27,6 +27,7 @@ type RetryConfig struct {
 	MaxDelay     time.Duration
 	Multiplier   float64
 	Sleep        func(ctx context.Context, d time.Duration) error
+	IsRetryable  func(err error) bool
 }
 
 func defaultSleep(ctx context.Context, d time.Duration) error {
@@ -40,21 +41,48 @@ func defaultSleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// DefaultRetryConfig returns standard retry settings for PostgreSQL failover recovery.
-// Designed to cover Patroni failover/switchover periods (typically 1-3 seconds).
+// DefaultRetryConfig returns standard retry settings for PostgreSQL failover recovery on read / idempotent operations.
+// MaxAttempts and backoff are designed to cover both planned switchovers (~1-3s) and extended failovers (~15s+).
 func DefaultRetryConfig() RetryConfig {
 	return RetryConfig{
-		MaxAttempts:  4,
+		MaxAttempts:  8,
 		InitialDelay: 250 * time.Millisecond,
-		MaxDelay:     3 * time.Second,
-		Multiplier:   2.0,
+		MaxDelay:     4 * time.Second,
+		Multiplier:   1.6,
 		Sleep:        defaultSleep,
+		IsRetryable:  IsRetryableRead,
 	}
 }
 
-// IsRetryable determines whether an error indicates a transient connection or failover state
-// (e.g. connection broken, operator shutdown, switchover to standby, primary election).
+// DefaultWriteRetryConfig returns retry settings for non-idempotent write operations.
+// It uses IsRetryableWrite to ensure requests with unconfirmed execution are never duplicated.
+func DefaultWriteRetryConfig() RetryConfig {
+	cfg := DefaultRetryConfig()
+	cfg.IsRetryable = IsRetryableWrite
+	return cfg
+}
+
+// ShouldResetPool determines whether the connection pool should close all connections.
+// Restricted to server state changes (demoted old primary 25006, or operator shutdown 57xxx)
+// to avoid thundering-herd reconnect storms on single connection drops.
+func ShouldResetPool(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		if pgErr.Code == "25006" || strings.HasPrefix(pgErr.Code, "57") {
+			return true
+		}
+	}
+	return false
+}
+
+// IsRetryable determines whether an error indicates a transient connection or failover state.
+// Alias for IsRetryableRead for backward compatibility.
 func IsRetryable(err error) bool {
+	return IsRetryableRead(err)
+}
+
+// IsRetryableRead checks if an error is safe to retry for read or idempotent operations.
+func IsRetryableRead(err error) bool {
 	if err == nil {
 		return false
 	}
@@ -77,9 +105,6 @@ func IsRetryable(err error) bool {
 			return true
 		// 08xxx: Class 08 — Connection Exception (connection_exception, connection_failure, etc.)
 		case strings.HasPrefix(pgErr.Code, "08"):
-			return true
-		// 53300: too_many_connections
-		case pgErr.Code == "53300":
 			return true
 		default:
 			return false
@@ -130,10 +155,57 @@ func IsRetryable(err error) bool {
 	return false
 }
 
-// WithRetry executes op, retrying transient PostgreSQL failover errors with exponential backoff.
-// On retryable errors, pool.Reset() is called to discard demoted/dead connections from the pool.
+// IsRetryableWrite checks if an error is safe to retry for NON-IDEMPOTENT write operations.
+// Only returns true if the error is guaranteed to have occurred before data reached the server,
+// or if the server explicitly rejected the statement before modifying state (e.g. read-only demotion).
+// If a connection severed midway through or after sending data, it returns false to prevent duplicates.
+func IsRetryableWrite(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false
+	}
+
+	// If pgconn explicitly guarantees that no query bytes were sent to server
+	if pgconn.SafeToRetry(err) {
+		return true
+	}
+
+	// Failure when establishing new connection
+	var connErr *pgconn.ConnectError
+	if errors.As(err, &connErr) {
+		return true
+	}
+
+	// Explicit server-side rejection where server guaranteed NO modification occurred
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "25006": // read_only_sql_transaction (rejected as standby, transaction aborted)
+			return true
+		case "57P03": // cannot_connect_now (rejected during startup/shutdown)
+			return true
+		default:
+			return false
+		}
+	}
+
+	return false
+}
+
+// WithRetry executes op for read or idempotent operations, retrying transient PostgreSQL failover errors.
 func WithRetry[T any](ctx context.Context, pool PoolResetter, op func() (T, error)) (T, error) {
 	return WithRetryConfig(ctx, pool, DefaultRetryConfig(), op)
+}
+
+// WithRetryWrite executes op for NON-IDEMPOTENT write operations (e.g. INSERT).
+// Retries only when guaranteed safe to do so without creating duplicate records.
+func WithRetryWrite[T any](ctx context.Context, pool PoolResetter, op func() (T, error)) (T, error) {
+	return WithRetryConfig(ctx, pool, DefaultWriteRetryConfig(), op)
 }
 
 // WithRetryConfig executes op with custom RetryConfig.
@@ -147,21 +219,27 @@ func WithRetryConfig[T any](ctx context.Context, pool PoolResetter, cfg RetryCon
 		cfg.MaxAttempts = 1
 	}
 	if cfg.Multiplier < 1.0 {
-		cfg.Multiplier = 2.0
+		cfg.Multiplier = 1.6
 	}
 	if cfg.Sleep == nil {
 		cfg.Sleep = defaultSleep
 	}
+	isRetryable := cfg.IsRetryable
+	if isRetryable == nil {
+		isRetryable = IsRetryableRead
+	}
 
+	var lastErr error
 	for attempt := 1; attempt <= cfg.MaxAttempts; attempt++ {
 		val, err := op()
 		if err == nil {
 			return val, nil
 		}
-		if !IsRetryable(err) || attempt >= cfg.MaxAttempts {
+		lastErr = err
+		if !isRetryable(err) || attempt >= cfg.MaxAttempts {
 			return val, err
 		}
-		if pool != nil {
+		if pool != nil && ShouldResetPool(err) {
 			pool.Reset()
 		}
 		slog.WarnContext(ctx, "transient postgres error during operation, retrying with backoff",
@@ -178,7 +256,7 @@ func WithRetryConfig[T any](ctx context.Context, pool PoolResetter, cfg RetryCon
 			delay = cfg.MaxDelay
 		}
 	}
-	return zero, nil
+	return zero, lastErr
 }
 
 // WithRetryVoid executes op that returns no value with default retry configuration.
@@ -192,4 +270,9 @@ func WithRetryVoidConfig(ctx context.Context, pool PoolResetter, cfg RetryConfig
 		return struct{}{}, op()
 	})
 	return err
+}
+
+// WithRetryWriteVoid executes a non-idempotent void operation.
+func WithRetryWriteVoid(ctx context.Context, pool PoolResetter, op func() error) error {
+	return WithRetryVoidConfig(ctx, pool, DefaultWriteRetryConfig(), op)
 }

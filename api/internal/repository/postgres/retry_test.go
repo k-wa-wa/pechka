@@ -22,7 +22,7 @@ func (m *mockPoolResetter) Reset() {
 	m.resetCount.Add(1)
 }
 
-func TestIsRetryable(t *testing.T) {
+func TestIsRetryableRead(t *testing.T) {
 	tests := []struct {
 		name string
 		err  error
@@ -69,9 +69,9 @@ func TestIsRetryable(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "PgError too_many_connections (53300)",
+			name: "PgError too_many_connections (53300) - not retried to prevent thundering herd",
 			err:  &pgconn.PgError{Code: "53300", Message: "too many connections"},
-			want: true,
+			want: false,
 		},
 		{
 			name: "PgError unique_violation (23505) - not retryable",
@@ -137,9 +137,115 @@ func TestIsRetryable(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := IsRetryable(tt.err)
+			got := IsRetryableRead(tt.err)
 			if got != tt.want {
-				t.Errorf("IsRetryable(%v) = %v, want %v", tt.err, got, tt.want)
+				t.Errorf("IsRetryableRead(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsRetryableWrite(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "nil error",
+			err:  nil,
+			want: false,
+		},
+		{
+			name: "context canceled",
+			err:  context.Canceled,
+			want: false,
+		},
+		{
+			name: "ConnectError (before query sent)",
+			err:  &pgconn.ConnectError{},
+			want: true,
+		},
+		{
+			name: "PgError read_only_sql_transaction (25006, server rejected before mutate)",
+			err:  &pgconn.PgError{Code: "25006", Message: "cannot execute in a read-only transaction"},
+			want: true,
+		},
+		{
+			name: "PgError cannot_connect_now (57P03, server rejected before mutate)",
+			err:  &pgconn.PgError{Code: "57P03", Message: "the database system is starting up"},
+			want: true,
+		},
+		{
+			name: "syscall ECONNRESET after data sent (MUST NOT RETRY to prevent duplicate insert)",
+			err:  syscall.ECONNRESET,
+			want: false,
+		},
+		{
+			name: "io.EOF after data sent (MUST NOT RETRY)",
+			err:  io.EOF,
+			want: false,
+		},
+		{
+			name: "net.OpError after data sent (MUST NOT RETRY)",
+			err:  &net.OpError{Op: "read", Net: "tcp"},
+			want: false,
+		},
+		{
+			name: "PgError unique_violation (23505) - not retryable",
+			err:  &pgconn.PgError{Code: "23505", Message: "duplicate key value"},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsRetryableWrite(tt.err)
+			if got != tt.want {
+				t.Errorf("IsRetryableWrite(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestShouldResetPool(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "25006 read_only_sql_transaction",
+			err:  &pgconn.PgError{Code: "25006"},
+			want: true,
+		},
+		{
+			name: "57P01 admin_shutdown",
+			err:  &pgconn.PgError{Code: "57P01"},
+			want: true,
+		},
+		{
+			name: "08006 connection_failure - single conn drop should NOT reset pool",
+			err:  &pgconn.PgError{Code: "08006"},
+			want: false,
+		},
+		{
+			name: "53300 too_many_connections - should NOT reset pool",
+			err:  &pgconn.PgError{Code: "53300"},
+			want: false,
+		},
+		{
+			name: "syscall ECONNRESET - should NOT reset entire pool",
+			err:  syscall.ECONNRESET,
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ShouldResetPool(tt.err)
+			if got != tt.want {
+				t.Errorf("ShouldResetPool(%v) = %v, want %v", tt.err, got, tt.want)
 			}
 		})
 	}
@@ -198,6 +304,89 @@ func TestWithRetry_RecoversAfterTransientErrors(t *testing.T) {
 	}
 	if pool.resetCount.Load() != 2 {
 		t.Errorf("pool.Reset called %d times, want 2", pool.resetCount.Load())
+	}
+}
+
+func TestWithRetry_PoolResetOnlyOnServerStateChange(t *testing.T) {
+	pool := &mockPoolResetter{}
+	calls := 0
+	cfg := RetryConfig{
+		MaxAttempts:  3,
+		InitialDelay: 1 * time.Millisecond,
+		Sleep: func(ctx context.Context, d time.Duration) error {
+			return nil
+		},
+	}
+
+	// For ECONNRESET, retry should happen but pool.Reset() should NOT be called
+	val, err := WithRetryConfig(context.Background(), pool, cfg, func() (string, error) {
+		calls++
+		if calls == 1 {
+			return "", syscall.ECONNRESET
+		}
+		return "recovered", nil
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if val != "recovered" {
+		t.Errorf("got %q, want recovered", val)
+	}
+	if calls != 2 {
+		t.Errorf("calls = %d, want 2", calls)
+	}
+	if pool.resetCount.Load() != 0 {
+		t.Errorf("pool.Reset called %d times on socket drop, want 0", pool.resetCount.Load())
+	}
+}
+
+func TestWithRetryWrite_DoesNotRetryOnSeveredConnection(t *testing.T) {
+	pool := &mockPoolResetter{}
+	calls := 0
+	cfg := DefaultWriteRetryConfig()
+	cfg.Sleep = func(ctx context.Context, d time.Duration) error { return nil }
+
+	// If connection severed mid-flight (ECONNRESET), non-idempotent write must NOT retry
+	_, err := WithRetryConfig(context.Background(), pool, cfg, func() (string, error) {
+		calls++
+		return "", syscall.ECONNRESET
+	})
+
+	if !errors.Is(err, syscall.ECONNRESET) {
+		t.Fatalf("expected ECONNRESET, got %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("calls = %d, want 1 (non-idempotent write should not retry on connection reset)", calls)
+	}
+}
+
+func TestWithRetryWrite_RetriesOnReadOnlyTransaction(t *testing.T) {
+	pool := &mockPoolResetter{}
+	calls := 0
+	cfg := DefaultWriteRetryConfig()
+	cfg.Sleep = func(ctx context.Context, d time.Duration) error { return nil }
+
+	// On 25006, server explicitly rejected without modifying state, so safe to retry
+	val, err := WithRetryConfig(context.Background(), pool, cfg, func() (string, error) {
+		calls++
+		if calls == 1 {
+			return "", &pgconn.PgError{Code: "25006", Message: "read-only transaction"}
+		}
+		return "created", nil
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if val != "created" {
+		t.Errorf("got %q, want created", val)
+	}
+	if calls != 2 {
+		t.Errorf("calls = %d, want 2", calls)
+	}
+	if pool.resetCount.Load() != 1 {
+		t.Errorf("pool.Reset called %d times, want 1", pool.resetCount.Load())
 	}
 }
 
@@ -306,8 +495,5 @@ func TestWithRetryVoid(t *testing.T) {
 	}
 	if calls != 2 {
 		t.Errorf("calls = %d, want 2", calls)
-	}
-	if pool.resetCount.Load() != 1 {
-		t.Errorf("pool.Reset called %d times, want 1", pool.resetCount.Load())
 	}
 }

@@ -221,7 +221,7 @@ spec:
                 name: pechka-config
                 key: ssl-mode
           - name: POSTGRES_DSN
-            value: "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST_1):$(POSTGRES_PORT),$(POSTGRES_HOST_2):$(POSTGRES_PORT),$(POSTGRES_HOST_3):$(POSTGRES_PORT)/$(POSTGRES_DB)?target_session_attrs=read-write&sslmode=$(SSL_MODE)"
+            value: "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST_1):$(POSTGRES_PORT),$(POSTGRES_HOST_2):$(POSTGRES_PORT),$(POSTGRES_HOST_3):$(POSTGRES_PORT)/$(POSTGRES_DB)?target_session_attrs=read-write&sslmode=$(SSL_MODE)&connect_timeout=3"
       volumes:
         - name: work
           emptyDir:
