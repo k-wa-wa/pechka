@@ -19,7 +19,13 @@ spec:
           command:
             - sh
             - -c
-            - until pg_isready -h "$PGHOST"; do echo "waiting for postgres..."; sleep 2; done
+            - |
+              if command -v getent >/dev/null 2>&1; then
+                ips=$(getent ahostsv4 "$PGHOST" 2>/dev/null | awk '{print $1}' | sort -u | paste -sd, -)
+                [ -n "$ips" ] && export PGHOST="$ips"
+              fi
+              echo "Connecting to postgres at $PGHOST..."
+              until pg_isready -h "$PGHOST"; do echo "waiting for postgres..."; sleep 2; done
           env:
             - name: PGHOST
               valueFrom:
@@ -46,7 +52,17 @@ spec:
           command:
             - sh
             - -c
-            - set -e; for f in $(ls /migrations/*.up.sql | sort); do echo "Applying $f..."; psql -v ON_ERROR_STOP=1 -h "$PGHOST" -f "$f"; done
+            - |
+              if command -v getent >/dev/null 2>&1; then
+                ips=$(getent ahostsv4 "$PGHOST" 2>/dev/null | awk '{print $1}' | sort -u | paste -sd, -)
+                [ -n "$ips" ] && export PGHOST="$ips"
+              fi
+              echo "Migrating with PGHOST=$PGHOST..."
+              set -e
+              for f in $(ls /migrations/*.up.sql | sort); do
+                echo "Applying $f..."
+                psql -v ON_ERROR_STOP=1 -h "$PGHOST" -f "$f"
+              done
           env:
             - name: PGHOST
               valueFrom:

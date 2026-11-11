@@ -57,5 +57,31 @@ class TestGenerate(unittest.TestCase):
         args = mock_run.call_args[0][0]
         self.assertNotIn("-reconnect", args)
 
+    @patch("socket.getaddrinfo")
+    def test_resolve_postgres_dsn_multi_host(self, mock_getaddrinfo):
+        mock_getaddrinfo.return_value = [
+            (2, 1, 6, "", ("10.20.1.41", 5432)),
+            (2, 1, 6, "", ("10.20.1.42", 5432)),
+            (2, 1, 6, "", ("10.20.1.43", 5432)),
+        ]
+        dsn = "postgres://usr:pwd@postgres.external-service.svc.cluster.local:5432/db?target_session_attrs=read-write"
+        resolved = generate.resolve_postgres_dsn(dsn)
+        expected = "postgres://usr:pwd@10.20.1.41:5432,10.20.1.42:5432,10.20.1.43:5432/db?target_session_attrs=read-write"
+        self.assertEqual(resolved, expected)
+
+    @patch("socket.getaddrinfo")
+    def test_resolve_postgres_dsn_single_host(self, mock_getaddrinfo):
+        mock_getaddrinfo.return_value = [
+            (2, 1, 6, "", ("127.0.0.1", 5432)),
+        ]
+        dsn = "postgres://usr:pwd@localhost:5432/db"
+        resolved = generate.resolve_postgres_dsn(dsn)
+        self.assertEqual(resolved, dsn)
+
+    def test_resolve_postgres_dsn_already_multi_host(self):
+        dsn = "postgres://usr:pwd@host1:5432,host2:5432/db"
+        resolved = generate.resolve_postgres_dsn(dsn)
+        self.assertEqual(resolved, dsn)
+
 if __name__ == "__main__":
     unittest.main()

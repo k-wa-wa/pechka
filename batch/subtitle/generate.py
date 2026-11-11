@@ -5,9 +5,11 @@ subtitle_tracks / subtitle_cues に登録する（status='draft'のまま。曲�
 
 import argparse
 import os
+import socket
 import subprocess
 import sys
 import tempfile
+import urllib.parse
 from pathlib import Path
 
 try:
@@ -36,6 +38,52 @@ VAD_FILTER = False
 # 歌唱パートでは「Yeah Yeah」等の正当な2連続反復も頻出するため、閾値は3以上とし
 # 誤検知(flagged乱発)を抑える。
 HALLUCINATION_REPEAT_THRESHOLD = 3
+
+
+def resolve_postgres_dsn(dsn: str) -> str:
+    """libpq (psycopg2) は単一ホスト名の場合、DNS から複数 A レコードが得られても
+    先頭以外の IP をフェイルオーバー試行しない (PG16 fe-connect.c 参照)。
+    Headless Service のように単一論理名が複数 IP (実ノード群) を返す場合、
+    libpq に全ノードを探索させるため、A レコードを解決してカンマ区切りのマルチホスト形式に展開する。
+    """
+    try:
+        parsed = urllib.parse.urlsplit(dsn)
+        if not parsed.hostname:
+            return dsn
+
+        # すでにカンマ区切りで複数ホストが含まれている場合は展開不要
+        if "," in parsed.netloc:
+            return dsn
+
+        port = parsed.port or 5432
+        addr_infos = socket.getaddrinfo(parsed.hostname, port, socket.AF_INET, socket.SOCK_STREAM)
+        ips = []
+        for info in addr_infos:
+            ip = info[4][0]
+            if ip not in ips:
+                ips.append(ip)
+
+        if len(ips) > 1:
+            user_prefix = ""
+            if parsed.username:
+                user_prefix = parsed.username
+                if parsed.password:
+                    user_prefix += f":{parsed.password}"
+                user_prefix += "@"
+
+            multi_hosts = ",".join(f"{ip}:{port}" for ip in ips)
+            new_netloc = f"{user_prefix}{multi_hosts}"
+            return urllib.parse.urlunsplit((
+                parsed.scheme,
+                new_netloc,
+                parsed.path,
+                parsed.query,
+                parsed.fragment,
+            ))
+    except Exception:
+        pass
+
+    return dsn
 
 
 def extract_audio(source_url: str, output_wav: str) -> None:
@@ -194,7 +242,7 @@ def main() -> None:
     access_key = os.environ["MINIO_ACCESS_KEY"]
     secret_key = os.environ["MINIO_SECRET_KEY"]
     use_ssl = os.environ.get("MINIO_USE_SSL", "false").lower() == "true"
-    postgres_dsn = os.environ["POSTGRES_DSN"]
+    postgres_dsn = resolve_postgres_dsn(os.environ["POSTGRES_DSN"])
 
     # ダウンロード・文字起こし(数十分かかりうる)を始める前に、上書きしてよいか確認する。
     guard_conn = psycopg2.connect(postgres_dsn)
