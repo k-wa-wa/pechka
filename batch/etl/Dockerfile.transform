@@ -5,14 +5,13 @@ RUN go mod download
 COPY batch/etl/ ./
 RUN CGO_ENABLED=0 go build -o pechka-etl .
 
-FROM ubuntu:24.04
+FROM debian:bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/80-retries \
-    && (apt-get update || (sleep 3 && apt-get update)) \
-    && apt-get upgrade -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends \
+    ca-certificates \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
