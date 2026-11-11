@@ -4,9 +4,11 @@ the brightest, most representative frames as thumbnails, then uploads to MinIO."
 
 import argparse
 import os
+import socket
 import subprocess
 import sys
 import tempfile
+import urllib.parse
 from pathlib import Path
 
 try:
@@ -22,6 +24,52 @@ except ImportError:  # pragma: no cover
 SAMPLE_INTERVAL_SEC = 120
 MAX_THUMBNAILS = 5
 THUMBNAIL_PREFIX = "thumbnails/"
+
+
+def resolve_postgres_dsn(dsn: str) -> str:
+    """libpq (psycopg2) は単一ホスト名の場合、DNS から複数 A レコードが得られても
+    先頭以外の IP をフェイルオーバー試行しない (PG16 fe-connect.c 参照)。
+    Headless Service のように単一論理名が複数 IP (実ノード群) を返す場合、
+    libpq に全ノードを探索させるため、A レコードを解決してカンマ区切りのマルチホスト形式に展開する。
+    """
+    try:
+        parsed = urllib.parse.urlsplit(dsn)
+        if not parsed.hostname:
+            return dsn
+
+        # すでにカンマ区切りで複数ホストが含まれている場合は展開不要
+        if "," in parsed.netloc:
+            return dsn
+
+        port = parsed.port or 5432
+        addr_infos = socket.getaddrinfo(parsed.hostname, port, socket.AF_INET, socket.SOCK_STREAM)
+        ips = []
+        for info in addr_infos:
+            ip = info[4][0]
+            if ip not in ips:
+                ips.append(ip)
+
+        if len(ips) > 1:
+            user_prefix = ""
+            if parsed.username:
+                user_prefix = parsed.username
+                if parsed.password:
+                    user_prefix += f":{parsed.password}"
+                user_prefix += "@"
+
+            multi_hosts = ",".join(f"{ip}:{port}" for ip in ips)
+            new_netloc = f"{user_prefix}{multi_hosts}"
+            return urllib.parse.urlunsplit((
+                parsed.scheme,
+                new_netloc,
+                parsed.path,
+                parsed.query,
+                parsed.fragment,
+            ))
+    except Exception:
+        pass
+
+    return dsn
 
 
 def reconnect_args(input_path: str) -> list[str]:
@@ -239,7 +287,7 @@ def main() -> None:
     # (nginx が bucket 直下の "thumbnails/" プレフィックスを付与するため除去する)
     thumbnail_key = s3_keys[0].removeprefix(THUMBNAIL_PREFIX)
 
-    conn = psycopg2.connect(postgres_dsn)
+    conn = psycopg2.connect(resolve_postgres_dsn(postgres_dsn))
     try:
         register_assets(conn, args.content_id, s3_keys, thumbnail_key)
         print("Assets registered in PostgreSQL.")

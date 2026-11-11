@@ -333,7 +333,7 @@ original.m3u8
 
 Phase 0〜4（クリーンアップ、インフラ・DB 基盤、API Service、フロントエンド、Bluray ETL パイプライン）は実装済み。本番環境（`k8s/overlays/prod`）については以下の通り。
 
-- PostgreSQL は nuage-cluster の Headless Service（`postgres.external-service.svc.cluster.local`）による名前解決・自動フェイルオーバー（`external-postgres.yaml` および keepalived VIP への依存は撤廃済み）。
+- PostgreSQL は nuage-cluster の Headless Service（`postgres.external-service.svc.cluster.local`）を参照（pgx の複数 A レコード自動展開および libpq クライアントでのマルチホスト展開により Patroni プライマリ自動選出・フェイルオーバー。`external-postgres.yaml` および keepalived VIP への依存は撤廃済み）。
 - S3 オブジェクトストレージ (SeaweedFS) はクラスタ内コンポーネントからのアクセスを Nginx（ポート 9000 リバースプロキシ）経由に一本化し、Headless Service（`minio.external-service.svc.cluster.local`）の upstream 冗長化により完全無停止化。
 - Secrets は SOPS（age 鍵）による暗号化運用済み（`k8s/overlays/prod/secrets/prod-secrets.yaml`）。`secrets.yaml` からは `<path:secrets/prod-secrets.yaml#...>` 参照でプレースホルダー展開する構成。
 - NFS 自動 Bluray 変換の CronWorkflow（旧 `etl-bluray-cron`）は削除済みで、現状は自動実行の仕組み自体が存在しない（`etl-bluray` の手動実行バッチのみ運用中）。

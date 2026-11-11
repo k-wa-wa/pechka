@@ -22,6 +22,7 @@ configMapGenerator:
     literals:
       - allowed-ip-range=10.0.0.0/8
       - s3-endpoint=minio.external-service.svc.cluster.local:9000
+      - s3-fallback-endpoint=minio.external-service.svc.cluster.local:9000
       - postgres-host=postgres.external-service.svc.cluster.local
   - name: minio-setup-config
     behavior: merge

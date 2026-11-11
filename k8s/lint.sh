@@ -43,6 +43,19 @@ for OVERLAY in "${OVERLAYS[@]}"; do
     continue
   fi
 
+  # Prod 環境の個別静的検証 (未上書きのベース値や存在しない Service 参照を防止)
+  if [ "${OVERLAY}" = "k8s/overlays/prod" ]; then
+    echo "Validating prod endpoints..."
+    if echo "$MANIFESTS" | grep -q 's3-fallback-endpoint: minio:9000'; then
+      echo "❌ prod pechka-config has unresolved base fallback endpoint 'minio:9000' (minio service does not exist in prod)!"
+      FAILED=1
+    fi
+    if echo "$MANIFESTS" | grep -q 's3-endpoint: minio:9000'; then
+      echo "❌ prod pechka-config has unresolved base endpoint 'minio:9000'!"
+      FAILED=1
+    fi
+  fi
+
   # kubeconform (スキーマチェック)
   echo "Validating with kubeconform..."
   # Argo Workflowsなどのカスタムリソース定義(CRD)に対応するため、外部のCRDカタログも参照します。
