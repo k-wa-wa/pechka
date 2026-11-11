@@ -161,6 +161,13 @@ def upload_thumbnails(
     return keys
 
 
+def resolve_thumbnail_key(s3_keys: list[str]) -> str:
+    """代表サムネイルの DB 保存用キーを決定する。S3 完全キー（thumbnails/...）をそのまま返す。"""
+    if not s3_keys:
+        raise ValueError("s3_keys cannot be empty")
+    return s3_keys[0]
+
+
 def register_assets(conn, content_id: str, s3_keys: list[str], thumbnail_key: str) -> None:
     with conn.cursor() as cur:
         for key in s3_keys:
@@ -234,7 +241,7 @@ def main() -> None:
         print(f"Uploaded: {s3_keys}")
 
     # contents.thumbnail_key は S3 完全キー形式（thumbnails/...）で保存する
-    thumbnail_key = s3_keys[0]
+    thumbnail_key = resolve_thumbnail_key(s3_keys)
 
     conn = psycopg2.connect(postgres_dsn)
     try:

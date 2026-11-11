@@ -60,12 +60,34 @@ class TestAnalyze(unittest.TestCase):
             self.assertEqual(keys, ["thumbnails/sid1/thumb_01.jpg"])
             mock_client.upload_file.assert_called_once()
 
+    def test_resolve_thumbnail_key(self):
+        s3_keys = [
+            "thumbnails/sid1/thumb_01.jpg",
+            "thumbnails/sid1/thumb_02.jpg",
+        ]
+        key = analyze.resolve_thumbnail_key(s3_keys)
+        # S3完全キー形式のまま保持され、thumbnails/ プレフィックスが除去されないことを検証
+        self.assertEqual(key, "thumbnails/sid1/thumb_01.jpg")
+        self.assertTrue(key.startswith("thumbnails/"))
+
+        with self.assertRaises(ValueError):
+            analyze.resolve_thumbnail_key([])
+
     def test_register_assets(self):
         mock_conn = MagicMock()
         mock_cur = MagicMock()
         mock_conn.cursor.return_value.__enter__.return_value = mock_cur
-        analyze.register_assets(mock_conn, "c-uuid", ["thumbnails/sid1/thumb_01.jpg"], "thumbnails/sid1/thumb_01.jpg")
+        s3_key = "thumbnails/sid1/thumb_01.jpg"
+        analyze.register_assets(mock_conn, "c-uuid", [s3_key], s3_key)
         self.assertEqual(mock_cur.execute.call_count, 2)
+        # 1回目は assets テーブルへの INSERT
+        first_call_args = mock_cur.execute.call_args_list[0]
+        self.assertIn("INSERT INTO assets", first_call_args[0][0])
+        self.assertEqual(first_call_args[0][1], ("c-uuid", s3_key))
+        # 2回目は contents.thumbnail_key の UPDATE
+        second_call_args = mock_cur.execute.call_args_list[1]
+        self.assertIn("UPDATE contents SET thumbnail_key", second_call_args[0][0])
+        self.assertEqual(second_call_args[0][1], (s3_key, "c-uuid"))
         mock_conn.commit.assert_called_once()
 
 if __name__ == "__main__":
