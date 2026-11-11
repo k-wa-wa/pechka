@@ -41,14 +41,17 @@ func (r *ContentRepository) Create(ctx context.Context, params CreateContentPara
 	if channelID == "" {
 		return nil, fmt.Errorf("channel_id is required")
 	}
-	row := r.pool.QueryRow(ctx, `
-		INSERT INTO contents (short_id, content_type, channel_id, disc_id, title, description, duration_seconds, is_360, tags, status, document_key, document_mime_type, published_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-		RETURNING `+contentColumns+`
-	`, params.ShortID, params.ContentType, channelID, params.DiscID, params.Title, params.Description,
-		params.DurationSeconds, params.Is360, params.Tags, params.Status, params.DocumentKey, params.DocumentMimeType, params.PublishedAt)
 
-	return scanContent(row)
+	return WithRetryWrite(ctx, r.pool, func() (*domain.Content, error) {
+		row := r.pool.QueryRow(ctx, `
+			INSERT INTO contents (short_id, content_type, channel_id, disc_id, title, description, duration_seconds, is_360, tags, status, document_key, document_mime_type, published_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+			RETURNING `+contentColumns+`
+		`, params.ShortID, params.ContentType, channelID, params.DiscID, params.Title, params.Description,
+			params.DurationSeconds, params.Is360, params.Tags, params.Status, params.DocumentKey, params.DocumentMimeType, params.PublishedAt)
+
+		return scanContent(row)
+	})
 }
 
 type UpdateContentParams struct {
@@ -102,41 +105,49 @@ func (r *ContentRepository) Update(ctx context.Context, params UpdateContentPara
 		RETURNING `+contentColumns+`
 	`, strings.Join(setClauses, ", "), argIdx)
 
-	row := r.pool.QueryRow(ctx, query, args...)
-	return scanContent(row)
+	return WithRetry(ctx, r.pool, func() (*domain.Content, error) {
+		row := r.pool.QueryRow(ctx, query, args...)
+		return scanContent(row)
+	})
 }
 
 func (r *ContentRepository) Delete(ctx context.Context, id string) error {
-	_, err := r.pool.Exec(ctx, "DELETE FROM contents WHERE id = $1", id)
-	return err
+	return WithRetryVoid(ctx, r.pool, func() error {
+		_, err := r.pool.Exec(ctx, "DELETE FROM contents WHERE id = $1", id)
+		return err
+	})
 }
 
 // SetArchived はコンテンツのアーカイブ状態を切り替える。
 // 実データは削除せず archived_at にタイムスタンプを立てる/クリアするだけの論理削除。
 func (r *ContentRepository) SetArchived(ctx context.Context, id string, archived bool) (*domain.Content, error) {
-	var row scanner
-	if archived {
-		row = r.pool.QueryRow(ctx, `
-			UPDATE contents SET archived_at = CURRENT_TIMESTAMP
-			WHERE id = $1
-			RETURNING `+contentColumns+`
-		`, id)
-	} else {
-		row = r.pool.QueryRow(ctx, `
-			UPDATE contents SET archived_at = NULL
-			WHERE id = $1
-			RETURNING `+contentColumns+`
-		`, id)
-	}
-	return scanContent(row)
+	return WithRetry(ctx, r.pool, func() (*domain.Content, error) {
+		var row scanner
+		if archived {
+			row = r.pool.QueryRow(ctx, `
+				UPDATE contents SET archived_at = CURRENT_TIMESTAMP
+				WHERE id = $1
+				RETURNING `+contentColumns+`
+			`, id)
+		} else {
+			row = r.pool.QueryRow(ctx, `
+				UPDATE contents SET archived_at = NULL
+				WHERE id = $1
+				RETURNING `+contentColumns+`
+			`, id)
+		}
+		return scanContent(row)
+	})
 }
 
 func (r *ContentRepository) GetByID(ctx context.Context, id string) (*domain.Content, error) {
-	row := r.pool.QueryRow(ctx, `
-		SELECT `+contentColumns+`
-		FROM contents WHERE id = $1
-	`, id)
-	return scanContent(row)
+	return WithRetry(ctx, r.pool, func() (*domain.Content, error) {
+		row := r.pool.QueryRow(ctx, `
+			SELECT `+contentColumns+`
+			FROM contents WHERE id = $1
+		`, id)
+		return scanContent(row)
+	})
 }
 
 type ListContentsParams struct {
@@ -156,21 +167,23 @@ func (r *ContentRepository) List(ctx context.Context, params ListContentsParams)
 	query += fmt.Sprintf(" ORDER BY updated_at DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
 	args = append(args, params.Limit, params.Offset)
 
-	rows, err := r.pool.Query(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var contents []*domain.Content
-	for rows.Next() {
-		c, err := scanContent(rows)
+	return WithRetry(ctx, r.pool, func() ([]*domain.Content, error) {
+		rows, err := r.pool.Query(ctx, query, args...)
 		if err != nil {
 			return nil, err
 		}
-		contents = append(contents, c)
-	}
-	return contents, rows.Err()
+		defer rows.Close()
+
+		var contents []*domain.Content
+		for rows.Next() {
+			c, err := scanContent(rows)
+			if err != nil {
+				return nil, err
+			}
+			contents = append(contents, c)
+		}
+		return contents, rows.Err()
+	})
 }
 
 // Count は List と同じ絞り込み条件(Status/ChannelID/IncludeArchived)に一致する件数を返す。
@@ -179,11 +192,13 @@ func (r *ContentRepository) Count(ctx context.Context, params ListContentsParams
 	whereClause, args, _ := buildListContentsWhere(params)
 	query := "SELECT COUNT(*) FROM contents" + whereClause
 
-	var total int
-	if err := r.pool.QueryRow(ctx, query, args...).Scan(&total); err != nil {
-		return 0, err
-	}
-	return total, nil
+	return WithRetry(ctx, r.pool, func() (int, error) {
+		var total int
+		if err := r.pool.QueryRow(ctx, query, args...).Scan(&total); err != nil {
+			return 0, err
+		}
+		return total, nil
+	})
 }
 
 func buildListContentsWhere(params ListContentsParams) (string, []any, int) {

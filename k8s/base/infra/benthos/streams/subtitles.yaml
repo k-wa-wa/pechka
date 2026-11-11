@@ -15,7 +15,7 @@ input:
 pipeline:
   processors:
     - sql_raw:
-        driver: postgres
+        driver: pgx
         dsn: "${POSTGRES_DSN}"
         query: |
           SELECT
