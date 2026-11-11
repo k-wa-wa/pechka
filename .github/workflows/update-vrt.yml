@@ -51,11 +51,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Fix apt mirrors
-        run: |
-          sudo sed -i 's|mirror+file:/etc/apt/apt-mirrors.txt|http://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null || true
-          sudo sed -i 's/azure\.archive\.ubuntu\.com/archive.ubuntu.com/g' /etc/apt/sources.list /etc/apt/sources.list.d/* /etc/apt/apt-mirrors.txt 2>/dev/null || true
-
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
