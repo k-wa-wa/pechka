@@ -97,7 +97,7 @@ k8s 分野向け（週次、現状一時停止中）の 2 系統があります�
 本番環境向けのマニフェストは `k8s/overlays/prod` に整理されています。
 
 ### 1. データベースおよびオブジェクトストレージ
-- PostgreSQL は nuage-cluster リポジトリが管理する外部インスタンスを使用します（`external-postgres.yaml` が `ExternalName` Service として名前解決）。
+- PostgreSQL は nuage-cluster リポジトリが管理する外部インスタンス（Patroni クラスタ実ノード 3 台: `10.20.1.41〜43`）をマルチホスト DSN / PGHOST で直接参照します（`external-postgres.yaml` および keepalived VIP への依存は撤廃済み）。
 - S3 オブジェクトストレージ (SeaweedFS) は Nginx リバースプロキシ（ポート 9000）経由に一本化されており、Nginx の upstream 冗長化により swfs 実ノード群へ死ノード自動除外付きでバランシングされます。
 - MongoDB・Elasticsearch は `k8s/overlays/prod` 内で稼働するコンテナです（PVC は `local-path` storageClass、
   `pvc-local-path-patch.yaml` で上書き）。

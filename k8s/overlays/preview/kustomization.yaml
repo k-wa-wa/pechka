@@ -40,7 +40,6 @@ resources:
 
 patches:
   - path: pvc-local-path-patch.yaml
-  - path: postgres/migrate-job-patch.yaml
   - path: pdb-delete-patch.yaml
   - path: replicas-patch.yaml
 
