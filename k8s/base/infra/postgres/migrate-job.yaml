@@ -26,6 +26,10 @@ spec:
                 configMapKeyRef:
                   name: postgres-migrate-config
                   key: POSTGRES_HOSTS
+            - name: PGCONNECT_TIMEOUT
+              value: "3"
+            - name: PGTARGETSESSIONATTRS
+              value: "read-write"
             - name: PGUSER
               valueFrom:
                 secretKeyRef:
@@ -42,13 +46,15 @@ spec:
           command:
             - sh
             - -c
-            - for f in $(ls /migrations/*.up.sql | sort); do echo "Applying $f..."; psql -v ON_ERROR_STOP=1 -h "$PGHOST" -f "$f"; done
+            - set -e; for f in $(ls /migrations/*.up.sql | sort); do echo "Applying $f..."; psql -v ON_ERROR_STOP=1 -h "$PGHOST" -f "$f"; done
           env:
             - name: PGHOST
               valueFrom:
                 configMapKeyRef:
                   name: postgres-migrate-config
                   key: POSTGRES_HOSTS
+            - name: PGCONNECT_TIMEOUT
+              value: "3"
             - name: PGTARGETSESSIONATTRS
               value: "read-write"
             - name: PGUSER

@@ -27,6 +27,7 @@ configMapGenerator:
       - s3-fallback-endpoint-1=10.20.1.61:9000
       - s3-fallback-endpoint-2=10.20.1.62:9000
       - s3-fallback-endpoint-3=10.20.1.63:9000
+      - postgres-host=10.20.1.41
       - postgres-host-1=10.20.1.41
       - postgres-host-2=10.20.1.42
       - postgres-host-3=10.20.1.43
