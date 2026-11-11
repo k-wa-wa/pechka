@@ -19,8 +19,13 @@ spec:
           command:
             - sh
             - -c
-            - until pg_isready -h postgres; do echo "waiting for postgres..."; sleep 2; done
+            - until pg_isready -h "$PGHOST"; do echo "waiting for postgres..."; sleep 2; done
           env:
+            - name: PGHOST
+              valueFrom:
+                configMapKeyRef:
+                  name: postgres-migrate-config
+                  key: POSTGRES_HOSTS
             - name: PGUSER
               valueFrom:
                 secretKeyRef:
@@ -37,8 +42,15 @@ spec:
           command:
             - sh
             - -c
-            - for f in $(ls /migrations/*.up.sql | sort); do echo "Applying $f..."; psql -h postgres -f "$f"; done
+            - for f in $(ls /migrations/*.up.sql | sort); do echo "Applying $f..."; psql -v ON_ERROR_STOP=1 -h "$PGHOST" -f "$f"; done
           env:
+            - name: PGHOST
+              valueFrom:
+                configMapKeyRef:
+                  name: postgres-migrate-config
+                  key: POSTGRES_HOSTS
+            - name: PGTARGETSESSIONATTRS
+              value: "read-write"
             - name: PGUSER
               valueFrom:
                 secretKeyRef:

@@ -6,7 +6,6 @@ namespace: pechka
 resources:
   - ../../base
   - secrets/secrets.yaml
-  - external-postgres.yaml
   - ingress.yaml
 
 
@@ -35,3 +34,7 @@ configMapGenerator:
     behavior: merge
     literals:
       - s3-endpoint=10.20.1.61:9000
+  - name: postgres-migrate-config
+    behavior: merge
+    literals:
+      - POSTGRES_HOSTS=10.20.1.41,10.20.1.42,10.20.1.43
