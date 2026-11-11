@@ -18,6 +18,12 @@ spec:
     metadata:
       labels:
         app: api
+      annotations:
+        # pechka-config は disableNameSuffixHash: true で名前が固定のため、
+        # ConfigMap の値（minio-url 等の S3 接続先）を変えても Pod は作り直されない。
+        # 接続先を変えるときはこの値も変える。Pod テンプレートの差分となり、
+        # Argo CD の同期でローリング再起動が走る。
+        pechka.io/s3-endpoint: nginx
     spec:
       serviceAccountName: api-sa
       topologySpreadConstraints:

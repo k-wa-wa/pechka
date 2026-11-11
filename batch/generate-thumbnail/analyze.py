@@ -24,6 +24,13 @@ MAX_THUMBNAILS = 5
 THUMBNAIL_PREFIX = "thumbnails/"
 
 
+def reconnect_args(input_path: str) -> list[str]:
+    """HTTP(S) 入力のとき、切断時に自動再接続する入力オプションを返す（-i より前に置くこと）。"""
+    if input_path.startswith(("http://", "https://")):
+        return ["-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "5"]
+    return []
+
+
 def get_duration_seconds(input_path: str) -> float:
     """Probe media duration via ffprobe (reads container metadata only, no decode)."""
     result = subprocess.run(
@@ -35,6 +42,7 @@ def get_duration_seconds(input_path: str) -> float:
             "format=duration",
             "-of",
             "default=noprint_wrappers=1:nokey=1",
+            *reconnect_args(input_path),
             input_path,
         ],
         capture_output=True,
@@ -52,6 +60,7 @@ def extract_frame_at(input_path: str, timestamp: float, output_path: Path) -> bo
         subprocess.run(
             [
                 "ffmpeg",
+                *reconnect_args(input_path),
                 "-ss",
                 str(timestamp),
                 "-i",

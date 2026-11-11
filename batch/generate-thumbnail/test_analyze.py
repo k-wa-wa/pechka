@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 import analyze
 
@@ -14,6 +15,26 @@ class TestAnalyze(unittest.TestCase):
             mock_run.return_value = MagicMock(stdout="invalid\n")
             duration = analyze.get_duration_seconds("dummy.mkv")
             self.assertEqual(duration, 0.0)
+
+    def test_reconnect_options_precede_input_for_http(self):
+        url = "http://nginx:9000/bucket/video.mkv"
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(stdout="10\n")
+            analyze.get_duration_seconds(url)
+            probe = mock_run.call_args[0][0]
+            analyze.extract_frame_at(url, 1, Path("/tmp/out.jpg"))
+            ffmpeg = mock_run.call_args[0][0]
+        for args in (probe, ffmpeg):
+            idx = args.index(url)
+            for opt in ("-reconnect", "-reconnect_streamed", "-reconnect_delay_max"):
+                self.assertLess(args.index(opt), idx)
+        self.assertLess(ffmpeg.index("-reconnect"), ffmpeg.index("-ss"))
+
+    def test_no_reconnect_options_for_local_path(self):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(stdout="10\n")
+            analyze.get_duration_seconds("/tmp/v.mkv")
+            self.assertNotIn("-reconnect", mock_run.call_args[0][0])
 
     def test_select_thumbnails(self):
         with patch("analyze.brightness_score", side_effect=[5.0, 50.0, 80.0, 20.0]):

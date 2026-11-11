@@ -22,6 +22,7 @@ spec:
           labelSelector:
             matchLabels:
               app: nginx
+      terminationGracePeriodSeconds: 300
       containers:
         - name: nginx
           image: nginx:1.30-alpine
@@ -30,7 +31,10 @@ spec:
               exec:
                 command: ["/bin/sleep", "5"]
           ports:
-            - containerPort: 80
+            - name: http
+              containerPort: 80
+            - name: s3
+              containerPort: 9000
           env:
             - name: S3_ENDPOINT_1
               valueFrom:
@@ -47,6 +51,21 @@ spec:
                 configMapKeyRef:
                   name: pechka-config
                   key: s3-endpoint-3
+            - name: S3_FALLBACK_ENDPOINT_1
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: s3-fallback-endpoint-1
+            - name: S3_FALLBACK_ENDPOINT_2
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: s3-fallback-endpoint-2
+            - name: S3_FALLBACK_ENDPOINT_3
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: s3-fallback-endpoint-3
           volumeMounts:
             - name: config
               mountPath: /etc/nginx/nginx.conf
@@ -95,6 +114,10 @@ spec:
   selector:
     app: nginx
   ports:
-    - port: 80
+    - name: http
+      port: 80
       targetPort: 80
+    - name: s3
+      port: 9000
+      targetPort: 9000
   type: ClusterIP

@@ -40,23 +40,22 @@ HALLUCINATION_REPEAT_THRESHOLD = 3
 
 def extract_audio(source_url: str, output_wav: str) -> None:
     """ffmpegにMinIOの署名付きURLを直接渡し、フルダウンロードせず音声のみ抽出する。"""
-    subprocess.run(
-        [
-            "ffmpeg",
-            "-y",
-            "-i",
-            source_url,
-            "-vn",
-            "-ac",
-            "1",
-            "-ar",
-            "16000",
-            "-acodec",
-            "pcm_s16le",
-            output_wav,
-        ],
-        check=True,
-    )
+    cmd = ["ffmpeg", "-y"]
+    if source_url.startswith("http://") or source_url.startswith("https://"):
+        cmd.extend(["-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "5"])
+    cmd.extend([
+        "-i",
+        source_url,
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        "-acodec",
+        "pcm_s16le",
+        output_wav,
+    ])
+    subprocess.run(cmd, check=True)
 
 
 def transcribe(wav_path: str) -> list[dict]:

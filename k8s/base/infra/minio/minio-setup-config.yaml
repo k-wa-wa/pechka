@@ -1,0 +1,16 @@
+# minio-setup (PreSync フック) の接続先。
+# pechka-config は通常 Sync で作られるため、PreSync の Job から参照すると、namespace が作り直された
+# 場合 (DR 等) に ConfigMap が無く CreateContainerConfigError のまま PreSync が終わらない。
+# k8s/overlays/prod/secrets/secrets.yaml の postgres-secret / minio-secret と同じ理由で PreSync フック化し、
+# Job より小さい sync-wave を与える。
+# PreSync 時点では nginx がまだ起動していない可能性があるため、nginx を経由せず S3 実体を直接指す。
+# デプロイ時に一度走るだけなので 1 台固定でよい (prod overlay で上書きする)。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: minio-setup-config
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/sync-wave: "-1"
+data:
+  s3-endpoint: "minio:9000"

@@ -33,4 +33,31 @@ spec:
                 name: argo-server
                 port:
                   number: 2746
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: pechka-ingress-s3-internal
+  namespace: pechka
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-cloudflare-prod"
+spec:
+  ingressClassName: cilium
+  tls:
+    - hosts:
+        - s3.wpcapp.net
+      # 公開 Ingress と pechka-tls-secret を共有すると、cert-manager は他 Ingress が所有する
+      # Certificate を更新しないため s3.wpcapp.net が証明書に入らない。専用の Secret にする。
+      secretName: pechka-s3-tls-secret
+  rules:
+    - host: s3.wpcapp.net
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nginx
+                port:
+                  number: 9000
 

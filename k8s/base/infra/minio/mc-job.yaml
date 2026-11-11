@@ -19,20 +19,41 @@ spec:
       initContainers:
         - name: wait-for-minio
           image: curlimages/curl:latest
+          env:
+            - name: S3_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: minio-setup-config
+                  key: s3-endpoint
           command:
             - sh
             - -c
             - |
-              # 実装ごとにヘルスチェックのパスが異なる (MinIO: /minio/health/live, SeaweedFS: /healthz) ため、
-              # パスに依存せず、HTTP の応答が返る (接続できる) ことだけを待つ。
-              until curl -s -o /dev/null -m 5 http://minio:9000/; do
-                echo "Waiting for S3..."
+              target_url="http://${S3_ENDPOINT:?S3_ENDPOINT is required}"
+              # PreSync フェーズで S3 バックエンドに直接疎通確認を行い、応答があるまで待つ
+              while true; do
+                # 接続失敗時も curl は -w で "000" を出力して非 0 で終わる。`|| echo` で追記すると
+                # "000000" になり待機を抜けてしまうため、終了コードは無視して出力だけを使う。
+                code=$(curl -s -o /dev/null -w '%{http_code}' -m 5 "$target_url/") || true
+                # 有効な HTTP 応答 (1xx〜4xx) を受け取ったときだけ待機を抜ける
+                case "$code" in
+                  [1-4][0-9][0-9])
+                    echo "S3 is ready (HTTP $code)"
+                    break
+                    ;;
+                esac
+                echo "Waiting for S3 backend at $target_url (status: $code)..."
                 sleep 5
               done
       containers:
         - name: s3-setup
           image: curlimages/curl:latest
           env:
+            - name: S3_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: minio-setup-config
+                  key: s3-endpoint
             - name: MINIO_ROOT_USER
               valueFrom:
                 secretKeyRef:
@@ -54,10 +75,11 @@ spec:
                   --user "$MINIO_ROOT_USER:$MINIO_ROOT_PASSWORD" "$@"
               }
               bucket=pechka
-              if [ "$(req -I http://minio:9000/$bucket)" = "200" ]; then
+              target_url="http://${S3_ENDPOINT:?S3_ENDPOINT is required}"
+              if [ "$(req -I "$target_url/$bucket")" = "200" ]; then
                 echo "bucket $bucket: already exists"
               else
-                code=$(req -X PUT http://minio:9000/$bucket)
+                code=$(req -X PUT "$target_url/$bucket")
                 [ "$code" = "200" ] || { echo "bucket $bucket: create failed (HTTP $code)"; exit 1; }
                 echo "bucket $bucket: created"
               fi

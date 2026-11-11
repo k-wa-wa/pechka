@@ -38,5 +38,24 @@ class TestGenerate(unittest.TestCase):
         reason = generate.find_unsafe_overwrite_reason(mock_conn, "c1", "ja")
         self.assertIn("3 manually edited cue(s)", reason)
 
+    @patch("generate.subprocess.run")
+    def test_extract_audio_http(self, mock_run):
+        generate.extract_audio("http://nginx:9000/bucket/video.mkv", "out.wav")
+        mock_run.assert_called_once()
+        args = mock_run.call_args[0][0]
+        self.assertIn("-reconnect", args)
+        self.assertIn("-reconnect_streamed", args)
+        # 再接続オプションは入力オプションなので、-i より前に無いと効かない
+        input_index = args.index("-i")
+        for opt in ("-reconnect", "-reconnect_streamed", "-reconnect_delay_max"):
+            self.assertLess(args.index(opt), input_index, f"{opt} must precede -i")
+
+    @patch("generate.subprocess.run")
+    def test_extract_audio_local(self, mock_run):
+        generate.extract_audio("/path/to/video.mkv", "out.wav")
+        mock_run.assert_called_once()
+        args = mock_run.call_args[0][0]
+        self.assertNotIn("-reconnect", args)
+
 if __name__ == "__main__":
     unittest.main()
