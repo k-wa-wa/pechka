@@ -33,6 +33,7 @@ import (
 	"github.com/k-wa-wa/pechka/api/internal/handler"
 	apiMiddleware "github.com/k-wa-wa/pechka/api/internal/middleware"
 	elasticRepo "github.com/k-wa-wa/pechka/api/internal/repository/elastic"
+	"github.com/k-wa-wa/pechka/api/internal/repository/fallback"
 	mongoRepo "github.com/k-wa-wa/pechka/api/internal/repository/mongo"
 	pgRepo "github.com/k-wa-wa/pechka/api/internal/repository/postgres"
 )
@@ -114,10 +115,27 @@ func main() {
 	mgSubtitle := mongoRepo.NewSubtitleRepository(mongoDB)
 	esContent := elasticRepo.NewContentRepository(esClient)
 
-	contentsH := handler.NewContentsHandler(mgContent)
+	mongoBreaker := fallback.NewCircuitBreaker(fallback.CircuitBreakerSettings{
+		Name:             "mongo",
+		Timeout:          300 * time.Millisecond,
+		FailureThreshold: 3,
+		Cooldown:         30 * time.Second,
+	})
+	elasticBreaker := fallback.NewCircuitBreaker(fallback.CircuitBreakerSettings{
+		Name:             "elastic",
+		Timeout:          300 * time.Millisecond,
+		FailureThreshold: 3,
+		Cooldown:         30 * time.Second,
+	})
+
+	fbContent := fallback.NewContentRepository(mgContent, pgPool, mongoBreaker)
+	fbSubtitle := fallback.NewSubtitleRepository(mgSubtitle, pgPool, mongoBreaker)
+	fbSearch := fallback.NewSearchRepository(esContent, pgPool, elasticBreaker)
+
+	contentsH := handler.NewContentsHandler(fbContent)
 	channelsH := handler.NewChannelsHandler(pgChannel)
-	subtitlesH := handler.NewSubtitlesHandler(mgSubtitle)
-	searchH := handler.NewSearchHandler(esContent)
+	subtitlesH := handler.NewSubtitlesHandler(fbSubtitle)
+	searchH := handler.NewSearchHandler(fbSearch)
 	adminH := handler.NewAdminHandler(pgContent, pgDisc, pgSubtitle, sfNode).WithChannelRepository(pgChannel)
 	k8sNamespace := currentNamespace()
 	slog.Info("resolved k8s namespace for workflow triggers", "namespace", k8sNamespace)
@@ -208,6 +226,8 @@ func setupRouter(p RouterParams) *echo.Echo {
 	if gath == nil {
 		gath = prometheus.DefaultGatherer
 	}
+
+	fallback.RegisterMetrics(reg)
 
 	e.Use(echoprometheus.NewMiddlewareWithConfig(echoprometheus.MiddlewareConfig{
 		Subsystem:  "pechka_api",
