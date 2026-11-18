@@ -32,3 +32,8 @@ func RegisterMetrics(reg prometheus.Registerer) {
 func RecordFallback(backend, operation string) {
 	fallbackTotal.WithLabelValues(backend, operation).Inc()
 }
+
+// FallbackCounterVec returns the Prometheus CounterVec for inspection/testing.
+func FallbackCounterVec() *prometheus.CounterVec {
+	return fallbackTotal
+}

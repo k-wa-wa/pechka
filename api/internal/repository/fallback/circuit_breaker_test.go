@@ -349,3 +349,105 @@ func TestCircuitBreaker_ConcurrentRequests(t *testing.T) {
 		t.Errorf("expected at least 50 total calls, got %d", total)
 	}
 }
+
+func TestCircuitBreaker_StateTransitionsAll(t *testing.T) {
+	now := time.Now()
+	var stateChanges []string
+	var mu sync.Mutex
+
+	cb := fallback.NewCircuitBreaker(fallback.CircuitBreakerSettings{
+		Name:             "test_transitions",
+		Timeout:          50 * time.Millisecond,
+		FailureThreshold: 2,
+		Cooldown:         10 * time.Second,
+		Now:              func() time.Time { return now },
+		OnStateChange: func(name string, from, to fallback.State) {
+			mu.Lock()
+			defer mu.Unlock()
+			stateChanges = append(stateChanges, from.String()+"->"+to.String())
+		},
+	})
+
+	ctx := context.Background()
+	failPrimary := func(ctx context.Context) (string, error) {
+		return "", errors.New("network failure")
+	}
+	fallbackOk := func(ctx context.Context) (string, error) {
+		return "fallback_ok", nil
+	}
+	isFailure := func(err error) bool { return err != nil }
+
+	// 1. Fail twice to trigger CLOSED -> OPEN
+	_, _ = fallback.Execute(ctx, cb, "op", "mongo", failPrimary, fallbackOk, isFailure)
+	_, _ = fallback.Execute(ctx, cb, "op", "mongo", failPrimary, fallbackOk, isFailure)
+
+	// 2. Advance time past cooldown to trigger OPEN -> HALF-OPEN on next query
+	now = now.Add(11 * time.Second)
+	successPrimary := func(ctx context.Context) (string, error) {
+		return "recovered", nil
+	}
+	res, err := fallback.Execute(ctx, cb, "op", "mongo", successPrimary, fallbackOk, isFailure)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res != "recovered" {
+		t.Errorf("expected recovered, got %s", res)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	expected := []string{"CLOSED->OPEN", "OPEN->HALF-OPEN", "HALF-OPEN->CLOSED"}
+	if len(stateChanges) != len(expected) {
+		t.Fatalf("expected state changes %v, got %v", expected, stateChanges)
+	}
+	for i, exp := range expected {
+		if stateChanges[i] != exp {
+			t.Errorf("transition %d: expected %s, got %s", i, exp, stateChanges[i])
+		}
+	}
+}
+
+func TestCircuitBreaker_ParentContextCancellation(t *testing.T) {
+	cb := fallback.NewCircuitBreaker(fallback.CircuitBreakerSettings{
+		Name:             "test_cancel",
+		Timeout:          200 * time.Millisecond,
+		FailureThreshold: 1,
+		Cooldown:         10 * time.Second,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	primaryCalled := false
+	fallbackCalled := false
+
+	// Cancel parent context inside primary execution
+	_, err := fallback.Execute(
+		ctx,
+		cb,
+		"op",
+		"mongo",
+		func(callCtx context.Context) (string, error) {
+			primaryCalled = true
+			cancel() // simulate client aborting request mid-flight
+			return "", context.Canceled
+		},
+		func(ctx context.Context) (string, error) {
+			fallbackCalled = true
+			return "fallback", nil
+		},
+		fallback.IsTimeoutOrContextError,
+	)
+
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected context.Canceled, got %v", err)
+	}
+	if !primaryCalled {
+		t.Error("expected primary to be called")
+	}
+	if fallbackCalled {
+		t.Error("fallback should not be called when parent context was canceled")
+	}
+	// Breaker should NOT be open because parent context was canceled, not an infrastructure failure
+	if cb.State() != fallback.StateClosed {
+		t.Errorf("expected circuit breaker to remain CLOSED, got %v", cb.State())
+	}
+}

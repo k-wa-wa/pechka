@@ -105,7 +105,7 @@ func (cb *CircuitBreaker) State() State {
 }
 
 // beforeCall determines whether the primary datastore can be queried.
-func (cb *CircuitBreaker) beforeCall() (allowPrimary bool, state State) {
+func (cb *CircuitBreaker) beforeCall(ctx context.Context) (allowPrimary bool, state State) {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 
@@ -117,7 +117,7 @@ func (cb *CircuitBreaker) beforeCall() (allowPrimary bool, state State) {
 
 	case StateOpen:
 		if now.Sub(cb.openedAt) >= cb.cooldown {
-			cb.transitionToLocked(StateHalfOpen)
+			cb.transitionToLocked(ctx, StateHalfOpen)
 			cb.halfOpenInFlight = true
 			return true, StateHalfOpen
 		}
@@ -135,38 +135,38 @@ func (cb *CircuitBreaker) beforeCall() (allowPrimary bool, state State) {
 }
 
 // reportSuccess reports that a primary call succeeded.
-func (cb *CircuitBreaker) reportSuccess(fromState State) {
+func (cb *CircuitBreaker) reportSuccess(ctx context.Context, fromState State) {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 
 	if fromState == StateHalfOpen {
 		cb.halfOpenInFlight = false
-		cb.transitionToLocked(StateClosed)
+		cb.transitionToLocked(ctx, StateClosed)
 	}
 	cb.consecutiveFailures = 0
 }
 
 // reportFailure reports that a primary call failed.
-func (cb *CircuitBreaker) reportFailure(fromState State) (opened bool, consecutiveFailures int) {
+func (cb *CircuitBreaker) reportFailure(ctx context.Context, fromState State) (opened bool, consecutiveFailures int) {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 
 	if fromState == StateHalfOpen {
 		cb.halfOpenInFlight = false
-		cb.transitionToLocked(StateOpen)
+		cb.transitionToLocked(ctx, StateOpen)
 		return true, cb.consecutiveFailures
 	}
 
 	cb.consecutiveFailures++
 	consecutiveFailures = cb.consecutiveFailures
 	if cb.consecutiveFailures >= cb.failureThreshold {
-		cb.transitionToLocked(StateOpen)
+		cb.transitionToLocked(ctx, StateOpen)
 		opened = true
 	}
 	return opened, consecutiveFailures
 }
 
-func (cb *CircuitBreaker) transitionToLocked(to State) {
+func (cb *CircuitBreaker) transitionToLocked(ctx context.Context, to State) {
 	from := cb.state
 	if from == to {
 		return
@@ -175,6 +175,17 @@ func (cb *CircuitBreaker) transitionToLocked(to State) {
 	if to == StateOpen {
 		cb.openedAt = cb.now()
 	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	slog.WarnContext(ctx, "circuit breaker state transition",
+		"breaker", cb.name,
+		"from", from.String(),
+		"to", to.String(),
+	)
+
 	if cb.onStateChange != nil {
 		cb.onStateChange(cb.name, from, to)
 	}
@@ -191,7 +202,12 @@ func Execute[T any](
 	fallbackFn func(ctx context.Context) (T, error),
 	isPrimaryFailure func(error) bool,
 ) (T, error) {
-	allow, state := cb.beforeCall()
+	// If caller's parent context is already canceled or expired, do not proceed.
+	if ctx.Err() != nil {
+		return *new(T), ctx.Err()
+	}
+
+	allow, state := cb.beforeCall(ctx)
 
 	if !allow {
 		slog.WarnContext(ctx, "circuit breaker is OPEN; skipping primary and routing directly to postgres",
@@ -209,17 +225,23 @@ func Execute[T any](
 	cancel()
 
 	if err == nil {
-		cb.reportSuccess(state)
+		cb.reportSuccess(ctx, state)
 		return res, nil
+	}
+
+	// If the parent caller context was canceled, this is a client disconnection,
+	// not a datastore infrastructure failure. Do NOT count as breaker failure or fallback.
+	if ctx.Err() != nil {
+		return *new(T), ctx.Err()
 	}
 
 	// Check if this error is an infrastructure failure vs business logic error (e.g. not found)
 	if isPrimaryFailure != nil && !isPrimaryFailure(err) {
-		cb.reportSuccess(state)
+		cb.reportSuccess(ctx, state)
 		return res, err
 	}
 
-	opened, totalFailures := cb.reportFailure(state)
+	opened, totalFailures := cb.reportFailure(ctx, state)
 	slog.WarnContext(ctx, "primary datastore call failed; falling back to postgres",
 		"breaker", cb.name,
 		"backend", backend,

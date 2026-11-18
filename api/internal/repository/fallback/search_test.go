@@ -137,3 +137,36 @@ func TestFallbackSearchRepository_FallbackOnFailure(t *testing.T) {
 		t.Errorf("unexpected result: %v", results)
 	}
 }
+
+func TestFallbackSearchRepository_BadRequestDoesNotOpenBreaker(t *testing.T) {
+	primary := &mockPrimarySearchRepo{
+		fn: func(ctx context.Context, query string, limit, offset int) ([]*elasticRepo.SearchResult, error) {
+			return nil, errors.New("elasticsearch error: [400 Bad Request] Result window is too large")
+		},
+	}
+	fallbackCalled := false
+	fbStore := &mockFallbackSearchStore{
+		fn: func(ctx context.Context, query string, limit, offset int) ([]*elasticRepo.SearchResult, error) {
+			fallbackCalled = true
+			return nil, nil
+		},
+	}
+
+	cb := fallback.NewCircuitBreaker(fallback.CircuitBreakerSettings{
+		Name:             "elastic",
+		Timeout:          100 * time.Millisecond,
+		FailureThreshold: 2,
+	})
+	repo := fallback.NewSearchRepositoryWithStore(primary, fbStore, cb)
+
+	_, err := repo.Search(context.Background(), "query", 20, 20000)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if fallbackCalled {
+		t.Error("fallback should not be called for 400 Bad Request error")
+	}
+	if cb.State() != fallback.StateClosed {
+		t.Errorf("circuit breaker should remain CLOSED for client bad requests, got %v", cb.State())
+	}
+}

@@ -3,6 +3,7 @@ package fallback
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -43,11 +44,30 @@ func NewSearchRepositoryWithStore(primary SearchPrimaryRepository, fallbackStore
 }
 
 func isElasticFailure(err error) bool {
-	return err != nil
+	if err == nil {
+		return false
+	}
+	// 400 Bad Request 等のクライアント入力起因エラーはインフラ障害とみなさない
+	msg := err.Error()
+	if strings.Contains(msg, "[400") || strings.Contains(msg, "400 Bad Request") || strings.Contains(msg, "status: 400") {
+		return false
+	}
+	return true
 }
 
 // Search searches contents, falling back to PostgreSQL ILIKE query if Elasticsearch fails or breaker is open.
 func (r *FallbackSearchRepository) Search(ctx context.Context, query string, limit, offset int) ([]*elasticRepo.SearchResult, error) {
+	// Sanitize client-supplied parameters
+	if offset < 0 {
+		offset = 0
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	if offset > 10000 {
+		offset = 10000
+	}
+
 	return Execute(
 		ctx,
 		r.breaker,
@@ -85,12 +105,12 @@ func BuildSearchQuery(query string, limit, offset int) (string, []any) {
 	sql := `
 SELECT
     c.short_id,
-    c.title,
-    c.description,
+    COALESCE(c.title, '') AS title,
+    COALESCE(c.description, '') AS description,
     c.content_type,
     c.channel_id,
     COALESCE(ch.name, c.channel_id) AS channel_name,
-    c.tags,
+    COALESCE(c.tags, '{}') AS tags,
     c.status
 FROM contents c
 LEFT JOIN channels ch ON c.channel_id = ch.id

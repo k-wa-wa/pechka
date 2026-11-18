@@ -63,6 +63,14 @@ func isMongoFailure(err error) bool {
 
 // List retrieves a list of contents, falling back to PostgreSQL if MongoDB fails or breaker is open.
 func (r *FallbackContentRepository) List(ctx context.Context, params mongoRepo.ListParams) ([]*domain.MongoContent, error) {
+	// Sanitize client-supplied offset to prevent invalid negative skip errors from crashing the breaker.
+	if params.Offset < 0 {
+		params.Offset = 0
+	}
+	if params.Limit <= 0 || params.Limit > 100 {
+		params.Limit = 20
+	}
+
 	return Execute(
 		ctx,
 		r.breaker,
@@ -128,11 +136,11 @@ SELECT
     c.content_type,
     c.channel_id,
     COALESCE(ch.name, c.channel_id) AS channel_name,
-    c.title,
-    c.description,
+    COALESCE(c.title, '') AS title,
+    COALESCE(c.description, '') AS description,
     c.duration_seconds,
-    c.is_360,
-    c.tags,
+    COALESCE(c.is_360, false) AS is_360,
+    COALESCE(c.tags, '{}') AS tags,
     c.status,
     d.label AS disc_label,
     COALESCE(
