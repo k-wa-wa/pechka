@@ -451,3 +451,95 @@ func TestCircuitBreaker_ParentContextCancellation(t *testing.T) {
 		t.Errorf("expected circuit breaker to remain CLOSED, got %v", cb.State())
 	}
 }
+
+func TestCircuitBreaker_HalfOpenParentContextCancellation(t *testing.T) {
+	now := time.Now()
+	cb := fallback.NewCircuitBreaker(fallback.CircuitBreakerSettings{
+		Name:             "test_half_open_cancel",
+		Timeout:          100 * time.Millisecond,
+		FailureThreshold: 1,
+		Cooldown:         10 * time.Second,
+		Now:              func() time.Time { return now },
+	})
+
+	ctx := context.Background()
+
+	// 1. Force breaker to OPEN
+	_, _ = fallback.Execute(
+		ctx,
+		cb,
+		"op",
+		"mongo",
+		func(ctx context.Context) (string, error) {
+			return "", errors.New("initial failure")
+		},
+		func(ctx context.Context) (string, error) {
+			return "fallback", nil
+		},
+		func(err error) bool { return err != nil },
+	)
+
+	if cb.State() != fallback.StateOpen {
+		t.Fatalf("expected StateOpen, got %v", cb.State())
+	}
+
+	// 2. Advance time past cooldown to enter HALF-OPEN on next query
+	now = now.Add(11 * time.Second)
+
+	// 3. During HALF-OPEN probe, caller cancels parent context
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	probeCalled := false
+	_, err := fallback.Execute(
+		canceledCtx,
+		cb,
+		"op",
+		"mongo",
+		func(callCtx context.Context) (string, error) {
+			probeCalled = true
+			cancel() // simulate client disconnecting during probe
+			return "", context.Canceled
+		},
+		func(ctx context.Context) (string, error) {
+			return "fallback", nil
+		},
+		fallback.IsTimeoutOrContextError,
+	)
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+	if !probeCalled {
+		t.Fatal("expected probe to be called in HALF-OPEN state")
+	}
+
+	// 4. The breaker must NOT be stuck in HALF-OPEN with in-flight blocked.
+	// Next normal request must be allowed to probe primary again.
+	nextProbeCalled := false
+	recoveredRes, err := fallback.Execute(
+		context.Background(),
+		cb,
+		"op",
+		"mongo",
+		func(callCtx context.Context) (string, error) {
+			nextProbeCalled = true
+			return "recovered_data", nil
+		},
+		func(ctx context.Context) (string, error) {
+			return "fallback", nil
+		},
+		func(err error) bool { return err != nil },
+	)
+
+	if err != nil {
+		t.Fatalf("unexpected error on recovery probe: %v", err)
+	}
+	if !nextProbeCalled {
+		t.Fatal("circuit breaker was stuck! Expected next probe to be allowed to call primary")
+	}
+	if recoveredRes != "recovered_data" {
+		t.Errorf("expected recovered_data, got %s", recoveredRes)
+	}
+	if cb.State() != fallback.StateClosed {
+		t.Errorf("expected StateClosed after recovery, got %v", cb.State())
+	}
+}

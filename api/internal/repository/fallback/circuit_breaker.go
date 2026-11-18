@@ -166,6 +166,16 @@ func (cb *CircuitBreaker) reportFailure(ctx context.Context, fromState State) (o
 	return opened, consecutiveFailures
 }
 
+// reportCancellation resets in-flight state when a query was aborted by caller context cancellation.
+func (cb *CircuitBreaker) reportCancellation(fromState State) {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+
+	if fromState == StateHalfOpen {
+		cb.halfOpenInFlight = false
+	}
+}
+
 func (cb *CircuitBreaker) transitionToLocked(ctx context.Context, to State) {
 	from := cb.state
 	if from == to {
@@ -232,6 +242,7 @@ func Execute[T any](
 	// If the parent caller context was canceled, this is a client disconnection,
 	// not a datastore infrastructure failure. Do NOT count as breaker failure or fallback.
 	if ctx.Err() != nil {
+		cb.reportCancellation(state)
 		return *new(T), ctx.Err()
 	}
 
