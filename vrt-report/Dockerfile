@@ -1,4 +1,4 @@
-FROM nginx:1.30-alpine
+FROM nginx/nginx-unprivileged:1.30.7-alpine
 COPY playwright-report/ /usr/share/nginx/html/vrt-report/
-EXPOSE 80
+EXPOSE 8080
 
