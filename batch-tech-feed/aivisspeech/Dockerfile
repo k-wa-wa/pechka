@@ -32,8 +32,6 @@ ARG DEBIAN_FRONTEND=noninteractive
 # 3. CVE-2026-48710 (starlette): 1.0.1 以上 (1.10.0) に上げる。
 #    上流イメージ内の fastapi 0.135.3 は starlette>=0.46.0 を要求しており、anyio 4.13.0 と Python 3.11.9 も
 #    starlette 1.10.0 の要件を満たす。pip check で依存の整合も確かめる。
-#    上流がビルド時に置いた poetry.lock は 0.52.1 の記録や未導入の dev 依存を残したままで、
-#    実行には不要 (poetry run は pyproject.toml と .venv を使う) かつ trivy が古い starlette を誤検出する原因になるため消す。
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends --only-upgrade libbrotli1; \
@@ -41,7 +39,6 @@ RUN set -eux; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*; \
     gosu user /opt/aivisspeech-engine/.venv/bin/pip install --no-cache-dir --upgrade 'starlette==1.10.0'; \
-    gosu user /opt/aivisspeech-engine/.venv/bin/pip check; \
-    rm -f /opt/aivisspeech-engine/poetry.lock
+    gosu user /opt/aivisspeech-engine/.venv/bin/pip check
 
 # ENTRYPOINT・CMD・WORKDIR・ユーザーは上流のまま引き継ぐ (上書きしない)。
