@@ -113,7 +113,7 @@ spec:
   ports:
     - name: http
       port: 80
-      targetPort: 8080
+      targetPort: http
     - name: s3
       port: 9000
       targetPort: 9000

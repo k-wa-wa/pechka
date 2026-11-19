@@ -25,6 +25,7 @@ spec:
       containers:
         - name: storybook-report
           image: ghcr.io/k-wa-wa/pechka-storybook-report:latest
+          imagePullPolicy: Always
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

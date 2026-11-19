@@ -25,6 +25,7 @@ spec:
       containers:
         - name: vrt-report
           image: ghcr.io/k-wa-wa/pechka-vrt-report:latest
+          imagePullPolicy: Always
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
