@@ -69,6 +69,37 @@ jobs:
             exit $rc
           '
 
+      - name: Verify KEV vulnerability fixes
+        run: |
+          docker run --rm -i "${IMAGE}:sha-${GITHUB_SHA}" sh -eu <<'EOF'
+          brotli_ver=$(dpkg-query -W -f='${Version}' libbrotli1)
+          echo "libbrotli1: ${brotli_ver}"
+          if ! dpkg --compare-versions "${brotli_ver}" ge "1.0.9-2ubuntu0.1"; then
+            echo "::error::libbrotli1 が修正版 (1.0.9-2ubuntu0.1 以上) ではない: ${brotli_ver}"
+            exit 1
+          fi
+
+          /opt/aivisspeech-engine/.venv/bin/python -c '
+          import re
+          from importlib.metadata import version
+          import starlette
+
+          meta_ver = version("starlette")
+          mod_ver = starlette.__version__
+          print(f"starlette: metadata={meta_ver}, __version__={mod_ver}")
+          if meta_ver != mod_ver:
+              raise SystemExit(f"::error::starlette の版が一致しない: {meta_ver} != {mod_ver}")
+          m = re.match(r"^(\d+)\.(\d+)\.(\d+)", meta_ver)
+          if not m:
+              raise SystemExit(f"::error::starlette の版を解釈できない: {meta_ver}")
+          ver_tuple = tuple(int(x) for x in m.groups())
+          if ver_tuple < (1, 0, 1):
+              raise SystemExit(f"::error::starlette が修正版 (1.0.1 以上) ではない: {meta_ver}")
+          '
+
+          /opt/aivisspeech-engine/.venv/bin/pip check
+          EOF
+
       - name: Verify speech synthesis
         run: |
           set -euo pipefail
@@ -137,6 +168,17 @@ jobs:
             echo
             jq -r '[.Results[]?.Vulnerabilities[]?.PkgName] | group_by(.) | map({p: .[0], n: length})
               | sort_by(-.n) | .[:10][] | "- \(.p): \(.n)"' "${report}"
+            echo
+            echo "KEV 対象 CVE の検出状況"
+            echo
+            for cve in CVE-2026-111497 CVE-2026-48710; do
+              hits=$(jq -r --arg cve "${cve}" '[.Results[]? | .Target as $t | .Vulnerabilities[]? | select(.VulnerabilityID == $cve) | "\($t) (\(.PkgName) \(.InstalledVersion))"] | join(", ")' "${report}")
+              if [ -n "${hits}" ]; then
+                echo "- ${cve}: 検出 (${hits})"
+              else
+                echo "- ${cve}: なし"
+              fi
+            done
           } | tee -a "${GITHUB_STEP_SUMMARY}"
 
       - name: Log in to GitHub Container Registry
