@@ -23,16 +23,29 @@ spec:
             matchLabels:
               app: nginx
       terminationGracePeriodSeconds: 300
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: nginx
-          image: nginx:1.30.7-alpine
+          image: nginx/nginx-unprivileged:1.30.7-alpine
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           lifecycle:
             preStop:
               exec:
                 command: ["/bin/sleep", "5"]
           ports:
             - name: http
-              containerPort: 80
+              containerPort: 8080
             - name: s3
               containerPort: 9000
           env:
@@ -57,16 +70,18 @@ spec:
               mountPath: /etc/nginx/conf.d
             - name: cache
               mountPath: /var/cache/nginx
+            - name: tmp
+              mountPath: /tmp
           livenessProbe:
             httpGet:
               path: /health
-              port: 80
+              port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10
           readinessProbe:
             httpGet:
               path: /health
-              port: 80
+              port: 8080
             initialDelaySeconds: 3
             periodSeconds: 5
           resources:
@@ -84,6 +99,8 @@ spec:
           emptyDir: {}
         - name: cache
           emptyDir: {}
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -96,7 +113,7 @@ spec:
   ports:
     - name: http
       port: 80
-      targetPort: 80
+      targetPort: 8080
     - name: s3
       port: 9000
       targetPort: 9000

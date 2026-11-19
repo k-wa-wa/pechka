@@ -1,3 +1,3 @@
-FROM nginx:1.30.7-alpine
+FROM nginx/nginx-unprivileged:1.30.7-alpine
 COPY storybook-static/ /usr/share/nginx/html/storybook/
-EXPOSE 80
+EXPOSE 8080
