@@ -160,9 +160,113 @@ const ADMIN_CONTENTS = CONTENTS.map((c, i) => ({
   document_mime_type: c.document_mime_type ?? null,
   published_at: c.published_at,
   archived_at: null,
+  deleted_at: null,
   created_at: c.updated_at,
   updated_at: c.updated_at,
 }));
+
+const VALID_ADMIN_SORTS = new Set([
+  "updated_desc",
+  "updated_asc",
+  "created_desc",
+  "created_asc",
+  "title_asc",
+  "title_desc",
+]);
+
+function compareCodePoints(a, b) {
+  if (a === b) return 0;
+  const iterA = a[Symbol.iterator]();
+  const iterB = b[Symbol.iterator]();
+  while (true) {
+    const nextA = iterA.next();
+    const nextB = iterB.next();
+    if (nextA.done && nextB.done) return 0;
+    if (nextA.done) return -1;
+    if (nextB.done) return 1;
+    const cpA = nextA.value.codePointAt(0);
+    const cpB = nextB.value.codePointAt(0);
+    if (cpA !== cpB) return cpA < cpB ? -1 : 1;
+  }
+}
+
+function sortMeta(sort) {
+  switch (sort) {
+    case "updated_desc":
+      return { field: "updated_at", dir: -1, isTitle: false };
+    case "updated_asc":
+      return { field: "updated_at", dir: 1, isTitle: false };
+    case "created_desc":
+      return { field: "created_at", dir: -1, isTitle: false };
+    case "created_asc":
+      return { field: "created_at", dir: 1, isTitle: false };
+    case "title_asc":
+      return { field: "title", dir: 1, isTitle: true };
+    case "title_desc":
+      return { field: "title", dir: -1, isTitle: true };
+    default:
+      return null;
+  }
+}
+
+function encodeAdminCursor(sort, item) {
+  const meta = sortMeta(sort);
+  const v = meta.isTitle ? item.title : Date.parse(item[meta.field]);
+  const json = JSON.stringify({ sort, v, id: item.short_id });
+  return Buffer.from(json, "utf8").toString("base64url");
+}
+
+function decodeAdminCursor(token, expectedSort) {
+  if (!token || token.includes("=")) return null;
+  try {
+    const decoded = Buffer.from(token, "base64url").toString("utf8");
+    const parsed = JSON.parse(decoded);
+    if (!parsed || typeof parsed !== "object") return null;
+    if (!VALID_ADMIN_SORTS.has(parsed.sort) || parsed.sort !== expectedSort) return null;
+    if (typeof parsed.id !== "string" || parsed.id === "") return null;
+    const meta = sortMeta(parsed.sort);
+    if (meta.isTitle) {
+      if (typeof parsed.v !== "string") return null;
+    } else if (typeof parsed.v !== "number" || !Number.isInteger(parsed.v)) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function compareAdminItems(a, b, sort) {
+  const meta = sortMeta(sort);
+  let cmp = 0;
+  if (meta.isTitle) {
+    cmp = compareCodePoints(a.title, b.title);
+  } else {
+    const ta = Date.parse(a[meta.field]);
+    const tb = Date.parse(b[meta.field]);
+    cmp = ta === tb ? 0 : ta < tb ? -1 : 1;
+  }
+  if (cmp !== 0) return cmp * meta.dir;
+  return compareCodePoints(a.short_id, b.short_id);
+}
+
+function compareItemToCursor(item, cursor, sort) {
+  const meta = sortMeta(sort);
+  let cmp = 0;
+  if (meta.isTitle) {
+    cmp = compareCodePoints(item.title, cursor.v);
+  } else {
+    const ti = Date.parse(item[meta.field]);
+    cmp = ti === cursor.v ? 0 : ti < cursor.v ? -1 : 1;
+  }
+  if (cmp !== 0) return cmp * meta.dir;
+  return compareCodePoints(item.short_id, cursor.id);
+}
+
+function stripDeletedField(item) {
+  const { deleted_at: _deletedAt, ...rest } = item;
+  return rest;
+}
 
 const SAMPLE_MARKDOWN = `# 2024年度 活動報告書
 
@@ -360,7 +464,7 @@ const server = http.createServer(async (req, res) => {
     const contentType = url.searchParams.get("content_type");
     const channelId = url.searchParams.get("channel_id");
     const limit = parseInt(url.searchParams.get("limit") ?? "100");
-    let items = CONTENTS;
+    let items = CONTENTS.filter((c) => !c.deleted_at);
     if (contentType) items = items.filter((c) => c.content_type === contentType);
     if (channelId) items = items.filter((c) => c.channel_id === channelId);
     send(res, 200, items.slice(0, limit));
@@ -370,7 +474,7 @@ const server = http.createServer(async (req, res) => {
   // GET /api/v1/contents/:shortId
   const contentMatch = path.match(/^\/api\/v1\/contents\/([^/]+)$/);
   if (contentMatch) {
-    const item = CONTENTS.find((c) => c.short_id === contentMatch[1]);
+    const item = CONTENTS.find((c) => c.short_id === contentMatch[1] && !c.deleted_at);
     if (!item) {
       send(res, 404, { error: "not found" });
       return;
@@ -415,17 +519,102 @@ const server = http.createServer(async (req, res) => {
 
   // GET /api/v1/admin/contents
   if (path === "/api/v1/admin/contents" && method === "GET") {
-    const limit = parseInt(url.searchParams.get("limit") ?? "20");
-    const offset = parseInt(url.searchParams.get("offset") ?? "0");
-    let items = ADMIN_CONTENTS;
+    const rawLimit = Number.parseInt(url.searchParams.get("limit") ?? "20", 10);
+    const limit = Number.isFinite(rawLimit) && rawLimit >= 1 && rawLimit <= 100 ? rawLimit : 20;
+    const sort = url.searchParams.get("sort") || "updated_desc";
+    if (!VALID_ADMIN_SORTS.has(sort)) {
+      send(res, 400, { message: "invalid sort" });
+      return;
+    }
+    const afterParam = url.searchParams.get("after") ?? "";
+    const beforeParam = url.searchParams.get("before") ?? "";
+    if (afterParam && beforeParam) {
+      send(res, 400, { message: "after and before cannot be specified together" });
+      return;
+    }
+    const afterCur = afterParam ? decodeAdminCursor(afterParam, sort) : null;
+    const beforeCur = beforeParam ? decodeAdminCursor(beforeParam, sort) : null;
+    if ((afterParam && !afterCur) || (beforeParam && !beforeCur)) {
+      send(res, 400, { message: "invalid cursor" });
+      return;
+    }
+
+    let items = ADMIN_CONTENTS.filter((c) => c.deleted_at == null);
     const status = url.searchParams.get("status");
     if (status) items = items.filter((c) => c.status === status);
+    const channelId = url.searchParams.get("channel_id");
+    if (channelId) items = items.filter((c) => c.channel_id === channelId);
+
+    const sorted = [...items].sort((a, b) => compareAdminItems(a, b, sort));
+    const total = sorted.length;
+
+    let pageItems = [];
+    let hasNext = false;
+    let hasPrev = false;
+
+    if (afterCur) {
+      const afterMatches = sorted.filter((c) => compareItemToCursor(c, afterCur, sort) > 0);
+      pageItems = afterMatches.slice(0, limit);
+      if (pageItems.length > 0) {
+        hasNext = afterMatches.length > limit;
+        const firstCur = {
+          sort,
+          v: sortMeta(sort).isTitle
+            ? pageItems[0].title
+            : Date.parse(pageItems[0][sortMeta(sort).field]),
+          id: pageItems[0].short_id,
+        };
+        hasPrev = sorted.some((c) => compareItemToCursor(c, firstCur, sort) < 0);
+      }
+    } else if (beforeCur) {
+      const beforeMatches = sorted.filter((c) => compareItemToCursor(c, beforeCur, sort) < 0);
+      hasPrev = beforeMatches.length > limit;
+      pageItems = beforeMatches.slice(-limit);
+      if (pageItems.length > 0) {
+        const last = pageItems[pageItems.length - 1];
+        const lastCur = {
+          sort,
+          v: sortMeta(sort).isTitle ? last.title : Date.parse(last[sortMeta(sort).field]),
+          id: last.short_id,
+        };
+        hasNext = sorted.some((c) => compareItemToCursor(c, lastCur, sort) > 0);
+      }
+    } else {
+      pageItems = sorted.slice(0, limit);
+      hasNext = sorted.length > limit;
+      hasPrev = false;
+    }
+
+    const nextCursor =
+      hasNext && pageItems.length > 0
+        ? encodeAdminCursor(sort, pageItems[pageItems.length - 1])
+        : null;
+    const prevCursor =
+      hasPrev && pageItems.length > 0 ? encodeAdminCursor(sort, pageItems[0]) : null;
+
     send(res, 200, {
-      contents: items.slice(offset, offset + limit),
-      total: items.length,
+      contents: pageItems.map(stripDeletedField),
+      total,
       limit,
-      offset,
+      next_cursor: nextCursor,
+      prev_cursor: prevCursor,
+      has_next: hasNext,
+      has_prev: hasPrev,
     });
+    return;
+  }
+
+  // DELETE /api/v1/admin/contents/:id
+  const deleteContentMatch = path.match(/^\/api\/v1\/admin\/contents\/([^/]+)$/);
+  if (deleteContentMatch && method === "DELETE") {
+    const item = ADMIN_CONTENTS.find((c) => c.id === deleteContentMatch[1]);
+    if (item && !item.deleted_at) {
+      item.deleted_at = MOCK_NOW;
+      item.updated_at = MOCK_NOW;
+      const pubItem = CONTENTS.find((c) => c.short_id === item.short_id);
+      if (pubItem) pubItem.deleted_at = MOCK_NOW;
+    }
+    sendNoContent(res);
     return;
   }
 
@@ -654,9 +843,10 @@ const server = http.createServer(async (req, res) => {
     const q = (url.searchParams.get("q") ?? "").toLowerCase();
     const results = CONTENTS.filter(
       (c) =>
-        c.title.toLowerCase().includes(q) ||
-        c.description.toLowerCase().includes(q) ||
-        c.tags.some((t) => t.toLowerCase().includes(q)),
+        !c.deleted_at &&
+        (c.title.toLowerCase().includes(q) ||
+          c.description.toLowerCase().includes(q) ||
+          c.tags.some((t) => t.toLowerCase().includes(q))),
     ).map((c) => ({
       short_id: c.short_id,
       title: c.title,

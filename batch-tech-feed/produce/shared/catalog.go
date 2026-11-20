@@ -12,7 +12,49 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
+
+const (
+	upsertContentQuery = `
+	INSERT INTO contents
+		(short_id, content_type, channel_id, title, description, status, duration_seconds, tags)
+	VALUES ($1, $2, $3, $4, $5, 'processing', $6, $7)
+	ON CONFLICT (short_id)
+	DO UPDATE SET
+		channel_id = EXCLUDED.channel_id,
+		title = EXCLUDED.title,
+		description = EXCLUDED.description,
+		duration_seconds = EXCLUDED.duration_seconds,
+		tags = EXCLUDED.tags,
+		status = 'processing',
+		updated_at = NOW()
+	WHERE contents.deleted_at IS NULL
+	RETURNING id, short_id
+	`
+
+	registerVariantQuery = `
+	WITH parent AS (
+		SELECT id FROM contents WHERE id = $1 AND deleted_at IS NULL FOR SHARE
+	)
+	INSERT INTO video_variants (content_id, variant_type, hls_key, bandwidth, resolution, codecs)
+	SELECT parent.id, $2, $3, $4, $5, $6 FROM parent
+	ON CONFLICT (content_id, variant_type)
+	DO UPDATE SET hls_key = EXCLUDED.hls_key, bandwidth = EXCLUDED.bandwidth,
+	              resolution = EXCLUDED.resolution, codecs = EXCLUDED.codecs
+	`
+
+	setThumbnailQuery = `UPDATE contents SET thumbnail_key = $1 WHERE id = $2 AND deleted_at IS NULL`
+	markReadyQuery    = `UPDATE contents SET status = 'ready', published_at = COALESCE(published_at, NOW()) WHERE id = $1 AND deleted_at IS NULL`
+)
+
+type dbQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+type dbExecer interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+}
 
 const (
 	ContentTypeContentType = "video"
@@ -82,6 +124,10 @@ func ConnectCatalogDB(ctx context.Context) (*pgx.Conn, error) {
 }
 
 func UpsertContent(ctx context.Context, conn *pgx.Conn, sourceKey, title, description string, durationSeconds int, tags []string) (string, string, error) {
+	return UpsertContentWithQuerier(ctx, conn, sourceKey, title, description, durationSeconds, tags)
+}
+
+func UpsertContentWithQuerier(ctx context.Context, conn dbQuerier, sourceKey, title, description string, durationSeconds int, tags []string) (string, string, error) {
 	shortID := ShortIDFor(sourceKey)
 	if tags == nil {
 		tags = defaultTags
@@ -91,25 +137,9 @@ func UpsertContent(ctx context.Context, conn *pgx.Conn, sourceKey, title, descri
 		channelID = DefaultChannelID
 	}
 
-	query := `
-	INSERT INTO contents
-		(short_id, content_type, channel_id, title, description, status, duration_seconds, tags)
-	VALUES ($1, $2, $3, $4, $5, 'processing', $6, $7)
-	ON CONFLICT (short_id)
-	DO UPDATE SET
-		channel_id = EXCLUDED.channel_id,
-		title = EXCLUDED.title,
-		description = EXCLUDED.description,
-		duration_seconds = EXCLUDED.duration_seconds,
-		tags = EXCLUDED.tags,
-		status = 'processing',
-		updated_at = NOW()
-	RETURNING id, short_id
-	`
-
 	var contentID string
 	var retShortID string
-	err := conn.QueryRow(ctx, query, shortID, ContentTypeContentType, channelID, title, description, durationSeconds, tags).Scan(&contentID, &retShortID)
+	err := conn.QueryRow(ctx, upsertContentQuery, shortID, ContentTypeContentType, channelID, title, description, durationSeconds, tags).Scan(&contentID, &retShortID)
 	if err != nil {
 		return "", "", fmt.Errorf("upsert_content failed: %w", err)
 	}
@@ -118,36 +148,47 @@ func UpsertContent(ctx context.Context, conn *pgx.Conn, sourceKey, title, descri
 }
 
 func RegisterVariant(ctx context.Context, conn *pgx.Conn, contentID, shortID, variantType string, bandwidth *int, resolution, codecs *string) error {
-	hlsKey := fmt.Sprintf("resources/hls/%s/%s.m3u8", shortID, variantType)
-	query := `
-	INSERT INTO video_variants (content_id, variant_type, hls_key, bandwidth, resolution, codecs)
-	VALUES ($1, $2, $3, $4, $5, $6)
-	ON CONFLICT (content_id, variant_type)
-	DO UPDATE SET hls_key = EXCLUDED.hls_key, bandwidth = EXCLUDED.bandwidth,
-	              resolution = EXCLUDED.resolution, codecs = EXCLUDED.codecs
-	`
+	return RegisterVariantWithExec(ctx, conn, contentID, shortID, variantType, bandwidth, resolution, codecs)
+}
 
-	_, err := conn.Exec(ctx, query, contentID, variantType, hlsKey, bandwidth, resolution, codecs)
+func RegisterVariantWithExec(ctx context.Context, conn dbExecer, contentID, shortID, variantType string, bandwidth *int, resolution, codecs *string) error {
+	hlsKey := fmt.Sprintf("resources/hls/%s/%s.m3u8", shortID, variantType)
+	tag, err := conn.Exec(ctx, registerVariantQuery, contentID, variantType, hlsKey, bandwidth, resolution, codecs)
 	if err != nil {
 		return fmt.Errorf("register_variant failed for %s: %w", variantType, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("register_variant failed for %s: content %s not found or deleted", variantType, contentID)
 	}
 	return nil
 }
 
 func SetThumbnail(ctx context.Context, conn *pgx.Conn, contentID, key string) error {
-	query := `UPDATE contents SET thumbnail_key = $1 WHERE id = $2`
-	_, err := conn.Exec(ctx, query, key, contentID)
+	return SetThumbnailWithExec(ctx, conn, contentID, key)
+}
+
+func SetThumbnailWithExec(ctx context.Context, conn dbExecer, contentID, key string) error {
+	tag, err := conn.Exec(ctx, setThumbnailQuery, key, contentID)
 	if err != nil {
 		return fmt.Errorf("set_thumbnail failed: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("set_thumbnail failed: content %s not found or deleted", contentID)
 	}
 	return nil
 }
 
 func MarkReady(ctx context.Context, conn *pgx.Conn, contentID string) error {
-	query := `UPDATE contents SET status = 'ready', published_at = COALESCE(published_at, NOW()) WHERE id = $1`
-	_, err := conn.Exec(ctx, query, contentID)
+	return MarkReadyWithExec(ctx, conn, contentID)
+}
+
+func MarkReadyWithExec(ctx context.Context, conn dbExecer, contentID string) error {
+	tag, err := conn.Exec(ctx, markReadyQuery, contentID)
 	if err != nil {
 		return fmt.Errorf("mark_ready failed: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("mark_ready failed: content %s not found or deleted", contentID)
 	}
 	return nil
 }

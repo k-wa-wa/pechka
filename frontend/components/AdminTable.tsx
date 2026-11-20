@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { archiveContent, getAdminContents, unarchiveContent } from "@/lib/api";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
-import type { Channel, Content, ContentStatus } from "@/lib/types";
+import type { AdminContentSort, Channel, Content, ContentStatus } from "@/lib/types";
 import EditModal from "./EditModal";
 import SubtitleEditorModal from "./SubtitleEditorModal";
 import UploadModal from "./UploadModal";
@@ -11,6 +11,9 @@ import UploadModal from "./UploadModal";
 interface Props {
   initialContents: Content[];
   channels?: Channel[];
+  sort?: AdminContentSort;
+  onSortChange?: (sort: AdminContentSort) => void;
+  sortDisabled?: boolean;
   onUploaded?: () => void;
 }
 
@@ -38,7 +41,14 @@ const CONTENT_TYPE_LABEL: Record<string, string> = {
   document: "Document",
 };
 
-export default function AdminTable({ initialContents, channels, onUploaded }: Props) {
+export default function AdminTable({
+  initialContents,
+  channels,
+  sort,
+  onSortChange,
+  sortDisabled,
+  onUploaded,
+}: Props) {
   const [contents, setContents] = useState<Content[]>(initialContents);
   const [editingContent, setEditingContent] = useState<Content | null>(null);
   const [subtitleContent, setSubtitleContent] = useState<Content | null>(null);
@@ -53,7 +63,7 @@ export default function AdminTable({ initialContents, channels, onUploaded }: Pr
 
     const timer = setTimeout(async () => {
       try {
-        const res = await getAdminContents({ limit: 100, offset: 0 });
+        const res = await getAdminContents({ limit: 100 });
         const byId = new Map(res.contents.map((c) => [c.id, c]));
         setContents((prev) => prev.map((c) => byId.get(c.id) ?? c));
       } catch {
@@ -110,10 +120,39 @@ export default function AdminTable({ initialContents, channels, onUploaded }: Pr
       <div
         style={{
           display: "flex",
-          justifyContent: "flex-end",
+          justifyContent: onSortChange ? "space-between" : "flex-end",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 12,
           marginBottom: 12,
         }}
       >
+        {onSortChange && (
+          <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 13, color: "var(--muted)" }}>{t("admin.sort.label")}</span>
+            <select
+              value={sort ?? "updated_desc"}
+              disabled={sortDisabled}
+              onChange={(e) => onSortChange(e.target.value as AdminContentSort)}
+              style={{
+                padding: "6px 10px",
+                borderRadius: "var(--radius-md)",
+                border: "1px solid var(--line)",
+                backgroundColor: "var(--bg)",
+                color: "var(--fg)",
+                fontSize: 13,
+                cursor: sortDisabled ? "not-allowed" : "pointer",
+              }}
+            >
+              <option value="updated_desc">{t("admin.sort.updatedDesc")}</option>
+              <option value="updated_asc">{t("admin.sort.updatedAsc")}</option>
+              <option value="created_desc">{t("admin.sort.createdDesc")}</option>
+              <option value="created_asc">{t("admin.sort.createdAsc")}</option>
+              <option value="title_asc">{t("admin.sort.titleAsc")}</option>
+              <option value="title_desc">{t("admin.sort.titleDesc")}</option>
+            </select>
+          </label>
+        )}
         <button
           onClick={() => setUploadOpen(true)}
           className="admin-btn-primary"

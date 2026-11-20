@@ -7,9 +7,32 @@ import (
 	"log"
 	"os"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/k-wa-wa/pechka/batch/etl/shared"
+)
+
+type dbQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+type dbExecer interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+}
+
+const (
+	upsertContentQuery = `INSERT INTO contents (short_id, content_type, channel_id, disc_id, title, status, is_360)
+		 VALUES ($1, $2, $3, $4, $5, 'processing', $6)
+		 ON CONFLICT (disc_id) WHERE disc_id IS NOT NULL AND deleted_at IS NULL
+		 DO UPDATE SET channel_id = EXCLUDED.channel_id, status = 'processing', updated_at = NOW()
+		 RETURNING id, short_id`
+	reuseContentQuery = `UPDATE contents SET status = 'processing', updated_at = NOW()
+		 WHERE id = $1 AND deleted_at IS NULL
+		 RETURNING id, short_id`
+	markContentReadyQuery      = `UPDATE contents SET status = 'ready', published_at = NOW() WHERE id = $1 AND deleted_at IS NULL`
+	getContentIDByShortIDQuery = `SELECT id FROM contents WHERE short_id = $1 AND deleted_at IS NULL`
 )
 
 type LoadConfig struct {
@@ -48,16 +71,12 @@ func ensureDisc(ctx context.Context, db *pgxpool.Pool, label string) (string, er
 	return id, err
 }
 
-func upsertContent(ctx context.Context, db *pgxpool.Pool, proposedShortID string, discID *string, cfg LoadConfig) (contentID string, finalShortID string, err error) {
+func upsertContent(ctx context.Context, db dbQuerier, proposedShortID string, discID *string, cfg LoadConfig) (contentID string, finalShortID string, err error) {
 	if cfg.ChannelID == "" {
 		return "", "", fmt.Errorf("CHANNEL_ID env var is required")
 	}
 	err = db.QueryRow(ctx,
-		`INSERT INTO contents (short_id, content_type, channel_id, disc_id, title, status, is_360)
-		 VALUES ($1, $2, $3, $4, $5, 'processing', $6)
-		 ON CONFLICT (disc_id) WHERE disc_id IS NOT NULL
-		 DO UPDATE SET channel_id = EXCLUDED.channel_id, status = 'processing', updated_at = NOW()
-		 RETURNING id, short_id`,
+		upsertContentQuery,
 		proposedShortID, cfg.ContentType, cfg.ChannelID, discID, cfg.ContentTitle, cfg.Is360,
 	).Scan(&contentID, &finalShortID)
 	if err != nil {
@@ -79,11 +98,8 @@ func upsertContent(ctx context.Context, db *pgxpool.Pool, proposedShortID string
 // status='processing' に更新して再利用する。アップロードフローでは API 側が short_id を
 // 予約した状態で contents に INSERT 済みのため、upsertContent で再度 INSERT すると
 // short_id の UNIQUE 制約に違反する。
-func reuseContent(ctx context.Context, db *pgxpool.Pool, contentID string) (finalContentID string, shortID string, err error) {
-	err = db.QueryRow(ctx,
-		`UPDATE contents SET status = 'processing', updated_at = NOW() WHERE id = $1 RETURNING id, short_id`,
-		contentID,
-	).Scan(&finalContentID, &shortID)
+func reuseContent(ctx context.Context, db dbQuerier, contentID string) (finalContentID string, shortID string, err error) {
+	err = db.QueryRow(ctx, reuseContentQuery, contentID).Scan(&finalContentID, &shortID)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to reuse content id=%s: %w", contentID, err)
 	}
@@ -91,17 +107,20 @@ func reuseContent(ctx context.Context, db *pgxpool.Pool, contentID string) (fina
 	return finalContentID, shortID, nil
 }
 
-func markContentReady(ctx context.Context, db *pgxpool.Pool, contentID string) error {
-	_, err := db.Exec(ctx,
-		"UPDATE contents SET status = 'ready', published_at = NOW() WHERE id = $1",
-		contentID,
-	)
-	return err
+func markContentReady(ctx context.Context, db dbExecer, contentID string) error {
+	tag, err := db.Exec(ctx, markContentReadyQuery, contentID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("content not found or deleted: id=%s", contentID)
+	}
+	return nil
 }
 
-func getContentIDByShortID(ctx context.Context, db *pgxpool.Pool, shortID string) (string, error) {
+func getContentIDByShortID(ctx context.Context, db dbQuerier, shortID string) (string, error) {
 	var id string
-	err := db.QueryRow(ctx, "SELECT id FROM contents WHERE short_id = $1", shortID).Scan(&id)
+	err := db.QueryRow(ctx, getContentIDByShortIDQuery, shortID).Scan(&id)
 	return id, err
 }
 

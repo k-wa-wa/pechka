@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
@@ -252,5 +253,35 @@ func TestFPutObjectWithRetry_Success(t *testing.T) {
 	}
 	if info.Size != int64(len("fput test content")) {
 		t.Errorf("expected size %d, got %d", len("fput test content"), info.Size)
+	}
+}
+
+type mockVariantExecer struct {
+	tag pgconn.CommandTag
+	err error
+}
+
+func (m *mockVariantExecer) Exec(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
+	return m.tag, m.err
+}
+
+func TestRegisterVariantWithExec(t *testing.T) {
+	if !strings.Contains(registerVariantQuery, "deleted_at IS NULL FOR SHARE") ||
+		!strings.Contains(registerVariantQuery, "WITH parent AS") {
+		t.Fatalf("registerVariantQuery must guard parent deleted_at IS NULL FOR SHARE: %s", registerVariantQuery)
+	}
+
+	errZero := registerVariantWithExec(context.Background(), &mockVariantExecer{
+		tag: pgconn.NewCommandTag("INSERT 0 0"),
+	}, "deleted-uuid", "s1", "720p", BuildVariantInfo("720p"))
+	if errZero == nil || !strings.Contains(errZero.Error(), "not found or deleted") {
+		t.Errorf("expected explicit error when 0 rows affected, got %v", errZero)
+	}
+
+	errOK := registerVariantWithExec(context.Background(), &mockVariantExecer{
+		tag: pgconn.NewCommandTag("INSERT 0 1"),
+	}, "active-uuid", "s1", "720p", BuildVariantInfo("720p"))
+	if errOK != nil {
+		t.Errorf("expected nil when 1 row affected, got %v", errOK)
 	}
 }

@@ -4,21 +4,88 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
-const latestPlaylistKey = "resources/hls/latest.m3u8"
+const (
+	latestPlaylistKey = "resources/hls/latest.m3u8"
+	// latestPlaylistLockKey は api 側の pgRepo.LatestPlaylistLockKey と共有する 64-bit アドバイザリロックキー。
+	latestPlaylistLockKey int64 = 0x706563686b610001
+	latestPlaylistLimit         = 50
+	latestPlaylistQuery         = `SELECT short_id, title, published_at
+		 FROM contents
+		 WHERE status = 'ready' AND archived_at IS NULL AND deleted_at IS NULL
+		 ORDER BY published_at DESC NULLS LAST, updated_at DESC, short_id ASC
+		 LIMIT $1`
+)
 
 type contentRow struct {
 	shortID     string
 	title       string
-	publishedAt time.Time
+	publishedAt *time.Time
+}
+
+type playlistRows interface {
+	Next() bool
+	Scan(dest ...any) error
+	Err() error
+	Close()
+}
+
+type playlistTx interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (playlistRows, error)
+	Commit(ctx context.Context) error
+	Rollback(ctx context.Context) error
+}
+
+type playlistTxBeginner interface {
+	BeginTx(ctx context.Context, txOptions pgx.TxOptions) (playlistTx, error)
+}
+
+type pgxPoolBeginner struct {
+	pool *pgxpool.Pool
+}
+
+func (b pgxPoolBeginner) BeginTx(ctx context.Context, txOptions pgx.TxOptions) (playlistTx, error) {
+	tx, err := b.pool.BeginTx(ctx, txOptions)
+	if err != nil {
+		return nil, err
+	}
+	return pgxPlaylistTx{tx: tx}, nil
+}
+
+type pgxPlaylistTx struct {
+	tx pgx.Tx
+}
+
+func (t pgxPlaylistTx) Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error) {
+	return t.tx.Exec(ctx, sql, arguments...)
+}
+
+func (t pgxPlaylistTx) Query(ctx context.Context, sql string, args ...any) (playlistRows, error) {
+	return t.tx.Query(ctx, sql, args...)
+}
+
+func (t pgxPlaylistTx) Commit(ctx context.Context) error {
+	return t.tx.Commit(ctx)
+}
+
+func (t pgxPlaylistTx) Rollback(ctx context.Context) error {
+	return t.tx.Rollback(ctx)
+}
+
+type objectUploader interface {
+	PutObject(ctx context.Context, bucketName, objectName string, reader io.Reader, objectSize int64, opts minio.PutObjectOptions) (minio.UploadInfo, error)
 }
 
 func mustGetenv(key string) string {
@@ -73,42 +140,63 @@ func main() {
 		log.Fatalf("failed to create MinIO client: %v", err)
 	}
 
-	rows, err := db.Query(ctx,
-		`SELECT short_id, title, published_at
-		 FROM contents
-		 WHERE status = 'ready'
-		 ORDER BY published_at DESC
-		 LIMIT 50`,
-	)
+	count, err := refreshPlaylist(ctx, pgxPoolBeginner{pool: db}, minioClient, minioBucket)
 	if err != nil {
-		log.Fatalf("failed to query contents: %v", err)
+		log.Fatalf("%v", err)
 	}
-	defer rows.Close()
+
+	log.Printf("Latest playlist updated: %d contents → s3://%s/%s", count, minioBucket, latestPlaylistKey)
+}
+
+func refreshPlaylist(ctx context.Context, beginner playlistTxBeginner, uploader objectUploader, bucket string) (int, error) {
+	tx, err := beginner.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return 0, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", latestPlaylistLockKey); err != nil {
+		return 0, fmt.Errorf("failed to acquire playlist advisory lock: %w", err)
+	}
+
+	rows, err := tx.Query(ctx, latestPlaylistQuery, latestPlaylistLimit)
+	if err != nil {
+		return 0, fmt.Errorf("failed to query contents: %w", err)
+	}
 
 	var contents []contentRow
 	for rows.Next() {
 		var c contentRow
 		if err := rows.Scan(&c.shortID, &c.title, &c.publishedAt); err != nil {
-			log.Fatalf("failed to scan row: %v", err)
+			rows.Close()
+			return 0, fmt.Errorf("failed to scan row: %w", err)
 		}
 		contents = append(contents, c)
 	}
 	if err := rows.Err(); err != nil {
-		log.Fatalf("row iteration error: %v", err)
+		rows.Close()
+		return 0, fmt.Errorf("row iteration error: %w", err)
 	}
+	rows.Close()
 
 	playlist := buildPlaylist(contents)
 
-	_, err = minioClient.PutObject(ctx, minioBucket, latestPlaylistKey,
+	_, err = uploader.PutObject(ctx, bucket, latestPlaylistKey,
 		bytes.NewReader([]byte(playlist)),
 		int64(len(playlist)),
 		minio.PutObjectOptions{ContentType: "application/vnd.apple.mpegurl"},
 	)
 	if err != nil {
-		log.Fatalf("failed to upload latest playlist: %v", err)
+		return 0, fmt.Errorf("failed to upload latest playlist: %w", err)
 	}
 
-	log.Printf("Latest playlist updated: %d contents → s3://%s/%s", len(contents), minioBucket, latestPlaylistKey)
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("failed to commit playlist refresh transaction: %w", err)
+	}
+
+	return len(contents), nil
 }
 
 func buildPlaylist(contents []contentRow) string {

@@ -23,20 +23,59 @@ class TestGenerate(unittest.TestCase):
         mock_cur = MagicMock()
         mock_conn.cursor.return_value.__enter__.return_value = mock_cur
 
-        # Case 1: no existing track
-        mock_cur.fetchone.return_value = None
+        # Case 1: content missing
+        mock_cur.fetchone.side_effect = [None]
+        reason = generate.find_unsafe_overwrite_reason(mock_conn, "missing", "ja")
+        self.assertIn("does not exist", reason)
+
+        # Case 2: content soft-deleted
+        mock_cur.fetchone.side_effect = [("2026-01-01T00:00:00Z",)]
+        reason = generate.find_unsafe_overwrite_reason(mock_conn, "deleted", "ja")
+        self.assertIn("is deleted", reason)
+
+        # Case 3: active content, no existing track
+        mock_cur.fetchone.side_effect = [(None,), None]
         reason = generate.find_unsafe_overwrite_reason(mock_conn, "c1", "ja")
         self.assertIsNone(reason)
 
-        # Case 2: existing track is published
-        mock_cur.fetchone.return_value = ("track-1", "published")
+        # Case 4: existing track is published
+        mock_cur.fetchone.side_effect = [(None,), ("track-1", "published")]
         reason = generate.find_unsafe_overwrite_reason(mock_conn, "c1", "ja")
         self.assertIn("published", reason)
 
-        # Case 3: existing track has edited cues
-        mock_cur.fetchone.side_effect = [("track-1", "draft"), (3,)]
+        # Case 5: existing track has edited cues
+        mock_cur.fetchone.side_effect = [(None,), ("track-1", "draft"), (3,)]
         reason = generate.find_unsafe_overwrite_reason(mock_conn, "c1", "ja")
         self.assertIn("3 manually edited cue(s)", reason)
+
+    def test_register_track_deleted_parent_rolls_back(self):
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+        mock_cur.fetchone.return_value = None
+
+        segments = [{"start_ms": 0, "end_ms": 1000, "text": "Hello", "flagged": False}]
+        with self.assertRaises(RuntimeError):
+            generate.register_track(mock_conn, "deleted-c1", "ja", segments)
+
+        self.assertEqual(mock_cur.execute.call_count, 1)
+        self.assertIn("deleted_at IS NULL FOR UPDATE", mock_cur.execute.call_args[0][0])
+        mock_conn.rollback.assert_called_once()
+        mock_conn.commit.assert_not_called()
+
+    def test_register_track_success(self):
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+        mock_cur.fetchone.side_effect = [(1,), ("track-uuid",)]
+
+        segments = [{"start_ms": 0, "end_ms": 1000, "text": "Hello", "flagged": False}]
+        with patch("generate.psycopg2") as mock_pg:
+            generate.register_track(mock_conn, "active-c1", "ja", segments)
+            mock_pg.extras.execute_values.assert_called_once()
+
+        mock_conn.commit.assert_called_once()
+        mock_conn.rollback.assert_not_called()
 
     @patch("generate.subprocess.run")
     def test_extract_audio_http(self, mock_run):

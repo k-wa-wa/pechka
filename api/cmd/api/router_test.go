@@ -51,6 +51,7 @@ type mockMongoContentRepo struct {
 	listFn         func(ctx context.Context, params mongoRepo.ListParams) ([]*domain.MongoContent, error)
 	getByShortIDFn func(ctx context.Context, shortID string) (*domain.MongoContent, error)
 	getVariantsFn  func(ctx context.Context, shortID string) ([]domain.MongoVariant, error)
+	listAdminFn    func(ctx context.Context, params mongoRepo.AdminListParams) (*domain.AdminContentPage, error)
 }
 
 func (m *mockMongoContentRepo) List(ctx context.Context, params mongoRepo.ListParams) ([]*domain.MongoContent, error) {
@@ -73,6 +74,17 @@ func (m *mockMongoContentRepo) GetVariantsByShortID(ctx context.Context, shortID
 	}
 	return []domain.MongoVariant{}, nil
 }
+
+func (m *mockMongoContentRepo) ListAdmin(ctx context.Context, params mongoRepo.AdminListParams) (*domain.AdminContentPage, error) {
+	if m.listAdminFn != nil {
+		return m.listAdminFn(ctx, params)
+	}
+	return &domain.AdminContentPage{Contents: []*domain.Content{}}, nil
+}
+
+type mockPlaylistRefresher struct{}
+
+func (m *mockPlaylistRefresher) Refresh(_ context.Context) error { return nil }
 
 type mockMongoSubtitleRepo struct {
 	getByShortIDAndLangFn func(ctx context.Context, shortID, language string) (*domain.MongoSubtitle, error)
@@ -97,26 +109,12 @@ func (m *mockElasticContentRepo) Search(ctx context.Context, query string, limit
 }
 
 type mockPgContentRepo struct {
-	listFn        func(ctx context.Context, params pgRepo.ListContentsParams) ([]*domain.Content, error)
-	countFn       func(ctx context.Context, params pgRepo.ListContentsParams) (int, error)
 	createFn      func(ctx context.Context, params pgRepo.CreateContentParams) (*domain.Content, error)
 	updateFn      func(ctx context.Context, params pgRepo.UpdateContentParams) (*domain.Content, error)
 	deleteFn      func(ctx context.Context, id string) error
 	setArchivedFn func(ctx context.Context, id string, archived bool) (*domain.Content, error)
 }
 
-func (m *mockPgContentRepo) List(ctx context.Context, params pgRepo.ListContentsParams) ([]*domain.Content, error) {
-	if m.listFn != nil {
-		return m.listFn(ctx, params)
-	}
-	return []*domain.Content{}, nil
-}
-func (m *mockPgContentRepo) Count(ctx context.Context, params pgRepo.ListContentsParams) (int, error) {
-	if m.countFn != nil {
-		return m.countFn(ctx, params)
-	}
-	return 0, nil
-}
 func (m *mockPgContentRepo) Create(ctx context.Context, params pgRepo.CreateContentParams) (*domain.Content, error) {
 	if m.createFn != nil {
 		return m.createFn(ctx, params)
@@ -227,7 +225,10 @@ func setupTestRouter(allowedIPRange string) (*RouterParams, *mockChannelRepo, *m
 	channelsH := handler.NewChannelsHandler(chRepo)
 	subtitlesH := handler.NewSubtitlesHandler(mgSub)
 	searchH := handler.NewSearchHandler(esRepo)
-	adminH := handler.NewAdminHandler(pgContRepo, pgDisc, pgSub, sfNode).WithChannelRepository(chRepo)
+	adminH := handler.NewAdminHandler(pgContRepo, pgDisc, pgSub, sfNode).
+		WithChannelRepository(chRepo).
+		WithReadContentRepository(mgRepo).
+		WithPlaylistRefresher(&mockPlaylistRefresher{})
 	ingestH := handler.NewIngestHandler(nil, "test-ns").WithChannelRepository(chRepo)
 	uploadH := handler.NewUploadHandler(pgContRepo, nil, "test-bucket", nil, sfNode, "test-ns").WithChannelRepository(chRepo)
 
@@ -634,9 +635,9 @@ func TestRouter_Ingest_And_Upload_Routing(t *testing.T) {
 }
 
 func TestRouter_IPFilter(t *testing.T) {
-	params, _, _, pgContRepo, _, _ := setupTestRouter("192.168.1.0/24")
-	pgContRepo.listFn = func(_ context.Context, _ pgRepo.ListContentsParams) ([]*domain.Content, error) {
-		return []*domain.Content{}, nil
+	params, _, mgRepo, _, _, _ := setupTestRouter("192.168.1.0/24")
+	mgRepo.listAdminFn = func(_ context.Context, _ mongoRepo.AdminListParams) (*domain.AdminContentPage, error) {
+		return &domain.AdminContentPage{Contents: []*domain.Content{}}, nil
 	}
 	router := setupRouter(*params)
 

@@ -157,10 +157,19 @@ def flag_hallucinations(segments: list[dict]) -> list[dict]:
 
 
 def find_unsafe_overwrite_reason(conn, content_id: str, language: str) -> str | None:
-    """既存トラックが人手レビュー済み/編集済みの場合、上書きしてよい理由がないので
-    None以外を返す（呼び出し側は処理を中断する）。バッチは常にトラックを丸ごと
-    作り直す設計のため、ここで弾かないとadmin画面での修正が再実行一発で消えてしまう。"""
+    """親コンテンツが未存在・論理削除済みの場合、または既存トラックが人手レビュー済み/編集済みの場合、
+    上書き・生成してよい理由がないので None 以外を返す（呼び出し側は処理を中断する）。"""
     with conn.cursor() as cur:
+        cur.execute(
+            "SELECT deleted_at FROM contents WHERE id = %s",
+            (content_id,),
+        )
+        content_row = cur.fetchone()
+        if content_row is None:
+            return f"content {content_id} does not exist"
+        if content_row[0] is not None:
+            return f"content {content_id} is deleted"
+
         cur.execute(
             "SELECT id, status FROM subtitle_tracks WHERE content_id = %s AND language = %s",
             (content_id, language),
@@ -186,6 +195,15 @@ def find_unsafe_overwrite_reason(conn, content_id: str, language: str) -> str | 
 
 def register_track(conn, content_id: str, language: str, segments: list[dict]) -> None:
     with conn.cursor() as cur:
+        # 文字起こし中に親コンテンツが論理削除された場合はトラック/キューを登録せずロールバックして失敗させる。
+        cur.execute(
+            "SELECT 1 FROM contents WHERE id = %s AND deleted_at IS NULL FOR UPDATE",
+            (content_id,),
+        )
+        if cur.fetchone() is None:
+            conn.rollback()
+            raise RuntimeError(f"content {content_id} not found or deleted")
+
         # 再実行時は既存トラックを丸ごと入れ替える（cueはON DELETE CASCADEで消える）。
         # find_unsafe_overwrite_reason() で published/編集済みでないことを事前に確認済み。
         cur.execute(

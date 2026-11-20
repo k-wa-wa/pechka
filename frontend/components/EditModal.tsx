@@ -73,6 +73,8 @@ export default function EditModal({ content, channels, onClose, onSave }: Props)
       onClick={onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
         style={{
           width: "100%",
           maxWidth: 560,

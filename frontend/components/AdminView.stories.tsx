@@ -12,13 +12,37 @@ export default meta;
 type Story = StoryObj<typeof AdminView>;
 
 export const Default: Story = {
-  args: { contents: ADMIN_CONTENTS, total: ADMIN_CONTENTS.length, limit: 20, offset: 0 },
+  args: {
+    contents: ADMIN_CONTENTS,
+    total: ADMIN_CONTENTS.length,
+    limit: 20,
+    nextCursor: null,
+    prevCursor: null,
+    hasNext: false,
+    hasPrev: false,
+  },
 };
 
 export const Empty: Story = {
-  args: { contents: [], total: 0, limit: 20, offset: 0 },
+  args: {
+    contents: [],
+    total: 0,
+    limit: 20,
+    nextCursor: null,
+    prevCursor: null,
+    hasNext: false,
+    hasPrev: false,
+  },
 };
 
 export const MultiplePages: Story = {
-  args: { contents: ADMIN_CONTENTS.slice(0, 2), total: 45, limit: 2, offset: 0 },
+  args: {
+    contents: ADMIN_CONTENTS.slice(0, 2),
+    total: 45,
+    limit: 2,
+    nextCursor: "next-cursor-sample",
+    prevCursor: null,
+    hasNext: true,
+    hasPrev: false,
+  },
 };

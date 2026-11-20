@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -11,16 +12,23 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/k-wa-wa/pechka/api/internal/domain"
+	mongoRepo "github.com/k-wa-wa/pechka/api/internal/repository/mongo"
 	pgRepo "github.com/k-wa-wa/pechka/api/internal/repository/postgres"
 )
 
 type pgContentRepository interface {
-	List(ctx context.Context, params pgRepo.ListContentsParams) ([]*domain.Content, error)
-	Count(ctx context.Context, params pgRepo.ListContentsParams) (int, error)
 	Create(ctx context.Context, params pgRepo.CreateContentParams) (*domain.Content, error)
 	Update(ctx context.Context, params pgRepo.UpdateContentParams) (*domain.Content, error)
 	Delete(ctx context.Context, id string) error
 	SetArchived(ctx context.Context, id string, archived bool) (*domain.Content, error)
+}
+
+type adminReadContentRepository interface {
+	ListAdmin(ctx context.Context, params mongoRepo.AdminListParams) (*domain.AdminContentPage, error)
+}
+
+type PlaylistRefresher interface {
+	Refresh(ctx context.Context) error
 }
 
 type pgDiscRepository interface {
@@ -39,11 +47,13 @@ type pgSubtitleRepository interface {
 }
 
 type AdminHandler struct {
-	contentRepo  pgContentRepository
-	discRepo     pgDiscRepository
-	subtitleRepo pgSubtitleRepository
-	channelRepo  pgChannelRepository
-	snowflake    *snowflake.Node
+	contentRepo       pgContentRepository
+	readRepo          adminReadContentRepository
+	playlistRefresher PlaylistRefresher
+	discRepo          pgDiscRepository
+	subtitleRepo      pgSubtitleRepository
+	channelRepo       pgChannelRepository
+	snowflake         *snowflake.Node
 }
 
 func NewAdminHandler(contentRepo pgContentRepository, discRepo pgDiscRepository, subtitleRepo pgSubtitleRepository, node *snowflake.Node) *AdminHandler {
@@ -52,6 +62,16 @@ func NewAdminHandler(contentRepo pgContentRepository, discRepo pgDiscRepository,
 
 func (h *AdminHandler) WithChannelRepository(channelRepo pgChannelRepository) *AdminHandler {
 	h.channelRepo = channelRepo
+	return h
+}
+
+func (h *AdminHandler) WithReadContentRepository(readRepo adminReadContentRepository) *AdminHandler {
+	h.readRepo = readRepo
+	return h
+}
+
+func (h *AdminHandler) WithPlaylistRefresher(refresher PlaylistRefresher) *AdminHandler {
+	h.playlistRefresher = refresher
 	return h
 }
 
@@ -159,7 +179,7 @@ func (h *AdminHandler) UpdateContent(c echo.Context) error {
 		Status:      req.Status,
 	})
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return echo.NewHTTPError(http.StatusNotFound, "content not found")
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
@@ -168,22 +188,36 @@ func (h *AdminHandler) UpdateContent(c echo.Context) error {
 }
 
 func (h *AdminHandler) DeleteContent(c echo.Context) error {
+	if h.playlistRefresher == nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "playlist refresher is not configured")
+	}
 	id := c.Param("id")
-	if err := h.contentRepo.Delete(c.Request().Context(), id); err != nil {
+	ctx := c.Request().Context()
+	if err := h.contentRepo.Delete(ctx, id); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	if err := h.playlistRefresher.Refresh(ctx); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	return c.NoContent(http.StatusNoContent)
 }
 
-// ArchiveContent はコンテンツを論理削除(アーカイブ)する。
+// ArchiveContent はコンテンツをアーカイブする。
 // 物理データは削除せず archived_at を設定し、admin画面以外(公開API/検索)から見えなくする。
 func (h *AdminHandler) ArchiveContent(c echo.Context) error {
+	if h.playlistRefresher == nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "playlist refresher is not configured")
+	}
 	id := c.Param("id")
-	content, err := h.contentRepo.SetArchived(c.Request().Context(), id, true)
+	ctx := c.Request().Context()
+	content, err := h.contentRepo.SetArchived(ctx, id, true)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return echo.NewHTTPError(http.StatusNotFound, "content not found")
 		}
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	if err := h.playlistRefresher.Refresh(ctx); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	return c.JSON(http.StatusOK, content)
@@ -191,30 +225,43 @@ func (h *AdminHandler) ArchiveContent(c echo.Context) error {
 
 // UnarchiveContent はアーカイブ済みコンテンツを元の公開状態に戻す。
 func (h *AdminHandler) UnarchiveContent(c echo.Context) error {
+	if h.playlistRefresher == nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "playlist refresher is not configured")
+	}
 	id := c.Param("id")
-	content, err := h.contentRepo.SetArchived(c.Request().Context(), id, false)
+	ctx := c.Request().Context()
+	content, err := h.contentRepo.SetArchived(ctx, id, false)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return echo.NewHTTPError(http.StatusNotFound, "content not found")
 		}
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	if err := h.playlistRefresher.Refresh(ctx); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	return c.JSON(http.StatusOK, content)
 }
 
 type listContentsResponse struct {
-	Contents []*domain.Content `json:"contents"`
-	Total    int               `json:"total"`
-	Limit    int               `json:"limit"`
-	Offset   int               `json:"offset"`
+	Contents   []*domain.Content `json:"contents"`
+	Total      int               `json:"total"`
+	Limit      int               `json:"limit"`
+	NextCursor *string           `json:"next_cursor"`
+	PrevCursor *string           `json:"prev_cursor"`
+	HasNext    bool              `json:"has_next"`
+	HasPrev    bool              `json:"has_prev"`
 }
 
 func (h *AdminHandler) ListContents(c echo.Context) error {
+	if h.readRepo == nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "read content repository is not configured")
+	}
+
 	limit, _ := strconv.Atoi(c.QueryParam("limit"))
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	offset, _ := strconv.Atoi(c.QueryParam("offset"))
 
 	var status *domain.ContentStatus
 	if s := c.QueryParam("status"); s != "" {
@@ -230,32 +277,60 @@ func (h *AdminHandler) ListContents(c echo.Context) error {
 		channelID = &ch
 	}
 
-	listParams := pgRepo.ListContentsParams{
+	sort := domain.ContentSort(c.QueryParam("sort"))
+	if sort == "" {
+		sort = domain.ContentSortUpdatedDesc
+	}
+	if !domain.IsValidContentSort(sort) {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid sort")
+	}
+
+	afterParam := c.QueryParam("after")
+	beforeParam := c.QueryParam("before")
+	if afterParam != "" && beforeParam != "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "after and before cannot be specified together")
+	}
+
+	var afterCursor, beforeCursor *mongoRepo.AdminCursor
+	if afterParam != "" {
+		cur, err := mongoRepo.DecodeAdminCursor(afterParam, sort)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, "invalid cursor")
+		}
+		afterCursor = cur
+	}
+	if beforeParam != "" {
+		cur, err := mongoRepo.DecodeAdminCursor(beforeParam, sort)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, "invalid cursor")
+		}
+		beforeCursor = cur
+	}
+
+	page, err := h.readRepo.ListAdmin(c.Request().Context(), mongoRepo.AdminListParams{
 		Status:    status,
 		ChannelID: channelID,
-		// admin画面ではアーカイブ済みコンテンツも一覧・管理できるようにする。
-		IncludeArchived: true,
-		Limit:           limit,
-		Offset:          offset,
-	}
-
-	contents, err := h.contentRepo.List(c.Request().Context(), listParams)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	total, err := h.contentRepo.Count(c.Request().Context(), listParams)
+		Sort:      sort,
+		After:     afterCursor,
+		Before:    beforeCursor,
+		Limit:     limit,
+	})
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
+	contents := page.Contents
 	if contents == nil {
 		contents = []*domain.Content{}
 	}
 	return c.JSON(http.StatusOK, listContentsResponse{
-		Contents: contents,
-		Total:    total,
-		Limit:    limit,
-		Offset:   offset,
+		Contents:   contents,
+		Total:      page.Total,
+		Limit:      limit,
+		NextCursor: page.NextCursor,
+		PrevCursor: page.PrevCursor,
+		HasNext:    page.HasNext,
+		HasPrev:    page.HasPrev,
 	})
 }
 
@@ -335,7 +410,7 @@ func (h *AdminHandler) UpdateSubtitleTrackStatus(c echo.Context) error {
 
 	track, err := h.subtitleRepo.SetTrackStatus(c.Request().Context(), trackID, req.Status)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return echo.NewHTTPError(http.StatusNotFound, "subtitle track not found")
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
@@ -363,7 +438,7 @@ func (h *AdminHandler) UpdateSubtitleCue(c echo.Context) error {
 		EndMs:   req.EndMs,
 	})
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return echo.NewHTTPError(http.StatusNotFound, "cue not found")
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
@@ -393,6 +468,9 @@ func (h *AdminHandler) InsertSubtitleCue(c echo.Context) error {
 		Text:    req.Text,
 	})
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return echo.NewHTTPError(http.StatusNotFound, "subtitle track not found")
+		}
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	return c.JSON(http.StatusCreated, cue)
@@ -401,6 +479,9 @@ func (h *AdminHandler) InsertSubtitleCue(c echo.Context) error {
 func (h *AdminHandler) DeleteSubtitleCue(c echo.Context) error {
 	cueID := c.Param("cue_id")
 	if err := h.subtitleRepo.DeleteCue(c.Request().Context(), cueID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return echo.NewHTTPError(http.StatusNotFound, "cue not found")
+		}
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	return c.NoContent(http.StatusNoContent)

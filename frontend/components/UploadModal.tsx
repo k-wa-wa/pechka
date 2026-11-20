@@ -72,6 +72,8 @@ export default function UploadModal({ channels, onClose, onUploaded }: Props) {
       onClick={uploading ? undefined : onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
         style={{
           width: "100%",
           maxWidth: 560,

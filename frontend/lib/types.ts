@@ -116,11 +116,22 @@ export interface Content {
   updated_at: string;
 }
 
+export type AdminContentSort =
+  | "updated_desc"
+  | "updated_asc"
+  | "created_desc"
+  | "created_asc"
+  | "title_asc"
+  | "title_desc";
+
 export interface AdminContentsResponse {
   contents: Content[];
   total: number;
   limit: number;
-  offset: number;
+  next_cursor: string | null;
+  prev_cursor: string | null;
+  has_next: boolean;
+  has_prev: boolean;
 }
 
 export interface UpdateContentRequest {

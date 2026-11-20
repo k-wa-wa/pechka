@@ -40,6 +40,9 @@ func TestBuildSearchQuery(t *testing.T) {
 	if !strings.Contains(sql, "c.archived_at IS NULL") {
 		t.Errorf("query missing archived_at check: %s", sql)
 	}
+	if !strings.Contains(sql, "c.deleted_at IS NULL") {
+		t.Errorf("query missing deleted_at check: %s", sql)
+	}
 	if !strings.Contains(sql, "c.title ILIKE $1") {
 		t.Errorf("query missing title ILIKE: %s", sql)
 	}

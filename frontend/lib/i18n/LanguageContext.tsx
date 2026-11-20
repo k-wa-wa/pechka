@@ -78,6 +78,13 @@ export const dictionaries: Record<Language, Translations> = {
     "admin.pagination.next": "次へ",
     "admin.pagination.pageLabel": "ページ",
     "admin.pagination.loadError": "ページの読み込みに失敗しました",
+    "admin.sort.label": "並び替え",
+    "admin.sort.updatedDesc": "更新日時（新しい順）",
+    "admin.sort.updatedAsc": "更新日時（古い順）",
+    "admin.sort.createdDesc": "作成日時（新しい順）",
+    "admin.sort.createdAsc": "作成日時（古い順）",
+    "admin.sort.titleAsc": "タイトル（昇順）",
+    "admin.sort.titleDesc": "タイトル（降順）",
 
     // Edit Modal
     "editModal.title": "コンテンツを編集",
@@ -172,6 +179,13 @@ export const dictionaries: Record<Language, Translations> = {
     "admin.pagination.next": "Next",
     "admin.pagination.pageLabel": "Page",
     "admin.pagination.loadError": "Failed to load page",
+    "admin.sort.label": "Sort by",
+    "admin.sort.updatedDesc": "Updated (Newest)",
+    "admin.sort.updatedAsc": "Updated (Oldest)",
+    "admin.sort.createdDesc": "Created (Newest)",
+    "admin.sort.createdAsc": "Created (Oldest)",
+    "admin.sort.titleAsc": "Title (A–Z)",
+    "admin.sort.titleDesc": "Title (Z–A)",
 
     // Edit Modal
     "editModal.title": "Edit Content",

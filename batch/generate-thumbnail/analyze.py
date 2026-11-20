@@ -218,6 +218,18 @@ def resolve_thumbnail_key(s3_keys: list[str]) -> str:
 
 def register_assets(conn, content_id: str, s3_keys: list[str], thumbnail_key: str) -> None:
     with conn.cursor() as cur:
+        # 親コンテンツが未存在または論理削除済みの場合は assets 登録・更新をコミットせず明示的に失敗させる。
+        # contents.thumbnail_key に代表サムネイルを設定する。
+        # CDC (Benthos) が contents テーブルの変更を購読しているため、
+        # ここに書けば自動的に MongoDB の表示用ドキュメントへ反映される。
+        # S3 完全キー形式（thumbnails/...）で保存する。
+        cur.execute(
+            "UPDATE contents SET thumbnail_key = %s WHERE id = %s AND deleted_at IS NULL",
+            (thumbnail_key, content_id),
+        )
+        if cur.rowcount == 0:
+            conn.rollback()
+            raise RuntimeError(f"content {content_id} not found or deleted")
         for key in s3_keys:
             cur.execute(
                 """
@@ -227,14 +239,6 @@ def register_assets(conn, content_id: str, s3_keys: list[str], thumbnail_key: st
                 """,
                 (content_id, key),
             )
-        # contents.thumbnail_key に代表サムネイルを設定する。
-        # CDC (Benthos) が contents テーブルの変更を購読しているため、
-        # ここに書けば自動的に MongoDB の表示用ドキュメントへ反映される。
-        # S3 完全キー形式（thumbnails/...）で保存する。
-        cur.execute(
-            "UPDATE contents SET thumbnail_key = %s WHERE id = %s",
-            (thumbnail_key, content_id),
-        )
     conn.commit()
 
 

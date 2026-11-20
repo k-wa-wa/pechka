@@ -10,10 +10,12 @@ pipeline:
         dsn: "${POSTGRES_DSN}"
         query: |
           SELECT
+              c.id::text AS id,
               c.short_id,
               c.content_type,
               c.channel_id,
               COALESCE(ch.name, c.channel_id) AS channel_name,
+              c.disc_id::text AS disc_id,
               c.title,
               c.description,
               c.duration_seconds,
@@ -25,7 +27,9 @@ pipeline:
               c.document_mime_type,
               c.published_at,
               c.archived_at,
+              c.created_at,
               c.updated_at,
+              c.deleted_at,
               d.label AS disc_label,
               COALESCE(
                   (SELECT json_agg(json_build_object(
@@ -49,10 +53,12 @@ pipeline:
         root = if this.type() == "object" {
           if this.short_id != null {
             [{
+              "id": this.id,
               "short_id": this.short_id,
               "content_type": this.content_type,
               "channel_id": this.channel_id,
               "channel_name": this.channel_name,
+              "disc_id": this.disc_id,
               "title": this.title,
               "description": this.description,
               "duration_seconds": this.duration_seconds,
@@ -64,7 +70,9 @@ pipeline:
               "document_mime_type": this.document_mime_type,
               "published_at": this.published_at,
               "archived_at": this.archived_at,
+              "created_at": this.created_at,
               "updated_at": this.updated_at,
+              "deleted_at": this.deleted_at,
               "disc_label": this.disc_label,
               "variants": this.variants.parse_json().catch(this.variants),
               "has_subtitles": this.has_subtitles
@@ -75,10 +83,12 @@ pipeline:
             deleted()
           } else {
             this.map_each(item -> {
+              "id": item.id,
               "short_id": item.short_id,
               "content_type": item.content_type,
               "channel_id": item.channel_id,
               "channel_name": item.channel_name,
+              "disc_id": item.disc_id,
               "title": item.title,
               "description": item.description,
               "duration_seconds": item.duration_seconds,
@@ -90,7 +100,9 @@ pipeline:
               "document_mime_type": item.document_mime_type,
               "published_at": item.published_at,
               "archived_at": item.archived_at,
+              "created_at": item.created_at,
               "updated_at": item.updated_at,
+              "deleted_at": item.deleted_at,
               "disc_label": item.disc_label,
               "variants": item.variants.parse_json().catch(item.variants),
               "has_subtitles": item.has_subtitles
@@ -121,7 +133,14 @@ output:
                   operation: update-one
                   upsert: true
                   filter_map: 'root = {"_id": this.short_id}'
-                  document_map: 'root = {"$set": this}'
+                  document_map: |
+                    root = this
+                    root.published_at = if this.published_at != null { {"$date": {"$numberLong": this.published_at.ts_unix_milli().string()}} } else { null }
+                    root.archived_at = if this.archived_at != null { {"$date": {"$numberLong": this.archived_at.ts_unix_milli().string()}} } else { null }
+                    root.created_at = if this.created_at != null { {"$date": {"$numberLong": this.created_at.ts_unix_milli().string()}} } else { null }
+                    root.updated_at = if this.updated_at != null { {"$date": {"$numberLong": this.updated_at.ts_unix_milli().string()}} } else { null }
+                    root.deleted_at = if this.deleted_at != null { {"$date": {"$numberLong": this.deleted_at.ts_unix_milli().string()}} } else { null }
+                    root = {"$set": root}
                   write_concern:
                     w: "1"
               - elasticsearch_v8:

@@ -1,11 +1,14 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/k-wa-wa/pechka/api/internal/domain"
 )
@@ -63,7 +66,7 @@ type UpdateContentParams struct {
 	Status      *domain.ContentStatus
 }
 
-func (r *ContentRepository) Update(ctx context.Context, params UpdateContentParams) (*domain.Content, error) {
+func buildUpdateContentQuery(params UpdateContentParams) (string, []any, bool) {
 	setClauses := []string{}
 	args := []any{}
 	argIdx := 1
@@ -95,15 +98,23 @@ func (r *ContentRepository) Update(ctx context.Context, params UpdateContentPara
 	}
 
 	if len(setClauses) == 0 {
-		return r.GetByID(ctx, params.ID)
+		return "", nil, false
 	}
 
 	args = append(args, params.ID)
 	query := fmt.Sprintf(`
 		UPDATE contents SET %s
-		WHERE id = $%d
+		WHERE id = $%d AND deleted_at IS NULL
 		RETURNING `+contentColumns+`
 	`, strings.Join(setClauses, ", "), argIdx)
+	return query, args, true
+}
+
+func (r *ContentRepository) Update(ctx context.Context, params UpdateContentParams) (*domain.Content, error) {
+	query, args, hasUpdates := buildUpdateContentQuery(params)
+	if !hasUpdates {
+		return r.GetByID(ctx, params.ID)
+	}
 
 	return WithRetry(ctx, r.pool, func() (*domain.Content, error) {
 		row := r.pool.QueryRow(ctx, query, args...)
@@ -111,30 +122,39 @@ func (r *ContentRepository) Update(ctx context.Context, params UpdateContentPara
 	})
 }
 
+const deleteContentQuery = "UPDATE contents SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1 AND deleted_at IS NULL"
+
 func (r *ContentRepository) Delete(ctx context.Context, id string) error {
 	return WithRetryVoid(ctx, r.pool, func() error {
-		_, err := r.pool.Exec(ctx, "DELETE FROM contents WHERE id = $1", id)
+		_, err := r.pool.Exec(ctx, deleteContentQuery, id)
 		return err
 	})
 }
 
+const (
+	setArchivedTrueQuery = `
+		UPDATE contents SET archived_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND deleted_at IS NULL
+		RETURNING ` + contentColumns
+	setArchivedFalseQuery = `
+		UPDATE contents SET archived_at = NULL
+		WHERE id = $1 AND deleted_at IS NULL
+		RETURNING ` + contentColumns
+	getContentByIDQuery = `
+		SELECT ` + contentColumns + `
+		FROM contents WHERE id = $1 AND deleted_at IS NULL`
+)
+
 // SetArchived はコンテンツのアーカイブ状態を切り替える。
-// 実データは削除せず archived_at にタイムスタンプを立てる/クリアするだけの論理削除。
+// 実データは削除せず archived_at にタイムスタンプを立てる/クリアするだけのアーカイブ。
+// deleted_at IS NULL を条件とし、論理削除済みレコードへの誤操作・誤復元を防ぐ。
 func (r *ContentRepository) SetArchived(ctx context.Context, id string, archived bool) (*domain.Content, error) {
 	return WithRetry(ctx, r.pool, func() (*domain.Content, error) {
 		var row scanner
 		if archived {
-			row = r.pool.QueryRow(ctx, `
-				UPDATE contents SET archived_at = CURRENT_TIMESTAMP
-				WHERE id = $1
-				RETURNING `+contentColumns+`
-			`, id)
+			row = r.pool.QueryRow(ctx, setArchivedTrueQuery, id)
 		} else {
-			row = r.pool.QueryRow(ctx, `
-				UPDATE contents SET archived_at = NULL
-				WHERE id = $1
-				RETURNING `+contentColumns+`
-			`, id)
+			row = r.pool.QueryRow(ctx, setArchivedFalseQuery, id)
 		}
 		return scanContent(row)
 	})
@@ -142,10 +162,7 @@ func (r *ContentRepository) SetArchived(ctx context.Context, id string, archived
 
 func (r *ContentRepository) GetByID(ctx context.Context, id string) (*domain.Content, error) {
 	return WithRetry(ctx, r.pool, func() (*domain.Content, error) {
-		row := r.pool.QueryRow(ctx, `
-			SELECT `+contentColumns+`
-			FROM contents WHERE id = $1
-		`, id)
+		row := r.pool.QueryRow(ctx, getContentByIDQuery, id)
 		return scanContent(row)
 	})
 }
@@ -202,7 +219,7 @@ func (r *ContentRepository) Count(ctx context.Context, params ListContentsParams
 }
 
 func buildListContentsWhere(params ListContentsParams) (string, []any, int) {
-	conditions := []string{}
+	conditions := []string{"deleted_at IS NULL"}
 	args := []any{}
 	argIdx := 1
 
@@ -220,10 +237,152 @@ func buildListContentsWhere(params ListContentsParams) (string, []any, int) {
 		conditions = append(conditions, "archived_at IS NULL")
 	}
 
-	if len(conditions) == 0 {
-		return "", args, argIdx
-	}
 	return " WHERE " + strings.Join(conditions, " AND "), args, argIdx
+}
+
+const (
+	// LatestPlaylistLockKey は api（複数レプリカ）と batch/refresh-latest-playlist で共有する 64-bit アドバイザリロックキー。
+	LatestPlaylistLockKey int64 = 0x706563686b610001
+	LatestPlaylistLimit         = 50
+	LatestPlaylistKey           = "resources/hls/latest.m3u8"
+	LatestPlaylistQuery         = `SELECT short_id, title, published_at
+		 FROM contents
+		 WHERE status = 'ready' AND archived_at IS NULL AND deleted_at IS NULL
+		 ORDER BY published_at DESC NULLS LAST, updated_at DESC, short_id ASC
+		 LIMIT $1`
+)
+
+type PlaylistItem struct {
+	ShortID     string
+	Title       string
+	PublishedAt *time.Time
+}
+
+type playlistRows interface {
+	Next() bool
+	Scan(dest ...any) error
+	Err() error
+	Close()
+}
+
+type playlistTx interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (playlistRows, error)
+	Commit(ctx context.Context) error
+	Rollback(ctx context.Context) error
+}
+
+type playlistTxBeginner interface {
+	BeginTx(ctx context.Context, txOptions pgx.TxOptions) (playlistTx, error)
+}
+
+type pgxPoolPlaylistBeginner struct {
+	pool *pgxpool.Pool
+}
+
+func (b pgxPoolPlaylistBeginner) BeginTx(ctx context.Context, txOptions pgx.TxOptions) (playlistTx, error) {
+	tx, err := b.pool.BeginTx(ctx, txOptions)
+	if err != nil {
+		return nil, err
+	}
+	return pgxPlaylistTx{tx: tx}, nil
+}
+
+type pgxPlaylistTx struct {
+	tx pgx.Tx
+}
+
+func (t pgxPlaylistTx) Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error) {
+	return t.tx.Exec(ctx, sql, arguments...)
+}
+
+func (t pgxPlaylistTx) Query(ctx context.Context, sql string, args ...any) (playlistRows, error) {
+	return t.tx.Query(ctx, sql, args...)
+}
+
+func (t pgxPlaylistTx) Commit(ctx context.Context) error {
+	return t.tx.Commit(ctx)
+}
+
+func (t pgxPlaylistTx) Rollback(ctx context.Context) error {
+	return t.tx.Rollback(ctx)
+}
+
+func scanPlaylistItem(row scanner) (PlaylistItem, error) {
+	var item PlaylistItem
+	if err := row.Scan(&item.ShortID, &item.Title, &item.PublishedAt); err != nil {
+		return PlaylistItem{}, err
+	}
+	return item, nil
+}
+
+// BuildLatestPlaylist は batch/refresh-latest-playlist と同一の #EXTM3U 形式でプレイリスト文字列を生成する。
+func BuildLatestPlaylist(items []PlaylistItem) string {
+	var buf bytes.Buffer
+	buf.WriteString("#EXTM3U\n")
+	for _, item := range items {
+		buf.WriteString(fmt.Sprintf("#EXTINF:-1,%s\n", item.Title))
+		buf.WriteString(fmt.Sprintf("resources/hls/%s/master.m3u8\n", item.ShortID))
+	}
+	return buf.String()
+}
+
+// RefreshLatestPlaylist は READ COMMITTED トランザクション内でアドバイザリロックを取得し、
+// 最新の未削除・未アーカイブかつ ready なコンテンツ一覧を取得して uploadFn（MinIO PutObject）を完了させた後にコミット（ロック解放）する。
+func (r *ContentRepository) RefreshLatestPlaylist(ctx context.Context, uploadFn func(ctx context.Context, playlist string) error) error {
+	if r.pool == nil {
+		return fmt.Errorf("postgres connection pool is nil")
+	}
+	if uploadFn == nil {
+		return fmt.Errorf("uploadFn is required")
+	}
+	return WithRetryVoid(ctx, r.pool, func() error {
+		return refreshLatestPlaylistWithBeginner(ctx, pgxPoolPlaylistBeginner{pool: r.pool}, uploadFn)
+	})
+}
+
+func refreshLatestPlaylistWithBeginner(ctx context.Context, beginner playlistTxBeginner, uploadFn func(ctx context.Context, playlist string) error) error {
+	tx, err := beginner.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", LatestPlaylistLockKey); err != nil {
+		return fmt.Errorf("acquire playlist advisory lock: %w", err)
+	}
+
+	rows, err := tx.Query(ctx, LatestPlaylistQuery, LatestPlaylistLimit)
+	if err != nil {
+		return fmt.Errorf("query latest playlist contents: %w", err)
+	}
+
+	var items []PlaylistItem
+	for rows.Next() {
+		item, scanErr := scanPlaylistItem(rows)
+		if scanErr != nil {
+			rows.Close()
+			return fmt.Errorf("scan playlist row: %w", scanErr)
+		}
+		items = append(items, item)
+	}
+	if rowsErr := rows.Err(); rowsErr != nil {
+		rows.Close()
+		return fmt.Errorf("iterate playlist rows: %w", rowsErr)
+	}
+	rows.Close()
+
+	playlist := BuildLatestPlaylist(items)
+	if err := uploadFn(ctx, playlist); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit playlist refresh transaction: %w", err)
+	}
+	return nil
 }
 
 type scanner interface {

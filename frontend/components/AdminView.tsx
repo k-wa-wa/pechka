@@ -4,39 +4,108 @@ import { useState } from "react";
 import AdminTable from "@/components/AdminTable";
 import { getAdminContents } from "@/lib/api";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
-import type { Channel, Content } from "@/lib/types";
+import type { AdminContentSort, Channel, Content } from "@/lib/types";
 
 interface Props {
   contents: Content[];
   total: number;
   limit: number;
-  offset: number;
+  nextCursor: string | null;
+  prevCursor: string | null;
+  hasNext: boolean;
+  hasPrev: boolean;
   channels?: Channel[];
 }
 
-export default function AdminView({ contents, total, limit, offset, channels }: Props) {
+export default function AdminView({
+  contents,
+  total,
+  limit,
+  nextCursor,
+  prevCursor,
+  hasNext,
+  hasPrev,
+  channels,
+}: Props) {
   const { t } = useLanguage();
   const [items, setItems] = useState(contents);
-  const [currentOffset, setCurrentOffset] = useState(offset);
   const [currentTotal, setCurrentTotal] = useState(total);
+  const [currentSort, setCurrentSort] = useState<AdminContentSort>("updated_desc");
+  const [currentNextCursor, setCurrentNextCursor] = useState<string | null>(nextCursor);
+  const [currentPrevCursor, setCurrentPrevCursor] = useState<string | null>(prevCursor);
+  const [currentHasNext, setCurrentHasNext] = useState(hasNext);
+  const [currentHasPrev, setCurrentHasPrev] = useState(hasPrev);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageEpoch, setPageEpoch] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
 
   const totalPages = Math.max(1, Math.ceil(currentTotal / limit));
-  const currentPage = Math.floor(currentOffset / limit) + 1;
 
-  async function goToPage(page: number) {
-    const clamped = Math.min(Math.max(page, 1), totalPages);
-    const newOffset = (clamped - 1) * limit;
-    if (newOffset === currentOffset) return;
+  async function applyPage(
+    res: Awaited<ReturnType<typeof getAdminContents>>,
+    nextSort: AdminContentSort,
+    nextPage: number,
+  ) {
+    setItems(res.contents);
+    setCurrentTotal(res.total);
+    setCurrentSort(nextSort);
+    setCurrentNextCursor(res.next_cursor);
+    setCurrentPrevCursor(res.prev_cursor);
+    setCurrentHasNext(res.has_next);
+    setCurrentHasPrev(res.has_prev);
+    setCurrentPage(nextPage);
+    setPageEpoch((e) => e + 1);
+  }
+
+  async function handleNext() {
+    if (loading || !currentHasNext || !currentNextCursor) return;
 
     setLoading(true);
     setError(false);
     try {
-      const res = await getAdminContents({ limit, offset: newOffset });
-      setItems(res.contents);
-      setCurrentOffset(res.offset);
-      setCurrentTotal(res.total);
+      const res = await getAdminContents({ limit, sort: currentSort, after: currentNextCursor });
+      if (res.contents.length === 0) {
+        const first = await getAdminContents({ limit, sort: currentSort });
+        await applyPage(first, currentSort, 1);
+      } else {
+        await applyPage(res, currentSort, currentPage + 1);
+      }
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handlePrev() {
+    if (loading || !currentHasPrev || !currentPrevCursor) return;
+
+    setLoading(true);
+    setError(false);
+    try {
+      const res = await getAdminContents({ limit, sort: currentSort, before: currentPrevCursor });
+      if (res.contents.length === 0) {
+        const first = await getAdminContents({ limit, sort: currentSort });
+        await applyPage(first, currentSort, 1);
+      } else {
+        await applyPage(res, currentSort, res.has_prev ? Math.max(1, currentPage - 1) : 1);
+      }
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSortChange(nextSort: AdminContentSort) {
+    if (loading) return;
+
+    setLoading(true);
+    setError(false);
+    try {
+      const res = await getAdminContents({ limit, sort: nextSort });
+      await applyPage(res, nextSort, 1);
     } catch {
       setError(true);
     } finally {
@@ -76,9 +145,12 @@ export default function AdminView({ contents, total, limit, offset, channels }: 
       </div>
 
       <AdminTable
-        key={currentOffset}
+        key={`${pageEpoch}-${currentSort}`}
         initialContents={items}
         channels={channels}
+        sort={currentSort}
+        onSortChange={handleSortChange}
+        sortDisabled={loading}
         onUploaded={() => setCurrentTotal((t) => t + 1)}
       />
 
@@ -92,15 +164,15 @@ export default function AdminView({ contents, total, limit, offset, channels }: 
         }}
       >
         <button
-          onClick={() => goToPage(currentPage - 1)}
-          disabled={loading || currentPage <= 1}
+          onClick={handlePrev}
+          disabled={loading || !currentHasPrev}
           style={{
             padding: "6px 14px",
             borderRadius: "var(--radius-md)",
             border: "1px solid var(--line)",
             backgroundColor: "transparent",
-            color: currentPage <= 1 ? "var(--muted-border)" : "var(--fg)",
-            cursor: loading || currentPage <= 1 ? "not-allowed" : "pointer",
+            color: !currentHasPrev ? "var(--muted-border)" : "var(--fg)",
+            cursor: loading || !currentHasPrev ? "not-allowed" : "pointer",
             fontSize: 13,
             transition: "all 0.15s",
           }}
@@ -113,15 +185,15 @@ export default function AdminView({ contents, total, limit, offset, channels }: 
         </span>
 
         <button
-          onClick={() => goToPage(currentPage + 1)}
-          disabled={loading || currentPage >= totalPages}
+          onClick={handleNext}
+          disabled={loading || !currentHasNext}
           style={{
             padding: "6px 14px",
             borderRadius: "var(--radius-md)",
             border: "1px solid var(--line)",
             backgroundColor: "transparent",
-            color: currentPage >= totalPages ? "var(--muted-border)" : "var(--fg)",
-            cursor: loading || currentPage >= totalPages ? "not-allowed" : "pointer",
+            color: !currentHasNext ? "var(--muted-border)" : "var(--fg)",
+            cursor: loading || !currentHasNext ? "not-allowed" : "pointer",
             fontSize: 13,
             transition: "all 0.15s",
           }}

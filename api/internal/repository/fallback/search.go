@@ -115,6 +115,7 @@ SELECT
 FROM contents c
 LEFT JOIN channels ch ON c.channel_id = ch.id
 WHERE c.archived_at IS NULL
+  AND c.deleted_at IS NULL
   AND (
       c.title ILIKE $1
       OR c.description ILIKE $1
