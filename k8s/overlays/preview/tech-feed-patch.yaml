@@ -1,0 +1,32 @@
+# preview 環境では CronWorkflow を定期実行しない。手動実行は以下で行う:
+#   kubectl create -n <namespace> job/workflow ... ではなく Workflow を作る:
+#   argo submit -n <namespace> --from cronwf/tech-feed-daily-ai
+# (または kubectl create -n <namespace> -f - で spec.workflowTemplateRef.name: tech-feed の Workflow を作る)
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: tech-feed-daily-ai
+  namespace: pechka
+spec:
+  suspend: true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: tech-feed-weekly-k8s
+  namespace: pechka
+spec:
+  suspend: true
+---
+# pr-<N> タグは同一 PR への追加 push で上書きされるため、明示的に Always を指定する。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aivisspeech
+  namespace: pechka
+spec:
+  template:
+    spec:
+      containers:
+        - name: aivisspeech
+          imagePullPolicy: Always

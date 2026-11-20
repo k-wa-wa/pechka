@@ -14,14 +14,37 @@ on:
       - 'k8s/base/tech-feed/**'
       - '.github/workflows/tech-feed.yml'
   pull_request:
-    paths:
-      - 'batch-tech-feed/**'
-      - 'k8s/base/tech-feed/**'
-      - '.github/workflows/tech-feed.yml'
 
 jobs:
+  detect-changes:
+    name: Detect Changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.filter.outputs.changed }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check changed files
+        id: filter
+        run: |
+          if git diff --name-only "origin/${{ github.base_ref }}...HEAD" | grep -Eq '^(batch-tech-feed/|k8s/base/tech-feed/|\.github/workflows/tech-feed\.yml$)'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
   test-collect:
     name: Test (Tech Feed Collect)
+    needs: [detect-changes]
+    if: |
+      always() && (
+        github.event_name == 'push' ||
+        (github.event_name == 'pull_request' && needs.detect-changes.result == 'success' && needs.detect-changes.outputs.changed == 'true')
+      )
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -53,6 +76,12 @@ jobs:
 
   test-produce:
     name: Test (Tech Feed Produce)
+    needs: [detect-changes]
+    if: |
+      always() && (
+        github.event_name == 'push' ||
+        (github.event_name == 'pull_request' && needs.detect-changes.result == 'success' && needs.detect-changes.outputs.changed == 'true')
+      )
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -94,12 +123,14 @@ jobs:
           cd remotion
           npm ci
 
-  # 本番は :latest のイメージを使う。PR から push するとマージ前に本番のイメージが
-  # PR の内容に置き換わるため、push (master・タグ) のときだけ動かす。
   push-image:
     name: Push Image
-    if: github.event_name == 'push'
-    needs: [test-collect, test-produce]
+    needs: [detect-changes, test-collect, test-produce]
+    if: |
+      always() && (
+        (github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref_type == 'tag')) ||
+        (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.detect-changes.result == 'success' && needs.detect-changes.outputs.changed == 'true' && needs.test-collect.result == 'success' && needs.test-produce.result == 'success')
+      )
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -128,6 +159,23 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Determine image tags
+        id: tags
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            SUFFIX="pr-${{ github.event.pull_request.number }}"
+            SHA="${{ github.event.pull_request.head.sha }}"
+          else
+            SUFFIX="latest"
+            SHA="${{ github.sha }}"
+          fi
+          {
+            echo "tags<<EOF"
+            echo "${{ matrix.image }}:${SUFFIX}"
+            echo "${{ matrix.image }}:sha-${SHA}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
@@ -135,8 +183,42 @@ jobs:
           file: ${{ matrix.file }}
           pull: true
           push: true
-          tags: |
-            ${{ matrix.image }}:latest
-            ${{ matrix.image }}:sha-${{ github.sha }}
+          tags: ${{ steps.tags.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # tech-feed に触れない PR でも preview 用の :pr-<N> タグを欠かさないため、
+  # :latest のマニフェストをビルドなしで付け替える。
+  retag-preview-image:
+    name: Tag Preview Image (:latest -> :pr-N)
+    needs: [detect-changes]
+    if: |
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.detect-changes.result == 'success' &&
+      needs.detect-changes.outputs.changed == 'false'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: tech-feed-collect
+            image: ghcr.io/${{ github.repository }}/tech-feed-collect
+          - name: tech-feed-produce
+            image: ghcr.io/${{ github.repository }}/tech-feed-produce
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag latest image for PR preview
+        run: |
+          docker buildx imagetools create \
+            -t "${{ matrix.image }}:pr-${{ github.event.pull_request.number }}" \
+            "${{ matrix.image }}:latest"

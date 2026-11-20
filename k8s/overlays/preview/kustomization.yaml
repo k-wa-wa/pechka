@@ -8,13 +8,22 @@
 #   (pechka-config の s3-fallback-endpoint) へ透過フォールバックする
 #   (k8s/base/infra/nginx/nginx.conf の @minio_prod_fallback)。本番への書き込みは nginx 側で禁止している。
 #
-# postgres-seed-from-prod Job が読む postgres-seed-secret は、このoverlayではなく
-# 同じnamespaceにデプロイされる k8s/overlays/preview-secret (別Application) が用意する。
-# secretの実体化だけargocd-vault-plugin (plugin) を使うため、Application自体を分けている
-# (このoverlayはネイティブkustomizeのみで、CMP/plugin類は一切使わない)。
+# - postgres-seed-from-prod Job が読む postgres-seed-secret と tech-feed が読む openai-secret は、
+#   この overlay ではなく同じ namespace にデプロイされる k8s/overlays/preview-secret (別 Application) が用意する。
+#   secret の実体化だけ argocd-vault-plugin (plugin) を使うため、Application 自体を分けている
+#   (この overlay はネイティブ kustomize のみで、CMP/plugin 類は一切使わない)。
+# - tech-feed: CronWorkflow (tech-feed-daily-ai / tech-feed-weekly-k8s) は suspend: true で止めてあり、
+#   aivisspeech Deployment は既定 replicas: 0 としてある。手動で確かめる手順:
+#   1. kubectl -n <namespace> scale deployment aivisspeech --replicas=1
+#   2. kubectl -n <namespace> rollout status deployment/aivisspeech
+#   3. argo submit -n <namespace> --from cronwf/tech-feed-daily-ai
+#      (または kubectl create で workflowTemplateRef: { name: tech-feed } の Workflow を作る)
+#   4. 確認後: kubectl -n <namespace> scale deployment aivisspeech --replicas=0
+# - workflow-controller: 本番の workflow-controller が --namespaced で動作するため、preview 用に
+#   --namespaced な workflow-controller と executor Role を同梱している。
 #
-# namespace名・イメージタグ・ingress hostはArgoCD側のネイティブなkustomize.namespace/images/patches
-# 上書きでPRごとに書き換える (docs/ideas/nash/nash-preview.yaml と同じやり方)。
+# namespace 名・イメージタグ・ingress host は ArgoCD 側のネイティブな kustomize.namespace/images/patches
+# 上書きで PR ごとに書き換える (docs/ideas/nash/nash-preview.yaml と同じやり方)。
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
@@ -29,6 +38,8 @@ resources:
   - ../../base/infra/benthos
   - ../../base/infra/postgres
   - ../../base/etl
+  - ../../base/tech-feed
+  - argo-workflow-controller.yaml
   - postgres
   - local-secrets.yaml
   - minio-local.yaml
@@ -42,6 +53,7 @@ patches:
   - path: pvc-local-path-patch.yaml
   - path: pdb-delete-patch.yaml
   - path: replicas-patch.yaml
+  - path: tech-feed-patch.yaml
 
 generatorOptions:
   disableNameSuffixHash: true
@@ -52,3 +64,5 @@ configMapGenerator:
     literals:
       - allowed-ip-range=0.0.0.0/0
       - s3-fallback-endpoint=minio.external-service.svc.cluster.local:9000
+      # preview 環境の NetworkPolicy は他 Namespace (bare-web-proxy) への通信を遮断するため、空にして直接取得する。
+      - bare-web-proxy-url=
