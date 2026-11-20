@@ -41,7 +41,7 @@ jobs:
     name: Test (Tech Feed Collect)
     needs: [detect-changes]
     if: |
-      always() && (
+      !cancelled() && (
         github.event_name == 'push' ||
         (github.event_name == 'pull_request' && needs.detect-changes.result == 'success' && needs.detect-changes.outputs.changed == 'true')
       )
@@ -78,7 +78,7 @@ jobs:
     name: Test (Tech Feed Produce)
     needs: [detect-changes]
     if: |
-      always() && (
+      !cancelled() && (
         github.event_name == 'push' ||
         (github.event_name == 'pull_request' && needs.detect-changes.result == 'success' && needs.detect-changes.outputs.changed == 'true')
       )
@@ -127,9 +127,11 @@ jobs:
     name: Push Image
     needs: [detect-changes, test-collect, test-produce]
     if: |
-      always() && (
+      !cancelled() &&
+      needs.test-collect.result == 'success' &&
+      needs.test-produce.result == 'success' && (
         (github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref_type == 'tag')) ||
-        (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.detect-changes.result == 'success' && needs.detect-changes.outputs.changed == 'true' && needs.test-collect.result == 'success' && needs.test-produce.result == 'success')
+        (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.detect-changes.result == 'success' && needs.detect-changes.outputs.changed == 'true')
       )
     runs-on: ubuntu-latest
     strategy:

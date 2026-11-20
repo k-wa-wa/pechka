@@ -12,15 +12,16 @@
 #   この overlay ではなく同じ namespace にデプロイされる k8s/overlays/preview-secret (別 Application) が用意する。
 #   secret の実体化だけ argocd-vault-plugin (plugin) を使うため、Application 自体を分けている
 #   (この overlay はネイティブ kustomize のみで、CMP/plugin 類は一切使わない)。
-# - tech-feed: CronWorkflow (tech-feed-daily-ai / tech-feed-weekly-k8s) は suspend: true で止めてあり、
-#   aivisspeech Deployment は既定 replicas: 0 としてある。手動で確かめる手順:
-#   1. kubectl -n <namespace> scale deployment aivisspeech --replicas=1
-#   2. kubectl -n <namespace> rollout status deployment/aivisspeech
-#   3. argo submit -n <namespace> --from cronwf/tech-feed-daily-ai
-#      (または kubectl create で workflowTemplateRef: { name: tech-feed } の Workflow を作る)
-#   4. 確認後: kubectl -n <namespace> scale deployment aivisspeech --replicas=0
-# - workflow-controller: 本番の workflow-controller が --namespaced で動作するため、preview 用に
-#   --namespaced な workflow-controller と executor Role を同梱している。
+# - tech-feed: CronWorkflow (tech-feed-daily-ai / tech-feed-weekly-k8s) は preview-apps AppProject の
+#   許可リスト外のため tech-feed-patch.yaml ($patch: delete) で除外し、aivisspeech Deployment は
+#   既定 replicas: 0 としてある。手動で確かめる手順:
+#   1. argocd app set pechka-pr-<N> --self-heal=false (selfHeal による replicas: 0 戻しを止める)
+#   2. kubectl -n <namespace> scale deployment aivisspeech --replicas=1
+#   3. kubectl -n <namespace> rollout status deployment/aivisspeech
+#   4. kubectl create で workflowTemplateRef: { name: tech-feed } の Workflow を作る
+#      (注: 現状の preview-network-policy では kube-apiserver 10.96.0.1:443 が遮断されているため、
+#       preview 内で Workflow を実実行するにはネットワーク方針または構成の見直しが別途必要)
+#   5. 確認後: kubectl -n <namespace> scale deployment aivisspeech --replicas=0 && argocd app set pechka-pr-<N> --self-heal=true
 #
 # namespace 名・イメージタグ・ingress host は ArgoCD 側のネイティブな kustomize.namespace/images/patches
 # 上書きで PR ごとに書き換える (docs/ideas/nash/nash-preview.yaml と同じやり方)。
@@ -39,7 +40,6 @@ resources:
   - ../../base/infra/postgres
   - ../../base/etl
   - ../../base/tech-feed
-  - argo-workflow-controller.yaml
   - postgres
   - local-secrets.yaml
   - minio-local.yaml

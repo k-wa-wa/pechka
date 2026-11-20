@@ -38,9 +38,10 @@ RUN set -eux; \
     apt-get upgrade -y --no-install-recommends; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*; \
-    gosu user /opt/python/bin/uv pip install --python /opt/aivisspeech-engine/.venv/bin/python --no-cache --upgrade \
+    gosu user /opt/python/bin/uv pip install --python /opt/aivisspeech-engine/.venv/bin/python --no-cache \
       'starlette==1.10.0' \
       'anyio==4.16.0' \
+      'typing-extensions==4.16.0' \
       'certifi==2026.10.23' \
       'filelock==4.2.9' \
       'fsspec==2026.9.0' \
