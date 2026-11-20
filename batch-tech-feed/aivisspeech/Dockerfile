@@ -42,10 +42,10 @@ RUN set -eux; \
       'starlette==1.10.0' \
       'anyio==4.16.0' \
       'certifi==2026.10.23' \
-      'filelock==4.2.12' \
+      'filelock==4.2.9' \
       'fsspec==2026.9.0' \
       'idna==3.20' \
-      'python-multipart==0.0.34' \
+      'python-multipart==0.0.33' \
       'urllib3==2.8.0'; \
     gosu user /opt/python/bin/uv pip check --python /opt/aivisspeech-engine/.venv/bin/python; \
     rm -rf /home/user/.cache/uv; \
