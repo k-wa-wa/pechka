@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/k-wa-wa/pechka/api/internal/domain"
 )
@@ -18,6 +19,29 @@ func NewSubtitleRepository(pool *pgxpool.Pool) *SubtitleRepository {
 	return &SubtitleRepository{pool: pool}
 }
 
+type subtitleTx interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	Commit(ctx context.Context) error
+	Rollback(ctx context.Context) error
+}
+
+type subtitleTxBeginner interface {
+	Begin(ctx context.Context) (subtitleTx, error)
+}
+
+type pgxPoolSubtitleBeginner struct {
+	pool *pgxpool.Pool
+}
+
+func (b pgxPoolSubtitleBeginner) Begin(ctx context.Context) (subtitleTx, error) {
+	tx, err := b.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return tx, nil
+}
+
 func scanTrack(row scanner) (*domain.SubtitleTrack, error) {
 	var t domain.SubtitleTrack
 	err := row.Scan(&t.ID, &t.ContentID, &t.Language, &t.Status, &t.Model, &t.CreatedAt, &t.UpdatedAt)
@@ -27,9 +51,10 @@ func scanTrack(row scanner) (*domain.SubtitleTrack, error) {
 	return &t, nil
 }
 
-const trackColumns = "id, content_id, language, status, model, created_at, updated_at"
-
 const (
+	trackColumns = "id, content_id, language, status, model, created_at, updated_at"
+	cueColumns   = "id, track_id, seq, start_ms, end_ms, text, original_text, flagged, updated_at"
+
 	listTracksQuery = "SELECT st.id, st.content_id, st.language, st.status, st.model, st.created_at, st.updated_at " +
 		"FROM subtitle_tracks st JOIN contents c ON c.id = st.content_id " +
 		"WHERE st.content_id = $1 AND c.deleted_at IS NULL ORDER BY st.language"
@@ -38,9 +63,10 @@ const (
 		"FROM subtitle_tracks st JOIN contents c ON c.id = st.content_id " +
 		"WHERE st.id = $1 AND c.deleted_at IS NULL"
 
-	setTrackStatusQuery = "UPDATE subtitle_tracks st SET status = $1 FROM contents c " +
-		"WHERE st.id = $2 AND st.content_id = c.id AND c.deleted_at IS NULL " +
-		"RETURNING st.id, st.content_id, st.language, st.status, st.model, st.created_at, st.updated_at"
+	lockParentByTrackQuery = "SELECT 1 FROM subtitle_tracks st JOIN contents c ON c.id = st.content_id " +
+		"WHERE st.id = $1 AND c.deleted_at IS NULL FOR SHARE"
+
+	setTrackStatusQuery = "UPDATE subtitle_tracks SET status = $1 WHERE id = $2 RETURNING " + trackColumns
 
 	listCuesQuery = "SELECT cu.id, cu.track_id, cu.seq, cu.start_ms, cu.end_ms, cu.text, cu.original_text, cu.flagged, cu.updated_at " +
 		"FROM subtitle_cues cu " +
@@ -48,11 +74,14 @@ const (
 		"JOIN contents c ON c.id = st.content_id " +
 		"WHERE cu.track_id = $1 AND c.deleted_at IS NULL ORDER BY cu.seq, cu.start_ms, cu.id"
 
-	insertCueCheckParentQuery = "SELECT 1 FROM subtitle_tracks st JOIN contents c ON c.id = st.content_id " +
-		"WHERE st.id = $1 AND c.deleted_at IS NULL FOR SHARE"
+	lockParentByCueQuery = "SELECT 1 FROM subtitle_cues cu " +
+		"JOIN subtitle_tracks st ON st.id = cu.track_id " +
+		"JOIN contents c ON c.id = st.content_id " +
+		"WHERE cu.id = $1 AND c.deleted_at IS NULL FOR SHARE"
 
-	deleteCueQuery = "DELETE FROM subtitle_cues cu USING subtitle_tracks st, contents c " +
-		"WHERE cu.id = $1 AND cu.track_id = st.id AND st.content_id = c.id AND c.deleted_at IS NULL"
+	insertCueCheckParentQuery = lockParentByTrackQuery
+
+	deleteCueQuery = "DELETE FROM subtitle_cues WHERE id = $1"
 )
 
 func (r *SubtitleRepository) ListTracksByContentID(ctx context.Context, contentID string) ([]*domain.SubtitleTrack, error) {
@@ -84,9 +113,33 @@ func (r *SubtitleRepository) GetTrack(ctx context.Context, trackID string) (*dom
 
 func (r *SubtitleRepository) SetTrackStatus(ctx context.Context, trackID string, status domain.SubtitleTrackStatus) (*domain.SubtitleTrack, error) {
 	return WithRetry(ctx, r.pool, func() (*domain.SubtitleTrack, error) {
-		row := r.pool.QueryRow(ctx, setTrackStatusQuery, status, trackID)
-		return scanTrack(row)
+		return setTrackStatusWithBeginner(ctx, pgxPoolSubtitleBeginner{pool: r.pool}, trackID, status)
 	})
+}
+
+func setTrackStatusWithBeginner(ctx context.Context, beginner subtitleTxBeginner, trackID string, status domain.SubtitleTrackStatus) (*domain.SubtitleTrack, error) {
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	var ok int
+	if err := tx.QueryRow(ctx, lockParentByTrackQuery, trackID).Scan(&ok); err != nil {
+		return nil, err
+	}
+
+	track, err := scanTrack(tx.QueryRow(ctx, setTrackStatusQuery, status, trackID))
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return track, nil
 }
 
 func scanCue(row scanner) (*domain.SubtitleCue, error) {
@@ -97,8 +150,6 @@ func scanCue(row scanner) (*domain.SubtitleCue, error) {
 	}
 	return &c, nil
 }
-
-const cueColumns = "id, track_id, seq, start_ms, end_ms, text, original_text, flagged, updated_at"
 
 func (r *SubtitleRepository) ListCuesByTrackID(ctx context.Context, trackID string) ([]*domain.SubtitleCue, error) {
 	return WithRetry(ctx, r.pool, func() ([]*domain.SubtitleCue, error) {
@@ -154,7 +205,7 @@ func buildUpdateCueQuery(params UpdateCueParams) (string, []any) {
 
 	args = append(args, params.ID)
 	query := fmt.Sprintf(
-		"UPDATE subtitle_cues cu SET %s FROM subtitle_tracks st, contents c WHERE cu.id = $%d AND cu.track_id = st.id AND st.content_id = c.id AND c.deleted_at IS NULL RETURNING cu.id, cu.track_id, cu.seq, cu.start_ms, cu.end_ms, cu.text, cu.original_text, cu.flagged, cu.updated_at",
+		"UPDATE subtitle_cues SET %s WHERE id = $%d RETURNING "+cueColumns,
 		strings.Join(setClauses, ", "), argIdx,
 	)
 	return query, args
@@ -162,10 +213,34 @@ func buildUpdateCueQuery(params UpdateCueParams) (string, []any) {
 
 func (r *SubtitleRepository) UpdateCue(ctx context.Context, params UpdateCueParams) (*domain.SubtitleCue, error) {
 	return WithRetry(ctx, r.pool, func() (*domain.SubtitleCue, error) {
-		query, args := buildUpdateCueQuery(params)
-		row := r.pool.QueryRow(ctx, query, args...)
-		return scanCue(row)
+		return updateCueWithBeginner(ctx, pgxPoolSubtitleBeginner{pool: r.pool}, params)
 	})
+}
+
+func updateCueWithBeginner(ctx context.Context, beginner subtitleTxBeginner, params UpdateCueParams) (*domain.SubtitleCue, error) {
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	var ok int
+	if err := tx.QueryRow(ctx, lockParentByCueQuery, params.ID).Scan(&ok); err != nil {
+		return nil, err
+	}
+
+	query, args := buildUpdateCueQuery(params)
+	cue, err := scanCue(tx.QueryRow(ctx, query, args...))
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return cue, nil
 }
 
 type InsertCueParams struct {
@@ -186,7 +261,9 @@ func (r *SubtitleRepository) InsertCue(ctx context.Context, params InsertCuePara
 		if err != nil {
 			return nil, err
 		}
-		defer tx.Rollback(ctx)
+		defer func() {
+			_ = tx.Rollback(ctx)
+		}()
 
 		var ok int
 		if err := tx.QueryRow(ctx, insertCueCheckParentQuery, params.TrackID).Scan(&ok); err != nil {
@@ -220,13 +297,31 @@ func (r *SubtitleRepository) InsertCue(ctx context.Context, params InsertCuePara
 
 func (r *SubtitleRepository) DeleteCue(ctx context.Context, id string) error {
 	return WithRetryVoid(ctx, r.pool, func() error {
-		tag, err := r.pool.Exec(ctx, deleteCueQuery, id)
-		if err != nil {
-			return err
-		}
-		if tag.RowsAffected() == 0 {
-			return pgx.ErrNoRows
-		}
-		return nil
+		return deleteCueWithBeginner(ctx, pgxPoolSubtitleBeginner{pool: r.pool}, id)
 	})
+}
+
+func deleteCueWithBeginner(ctx context.Context, beginner subtitleTxBeginner, id string) error {
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	var ok int
+	if err := tx.QueryRow(ctx, lockParentByCueQuery, id).Scan(&ok); err != nil {
+		return err
+	}
+
+	tag, err := tx.Exec(ctx, deleteCueQuery, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+
+	return tx.Commit(ctx)
 }

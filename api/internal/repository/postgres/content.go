@@ -244,6 +244,7 @@ const (
 	// LatestPlaylistLockKey は api（複数レプリカ）と batch/refresh-latest-playlist で共有する 64-bit アドバイザリロックキー。
 	LatestPlaylistLockKey int64 = 0x706563686b610001
 	LatestPlaylistLimit         = 50
+	LatestPlaylistTimeout       = 10 * time.Second
 	LatestPlaylistKey           = "resources/hls/latest.m3u8"
 	LatestPlaylistQuery         = `SELECT short_id, title, published_at
 		 FROM contents
@@ -329,6 +330,7 @@ func BuildLatestPlaylist(items []PlaylistItem) string {
 
 // RefreshLatestPlaylist は READ COMMITTED トランザクション内でアドバイザリロックを取得し、
 // 最新の未削除・未アーカイブかつ ready なコンテンツ一覧を取得して uploadFn（MinIO PutObject）を完了させた後にコミット（ロック解放）する。
+// S3 停滞によるロック長期保持や接続プール枯渇を防ぐため、全体処理に LatestPlaylistTimeout の期限を設ける。
 func (r *ContentRepository) RefreshLatestPlaylist(ctx context.Context, uploadFn func(ctx context.Context, playlist string) error) error {
 	if r.pool == nil {
 		return fmt.Errorf("postgres connection pool is nil")
@@ -337,24 +339,34 @@ func (r *ContentRepository) RefreshLatestPlaylist(ctx context.Context, uploadFn 
 		return fmt.Errorf("uploadFn is required")
 	}
 	return WithRetryVoid(ctx, r.pool, func() error {
-		return refreshLatestPlaylistWithBeginner(ctx, pgxPoolPlaylistBeginner{pool: r.pool}, uploadFn)
+		return refreshLatestPlaylistWithTimeout(ctx, pgxPoolPlaylistBeginner{pool: r.pool}, LatestPlaylistTimeout, uploadFn)
 	})
 }
 
 func refreshLatestPlaylistWithBeginner(ctx context.Context, beginner playlistTxBeginner, uploadFn func(ctx context.Context, playlist string) error) error {
-	tx, err := beginner.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	return refreshLatestPlaylistWithTimeout(ctx, beginner, LatestPlaylistTimeout, uploadFn)
+}
+
+func refreshLatestPlaylistWithTimeout(ctx context.Context, beginner playlistTxBeginner, timeout time.Duration, uploadFn func(ctx context.Context, playlist string) error) error {
+	opCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	tx, err := beginner.BeginTx(opCtx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return err
 	}
 	defer func() {
-		_ = tx.Rollback(ctx)
+		// opCtx が期限切れでも接続とアドバイザリロックを確実に解放するため独立したコンテキストでロールバックする
+		rollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer rollbackCancel()
+		_ = tx.Rollback(rollbackCtx)
 	}()
 
-	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", LatestPlaylistLockKey); err != nil {
+	if _, err := tx.Exec(opCtx, "SELECT pg_advisory_xact_lock($1)", LatestPlaylistLockKey); err != nil {
 		return fmt.Errorf("acquire playlist advisory lock: %w", err)
 	}
 
-	rows, err := tx.Query(ctx, LatestPlaylistQuery, LatestPlaylistLimit)
+	rows, err := tx.Query(opCtx, LatestPlaylistQuery, LatestPlaylistLimit)
 	if err != nil {
 		return fmt.Errorf("query latest playlist contents: %w", err)
 	}
@@ -375,11 +387,11 @@ func refreshLatestPlaylistWithBeginner(ctx context.Context, beginner playlistTxB
 	rows.Close()
 
 	playlist := BuildLatestPlaylist(items)
-	if err := uploadFn(ctx, playlist); err != nil {
+	if err := uploadFn(opCtx, playlist); err != nil {
 		return err
 	}
 
-	if err := tx.Commit(ctx); err != nil {
+	if err := tx.Commit(opCtx); err != nil {
 		return fmt.Errorf("commit playlist refresh transaction: %w", err)
 	}
 	return nil

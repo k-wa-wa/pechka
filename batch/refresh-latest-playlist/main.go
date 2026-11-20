@@ -21,6 +21,7 @@ const (
 	// latestPlaylistLockKey は api 側の pgRepo.LatestPlaylistLockKey と共有する 64-bit アドバイザリロックキー。
 	latestPlaylistLockKey int64 = 0x706563686b610001
 	latestPlaylistLimit         = 50
+	latestPlaylistTimeout       = 15 * time.Second
 	latestPlaylistQuery         = `SELECT short_id, title, published_at
 		 FROM contents
 		 WHERE status = 'ready' AND archived_at IS NULL AND deleted_at IS NULL
@@ -149,19 +150,29 @@ func main() {
 }
 
 func refreshPlaylist(ctx context.Context, beginner playlistTxBeginner, uploader objectUploader, bucket string) (int, error) {
-	tx, err := beginner.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	return refreshPlaylistWithTimeout(ctx, beginner, uploader, bucket, latestPlaylistTimeout)
+}
+
+func refreshPlaylistWithTimeout(ctx context.Context, beginner playlistTxBeginner, uploader objectUploader, bucket string, timeout time.Duration) (int, error) {
+	opCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	tx, err := beginner.BeginTx(opCtx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return 0, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer func() {
-		_ = tx.Rollback(ctx)
+		// opCtx が期限切れでも接続とアドバイザリロックを確実に解放する
+		rollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer rollbackCancel()
+		_ = tx.Rollback(rollbackCtx)
 	}()
 
-	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", latestPlaylistLockKey); err != nil {
+	if _, err := tx.Exec(opCtx, "SELECT pg_advisory_xact_lock($1)", latestPlaylistLockKey); err != nil {
 		return 0, fmt.Errorf("failed to acquire playlist advisory lock: %w", err)
 	}
 
-	rows, err := tx.Query(ctx, latestPlaylistQuery, latestPlaylistLimit)
+	rows, err := tx.Query(opCtx, latestPlaylistQuery, latestPlaylistLimit)
 	if err != nil {
 		return 0, fmt.Errorf("failed to query contents: %w", err)
 	}
@@ -183,7 +194,7 @@ func refreshPlaylist(ctx context.Context, beginner playlistTxBeginner, uploader 
 
 	playlist := buildPlaylist(contents)
 
-	_, err = uploader.PutObject(ctx, bucket, latestPlaylistKey,
+	_, err = uploader.PutObject(opCtx, bucket, latestPlaylistKey,
 		bytes.NewReader([]byte(playlist)),
 		int64(len(playlist)),
 		minio.PutObjectOptions{ContentType: "application/vnd.apple.mpegurl"},
@@ -192,7 +203,7 @@ func refreshPlaylist(ctx context.Context, beginner playlistTxBeginner, uploader 
 		return 0, fmt.Errorf("failed to upload latest playlist: %w", err)
 	}
 
-	if err := tx.Commit(ctx); err != nil {
+	if err := tx.Commit(opCtx); err != nil {
 		return 0, fmt.Errorf("failed to commit playlist refresh transaction: %w", err)
 	}
 

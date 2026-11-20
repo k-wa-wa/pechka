@@ -161,6 +161,30 @@ function compareItemToCursor(
   return compareCodePoints(item.short_id, cursor.id);
 }
 
+function stripDeletedField({ deleted_at: _deletedAt, ...rest }: MockAdminContent): Content {
+  return rest;
+}
+
+function isDeletedShortId(shortId: string): boolean {
+  const item = adminContents.find((c) => c.short_id === shortId);
+  return item != null && item.deleted_at != null;
+}
+
+function isContentDeleted(contentId: string): boolean {
+  const item = adminContents.find((c) => c.id === contentId);
+  return item != null && item.deleted_at != null;
+}
+
+function findActiveTrack(trackId: string): SubtitleTrack | null {
+  for (const tracks of Object.values(subtitleTracks)) {
+    const track = tracks.find((t) => t.id === trackId);
+    if (track) {
+      return isContentDeleted(track.content_id) ? null : track;
+    }
+  }
+  return null;
+}
+
 export const handlers = [
   http.get("/api/v1/channels", () => {
     return HttpResponse.json(CHANNELS);
@@ -177,20 +201,28 @@ export const handlers = [
     const contentType = url.searchParams.get("content_type");
     const channelId = url.searchParams.get("channel_id");
     const limit = Number(url.searchParams.get("limit") ?? "100");
-    let items = CONTENTS;
+    let items = CONTENTS.filter((c) => !isDeletedShortId(c.short_id));
     if (contentType) items = items.filter((c) => c.content_type === contentType);
     if (channelId) items = items.filter((c) => c.channel_id === channelId);
     return HttpResponse.json(items.slice(0, limit));
   }),
 
   http.get("/api/v1/contents/:shortId", ({ params }) => {
-    const item = CONTENTS.find((c) => c.short_id === params.shortId);
+    const shortId = params.shortId as string;
+    if (isDeletedShortId(shortId)) {
+      return HttpResponse.json({ error: "not found" }, { status: 404 });
+    }
+    const item = CONTENTS.find((c) => c.short_id === shortId);
     if (!item) return HttpResponse.json({ error: "not found" }, { status: 404 });
     return HttpResponse.json(item);
   }),
 
   http.get("/api/v1/contents/:shortId/variants", ({ params }) => {
-    const variants = VARIANTS[params.shortId as string] ?? [];
+    const shortId = params.shortId as string;
+    if (isDeletedShortId(shortId)) {
+      return HttpResponse.json({ error: "not found" }, { status: 404 });
+    }
+    const variants = VARIANTS[shortId] ?? [];
     return HttpResponse.json(variants);
   }),
 
@@ -216,9 +248,10 @@ export const handlers = [
     const q = (url.searchParams.get("q") ?? "").toLowerCase();
     const results = SEARCH_RESULTS.filter(
       (c) =>
-        c.title.toLowerCase().includes(q) ||
-        c.description.toLowerCase().includes(q) ||
-        c.tags.some((t) => t.toLowerCase().includes(q)),
+        !isDeletedShortId(c.short_id) &&
+        (c.title.toLowerCase().includes(q) ||
+          c.description.toLowerCase().includes(q) ||
+          c.tags.some((t) => t.toLowerCase().includes(q))),
     );
     return HttpResponse.json(results);
   }),
@@ -319,7 +352,7 @@ export const handlers = [
 
   http.put("/api/v1/admin/contents/:id", async ({ params, request }) => {
     const body = (await request.json()) as UpdateContentRequest;
-    const idx = adminContents.findIndex((c) => c.id === params.id);
+    const idx = adminContents.findIndex((c) => c.id === params.id && c.deleted_at == null);
     if (idx === -1) return HttpResponse.json({ error: "not found" }, { status: 404 });
     adminContents[idx] = {
       ...adminContents[idx],
@@ -330,7 +363,7 @@ export const handlers = [
       ...(body.status != null && { status: body.status }),
       updated_at: new Date().toISOString(),
     };
-    return HttpResponse.json(adminContents[idx]);
+    return HttpResponse.json(stripDeletedField(adminContents[idx]));
   }),
 
   http.post("/api/v1/admin/contents/upload", async ({ request }) => {
@@ -394,53 +427,62 @@ export const handlers = [
   }),
 
   http.post("/api/v1/admin/contents/:id/archive", ({ params }) => {
-    const idx = adminContents.findIndex((c) => c.id === params.id);
+    const idx = adminContents.findIndex((c) => c.id === params.id && c.deleted_at == null);
     if (idx === -1) return HttpResponse.json({ error: "not found" }, { status: 404 });
     adminContents[idx] = { ...adminContents[idx], archived_at: new Date().toISOString() };
-    return HttpResponse.json(adminContents[idx]);
+    return HttpResponse.json(stripDeletedField(adminContents[idx]));
   }),
 
   http.post("/api/v1/admin/contents/:id/unarchive", ({ params }) => {
-    const idx = adminContents.findIndex((c) => c.id === params.id);
+    const idx = adminContents.findIndex((c) => c.id === params.id && c.deleted_at == null);
     if (idx === -1) return HttpResponse.json({ error: "not found" }, { status: 404 });
     adminContents[idx] = { ...adminContents[idx], archived_at: null };
-    return HttpResponse.json(adminContents[idx]);
+    return HttpResponse.json(stripDeletedField(adminContents[idx]));
   }),
 
   http.get("/api/v1/admin/contents/:contentId/subtitles", ({ params }) => {
-    const tracks = subtitleTracks[params.contentId as string] ?? [];
+    const contentId = params.contentId as string;
+    if (isContentDeleted(contentId)) {
+      return HttpResponse.json([]);
+    }
+    const tracks = subtitleTracks[contentId] ?? [];
     return HttpResponse.json(tracks);
   }),
 
   http.put("/api/v1/admin/subtitles/:trackId/status", async ({ params, request }) => {
     const body = (await request.json()) as { status: SubtitleTrack["status"] };
-    for (const tracks of Object.values(subtitleTracks)) {
-      const track = tracks.find((t) => t.id === params.trackId);
-      if (track) {
-        track.status = body.status;
-        track.updated_at = new Date().toISOString();
-        return HttpResponse.json(track);
-      }
+    const track = findActiveTrack(params.trackId as string);
+    if (!track) {
+      return HttpResponse.json({ error: "not found" }, { status: 404 });
     }
-    return HttpResponse.json({ error: "not found" }, { status: 404 });
+    track.status = body.status;
+    track.updated_at = new Date().toISOString();
+    return HttpResponse.json(track);
   }),
 
   http.get("/api/v1/admin/subtitles/:trackId/cues", ({ params }) => {
-    const cues = subtitleCues[params.trackId as string] ?? [];
+    const track = findActiveTrack(params.trackId as string);
+    if (!track) {
+      return HttpResponse.json([]);
+    }
+    const cues = subtitleCues[track.id] ?? [];
     return HttpResponse.json(cues);
   }),
 
   http.post("/api/v1/admin/subtitles/:trackId/cues", async ({ params, request }) => {
+    const track = findActiveTrack(params.trackId as string);
+    if (!track) {
+      return HttpResponse.json({ error: "not found" }, { status: 404 });
+    }
     const body = (await request.json()) as {
       seq: number;
       start_ms: number;
       end_ms: number;
       text: string;
     };
-    const trackId = params.trackId as string;
     const cue: SubtitleCue = {
       id: `cue-${Date.now()}`,
-      track_id: trackId,
+      track_id: track.id,
       seq: body.seq,
       start_ms: body.start_ms,
       end_ms: body.end_ms,
@@ -449,8 +491,8 @@ export const handlers = [
       flagged: false,
       updated_at: new Date().toISOString(),
     };
-    subtitleCues[trackId] = [...(subtitleCues[trackId] ?? []), cue];
-    return HttpResponse.json(cue);
+    subtitleCues[track.id] = [...(subtitleCues[track.id] ?? []), cue];
+    return HttpResponse.json(cue, { status: 201 });
   }),
 
   http.put("/api/v1/admin/subtitles/cues/:cueId", async ({ params, request }) => {
@@ -458,6 +500,9 @@ export const handlers = [
     for (const cues of Object.values(subtitleCues)) {
       const cue = cues.find((c) => c.id === params.cueId);
       if (cue) {
+        if (!findActiveTrack(cue.track_id)) {
+          return HttpResponse.json({ error: "not found" }, { status: 404 });
+        }
         Object.assign(cue, body, { updated_at: new Date().toISOString() });
         return HttpResponse.json(cue);
       }
@@ -469,6 +514,9 @@ export const handlers = [
     for (const [trackId, cues] of Object.entries(subtitleCues)) {
       const idx = cues.findIndex((c) => c.id === params.cueId);
       if (idx !== -1) {
+        if (!findActiveTrack(trackId)) {
+          return HttpResponse.json({ error: "not found" }, { status: 404 });
+        }
         subtitleCues[trackId] = cues.filter((c) => c.id !== params.cueId);
         return new HttpResponse(null, { status: 204 });
       }

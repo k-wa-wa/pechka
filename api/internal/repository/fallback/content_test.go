@@ -415,3 +415,164 @@ func TestFallbackContentRepository_ListAdmin_PrimaryAndFallback(t *testing.T) {
 		}
 	})
 }
+
+type mockAdminPgQuerier struct {
+	countFn     func(ctx context.Context, query string, args ...any) (int, error)
+	queryRowsFn func(ctx context.Context, query string, args ...any) ([]*domain.Content, error)
+	existsFn    func(ctx context.Context, query string, args ...any) (bool, error)
+	existsCalls int
+}
+
+func (m *mockAdminPgQuerier) Count(ctx context.Context, query string, args ...any) (int, error) {
+	if m.countFn != nil {
+		return m.countFn(ctx, query, args...)
+	}
+	return 0, nil
+}
+
+func (m *mockAdminPgQuerier) QueryRows(ctx context.Context, query string, args ...any) ([]*domain.Content, error) {
+	if m.queryRowsFn != nil {
+		return m.queryRowsFn(ctx, query, args...)
+	}
+	return nil, nil
+}
+
+func (m *mockAdminPgQuerier) Exists(ctx context.Context, query string, args ...any) (bool, error) {
+	m.existsCalls++
+	if m.existsFn != nil {
+		return m.existsFn(ctx, query, args...)
+	}
+	return false, nil
+}
+
+func TestListAdminWithQuerier_PageAssemblyAndBoundaries(t *testing.T) {
+	ctx := context.Background()
+	tsSameMs1 := time.Date(2025, 5, 1, 10, 0, 0, 123456000, time.UTC)
+	tsSameMs2 := time.Date(2025, 5, 1, 10, 0, 0, 123789000, time.UTC)
+
+	t.Run("0 items with cursor skips exists probe", func(t *testing.T) {
+		q := &mockAdminPgQuerier{
+			countFn: func(_ context.Context, _ string, _ ...any) (int, error) { return 5, nil },
+			queryRowsFn: func(_ context.Context, _ string, _ ...any) ([]*domain.Content, error) {
+				return []*domain.Content{}, nil
+			},
+		}
+		cur := &mongoRepo.AdminCursor{Sort: domain.ContentSortUpdatedDesc, Time: tsSameMs1, ID: "s1"}
+		page, err := fallback.ListAdminWithQuerier(ctx, q, mongoRepo.AdminListParams{Sort: domain.ContentSortUpdatedDesc, After: cur, Limit: 2})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(page.Contents) != 0 || page.Total != 5 || page.HasNext || page.HasPrev || page.NextCursor != nil || page.PrevCursor != nil {
+			t.Errorf("unexpected empty page: %+v", page)
+		}
+		if q.existsCalls != 0 {
+			t.Errorf("expected 0 exists calls on empty page, got %d", q.existsCalls)
+		}
+	})
+
+	t.Run("exact limit items hasNext is false", func(t *testing.T) {
+		items := []*domain.Content{
+			{ID: "u1", ShortID: "s1", Title: "Same", UpdatedAt: tsSameMs1},
+			{ID: "u2", ShortID: "s2", Title: "Same", UpdatedAt: tsSameMs2},
+		}
+		q := &mockAdminPgQuerier{
+			countFn:     func(_ context.Context, _ string, _ ...any) (int, error) { return 2, nil },
+			queryRowsFn: func(_ context.Context, _ string, _ ...any) ([]*domain.Content, error) { return items, nil },
+		}
+		page, err := fallback.ListAdminWithQuerier(ctx, q, mongoRepo.AdminListParams{Sort: domain.ContentSortUpdatedDesc, Limit: 2})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(page.Contents) != 2 || page.HasNext || page.HasPrev || page.NextCursor != nil || page.PrevCursor != nil {
+			t.Errorf("unexpected exact-limit page: %+v", page)
+		}
+	})
+
+	t.Run("limit+1 items with after truncates and verifies millisecond tiebreaker cursors", func(t *testing.T) {
+		items := []*domain.Content{
+			{ID: "u1", ShortID: "s1", Title: "Same", UpdatedAt: tsSameMs1},
+			{ID: "u2", ShortID: "s2", Title: "Same", UpdatedAt: tsSameMs2},
+			{ID: "u3", ShortID: "s3", Title: "Same", UpdatedAt: tsSameMs1},
+		}
+		var gotExistsQuery string
+		var gotExistsArgs []any
+		q := &mockAdminPgQuerier{
+			countFn:     func(_ context.Context, _ string, _ ...any) (int, error) { return 4, nil },
+			queryRowsFn: func(_ context.Context, _ string, _ ...any) ([]*domain.Content, error) { return items, nil },
+			existsFn: func(_ context.Context, query string, args ...any) (bool, error) {
+				gotExistsQuery = query
+				gotExistsArgs = args
+				return true, nil
+			},
+		}
+		afterCur := &mongoRepo.AdminCursor{Sort: domain.ContentSortUpdatedDesc, Time: tsSameMs1.Truncate(time.Millisecond), ID: "s0"}
+		page, err := fallback.ListAdminWithQuerier(ctx, q, mongoRepo.AdminListParams{Sort: domain.ContentSortUpdatedDesc, After: afterCur, Limit: 2})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(page.Contents) != 2 || page.Contents[0].ShortID != "s1" || page.Contents[1].ShortID != "s2" {
+			t.Fatalf("unexpected truncated contents: %+v", page.Contents)
+		}
+		if !page.HasNext || !page.HasPrev || page.NextCursor == nil || page.PrevCursor == nil {
+			t.Fatalf("expected cursors and flags true, got %+v", page)
+		}
+		nc, _ := mongoRepo.DecodeAdminCursor(*page.NextCursor, domain.ContentSortUpdatedDesc)
+		pc, _ := mongoRepo.DecodeAdminCursor(*page.PrevCursor, domain.ContentSortUpdatedDesc)
+		if nc.ID != "s2" || pc.ID != "s1" {
+			t.Errorf("unexpected cursors: prev=%s next=%s", pc.ID, nc.ID)
+		}
+		if !strings.Contains(gotExistsQuery, `c.short_id COLLATE "C" < $`) || len(gotExistsArgs) != 2 || gotExistsArgs[1] != "s1" {
+			t.Errorf("unexpected prev exists query/args: %s %v", gotExistsQuery, gotExistsArgs)
+		}
+	})
+
+	t.Run("before cursor reverses slice and probes hasNext", func(t *testing.T) {
+		reverseRows := []*domain.Content{
+			{ID: "u3", ShortID: "s3", Title: "B", CreatedAt: tsSameMs1},
+			{ID: "u2", ShortID: "s2", Title: "B", CreatedAt: tsSameMs2},
+			{ID: "u1", ShortID: "s1", Title: "A", CreatedAt: tsSameMs1},
+		}
+		var gotExistsQuery string
+		var gotExistsArgs []any
+		q := &mockAdminPgQuerier{
+			countFn:     func(_ context.Context, _ string, _ ...any) (int, error) { return 4, nil },
+			queryRowsFn: func(_ context.Context, _ string, _ ...any) ([]*domain.Content, error) { return reverseRows, nil },
+			existsFn: func(_ context.Context, query string, args ...any) (bool, error) {
+				gotExistsQuery = query
+				gotExistsArgs = args
+				return true, nil
+			},
+		}
+		beforeCur := &mongoRepo.AdminCursor{Sort: domain.ContentSortTitleAsc, Title: "C", ID: "s4"}
+		page, err := fallback.ListAdminWithQuerier(ctx, q, mongoRepo.AdminListParams{Sort: domain.ContentSortTitleAsc, Before: beforeCur, Limit: 2})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(page.Contents) != 2 || page.Contents[0].ShortID != "s2" || page.Contents[1].ShortID != "s3" {
+			t.Fatalf("expected reversed forward order [s2, s3], got %+v", page.Contents)
+		}
+		if !page.HasPrev || !page.HasNext || page.PrevCursor == nil || page.NextCursor == nil {
+			t.Fatalf("expected hasPrev & hasNext true, got %+v", page)
+		}
+		if !strings.Contains(gotExistsQuery, `c.short_id COLLATE "C" > $`) || len(gotExistsArgs) != 2 || gotExistsArgs[1] != "s3" {
+			t.Errorf("unexpected next exists query/args: %s %v", gotExistsQuery, gotExistsArgs)
+		}
+	})
+
+	t.Run("exists error propagates", func(t *testing.T) {
+		q := &mockAdminPgQuerier{
+			countFn: func(_ context.Context, _ string, _ ...any) (int, error) { return 2, nil },
+			queryRowsFn: func(_ context.Context, _ string, _ ...any) ([]*domain.Content, error) {
+				return []*domain.Content{{ID: "u1", ShortID: "s1", UpdatedAt: tsSameMs1}}, nil
+			},
+			existsFn: func(_ context.Context, _ string, _ ...any) (bool, error) {
+				return false, errors.New("pg exists failed")
+			},
+		}
+		afterCur := &mongoRepo.AdminCursor{Sort: domain.ContentSortUpdatedDesc, Time: tsSameMs1, ID: "s0"}
+		_, err := fallback.ListAdminWithQuerier(ctx, q, mongoRepo.AdminListParams{Sort: domain.ContentSortUpdatedDesc, After: afterCur, Limit: 2})
+		if err == nil || !strings.Contains(err.Error(), "pg exists failed") {
+			t.Fatalf("expected exists error to propagate, got %v", err)
+		}
+	})
+}

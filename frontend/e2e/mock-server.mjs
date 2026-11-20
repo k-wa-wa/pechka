@@ -268,6 +268,21 @@ function stripDeletedField(item) {
   return rest;
 }
 
+function isContentDeleted(contentId) {
+  const item = ADMIN_CONTENTS.find((c) => c.id === contentId);
+  return item != null && item.deleted_at != null;
+}
+
+function findActiveTrack(trackId) {
+  for (const tracks of Object.values(SUBTITLE_TRACKS)) {
+    const track = tracks.find((t) => t.id === trackId);
+    if (track) {
+      return isContentDeleted(track.content_id) ? null : track;
+    }
+  }
+  return null;
+}
+
 const SAMPLE_MARKDOWN = `# 2024年度 活動報告書
 
 本ドキュメントは **pechka** メディア基盤における年間の活動と技術構成をまとめたレポートです。
@@ -486,6 +501,11 @@ const server = http.createServer(async (req, res) => {
   // GET /api/v1/contents/:shortId/variants
   const variantsMatch = path.match(/^\/api\/v1\/contents\/([^/]+)\/variants$/);
   if (variantsMatch) {
+    const item = CONTENTS.find((c) => c.short_id === variantsMatch[1] && !c.deleted_at);
+    if (!item) {
+      send(res, 404, { error: "not found" });
+      return;
+    }
     const variants = VARIANTS[variantsMatch[1]] ?? [];
     send(res, 200, variants);
     return;
@@ -621,7 +641,7 @@ const server = http.createServer(async (req, res) => {
   // PUT /api/v1/admin/contents/:id
   const updateContentMatch = path.match(/^\/api\/v1\/admin\/contents\/([^/]+)$/);
   if (updateContentMatch && method === "PUT") {
-    const item = ADMIN_CONTENTS.find((c) => c.id === updateContentMatch[1]);
+    const item = ADMIN_CONTENTS.find((c) => c.id === updateContentMatch[1] && c.deleted_at == null);
     if (!item) {
       send(res, 404, { error: "not found" });
       return;
@@ -648,7 +668,7 @@ const server = http.createServer(async (req, res) => {
       if (body.status != null) pubItem.status = body.status;
       pubItem.updated_at = item.updated_at;
     }
-    send(res, 200, item);
+    send(res, 200, stripDeletedField(item));
     return;
   }
 
@@ -731,32 +751,36 @@ const server = http.createServer(async (req, res) => {
   // POST /api/v1/admin/contents/:id/archive
   const archiveMatch = path.match(/^\/api\/v1\/admin\/contents\/([^/]+)\/archive$/);
   if (archiveMatch && method === "POST") {
-    const item = ADMIN_CONTENTS.find((c) => c.id === archiveMatch[1]);
+    const item = ADMIN_CONTENTS.find((c) => c.id === archiveMatch[1] && c.deleted_at == null);
     if (!item) {
       send(res, 404, { error: "not found" });
       return;
     }
     item.archived_at = MOCK_NOW;
-    send(res, 200, item);
+    send(res, 200, stripDeletedField(item));
     return;
   }
 
   // POST /api/v1/admin/contents/:id/unarchive
   const unarchiveMatch = path.match(/^\/api\/v1\/admin\/contents\/([^/]+)\/unarchive$/);
   if (unarchiveMatch && method === "POST") {
-    const item = ADMIN_CONTENTS.find((c) => c.id === unarchiveMatch[1]);
+    const item = ADMIN_CONTENTS.find((c) => c.id === unarchiveMatch[1] && c.deleted_at == null);
     if (!item) {
       send(res, 404, { error: "not found" });
       return;
     }
     item.archived_at = null;
-    send(res, 200, item);
+    send(res, 200, stripDeletedField(item));
     return;
   }
 
   // GET /api/v1/admin/contents/:contentId/subtitles
   const subtitleTracksMatch = path.match(/^\/api\/v1\/admin\/contents\/([^/]+)\/subtitles$/);
   if (subtitleTracksMatch && method === "GET") {
+    if (isContentDeleted(subtitleTracksMatch[1])) {
+      send(res, 200, []);
+      return;
+    }
     send(res, 200, SUBTITLE_TRACKS[subtitleTracksMatch[1]] ?? []);
     return;
   }
@@ -764,9 +788,7 @@ const server = http.createServer(async (req, res) => {
   // PUT /api/v1/admin/subtitles/:trackId/status
   const trackStatusMatch = path.match(/^\/api\/v1\/admin\/subtitles\/([^/]+)\/status$/);
   if (trackStatusMatch && method === "PUT") {
-    const track = Object.values(SUBTITLE_TRACKS)
-      .flat()
-      .find((t) => t.id === trackStatusMatch[1]);
+    const track = findActiveTrack(trackStatusMatch[1]);
     if (!track) {
       send(res, 404, { error: "not found" });
       return;
@@ -781,17 +803,26 @@ const server = http.createServer(async (req, res) => {
   // GET /api/v1/admin/subtitles/:trackId/cues
   const cuesMatch = path.match(/^\/api\/v1\/admin\/subtitles\/([^/]+)\/cues$/);
   if (cuesMatch && method === "GET") {
-    send(res, 200, SUBTITLE_CUES[cuesMatch[1]] ?? []);
+    const track = findActiveTrack(cuesMatch[1]);
+    if (!track) {
+      send(res, 200, []);
+      return;
+    }
+    send(res, 200, SUBTITLE_CUES[track.id] ?? []);
     return;
   }
 
   // POST /api/v1/admin/subtitles/:trackId/cues
   if (cuesMatch && method === "POST") {
-    const trackId = cuesMatch[1];
+    const track = findActiveTrack(cuesMatch[1]);
+    if (!track) {
+      send(res, 404, { error: "not found" });
+      return;
+    }
     const body = await readJsonBody(req);
     const cue = {
       id: `cue-${Date.now()}`,
-      track_id: trackId,
+      track_id: track.id,
       seq: body.seq,
       start_ms: body.start_ms,
       end_ms: body.end_ms,
@@ -800,8 +831,8 @@ const server = http.createServer(async (req, res) => {
       flagged: false,
       updated_at: MOCK_NOW,
     };
-    SUBTITLE_CUES[trackId] = [...(SUBTITLE_CUES[trackId] ?? []), cue];
-    send(res, 200, cue);
+    SUBTITLE_CUES[track.id] = [...(SUBTITLE_CUES[track.id] ?? []), cue];
+    send(res, 201, cue);
     return;
   }
 
@@ -811,7 +842,7 @@ const server = http.createServer(async (req, res) => {
     const cue = Object.values(SUBTITLE_CUES)
       .flat()
       .find((c) => c.id === cueUpdateMatch[1]);
-    if (!cue) {
+    if (!cue || !findActiveTrack(cue.track_id)) {
       send(res, 404, { error: "not found" });
       return;
     }
@@ -826,9 +857,15 @@ const server = http.createServer(async (req, res) => {
     const cueId = cueUpdateMatch[1];
     let found = false;
     for (const trackId of Object.keys(SUBTITLE_CUES)) {
-      const before = SUBTITLE_CUES[trackId].length;
-      SUBTITLE_CUES[trackId] = SUBTITLE_CUES[trackId].filter((c) => c.id !== cueId);
-      if (SUBTITLE_CUES[trackId].length !== before) found = true;
+      const idx = SUBTITLE_CUES[trackId].findIndex((c) => c.id === cueId);
+      if (idx !== -1) {
+        if (!findActiveTrack(trackId)) {
+          send(res, 404, { error: "not found" });
+          return;
+        }
+        SUBTITLE_CUES[trackId] = SUBTITLE_CUES[trackId].filter((c) => c.id !== cueId);
+        found = true;
+      }
     }
     if (!found) {
       send(res, 404, { error: "not found" });

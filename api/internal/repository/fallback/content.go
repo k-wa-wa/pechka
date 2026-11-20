@@ -565,12 +565,67 @@ func BuildAdminContentExistsQuery(params mongoRepo.AdminListParams, cur *mongoRe
 	return "SELECT EXISTS(SELECT 1 FROM contents c WHERE " + strings.Join(conditions, " AND ") + ")", args, nil
 }
 
+type adminPgQuerier interface {
+	Count(ctx context.Context, query string, args ...any) (int, error)
+	QueryRows(ctx context.Context, query string, args ...any) ([]*domain.Content, error)
+	Exists(ctx context.Context, query string, args ...any) (bool, error)
+}
+
+type pgxPoolAdminQuerier struct {
+	pool *pgxpool.Pool
+}
+
+func (q *pgxPoolAdminQuerier) Count(ctx context.Context, query string, args ...any) (int, error) {
+	var total int
+	if err := q.pool.QueryRow(ctx, query, args...).Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
+func (q *pgxPoolAdminQuerier) QueryRows(ctx context.Context, query string, args ...any) ([]*domain.Content, error) {
+	rows, err := q.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []*domain.Content
+	for rows.Next() {
+		c, scanErr := scanAdminContent(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		items = append(items, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func (q *pgxPoolAdminQuerier) Exists(ctx context.Context, query string, args ...any) (bool, error) {
+	var exists bool
+	if err := q.pool.QueryRow(ctx, query, args...).Scan(&exists); err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
 // ListAdmin executes fallback query for admin contents cursor pagination against PostgreSQL.
 func (s *PostgresContentStore) ListAdmin(ctx context.Context, params mongoRepo.AdminListParams) (*domain.AdminContentPage, error) {
 	if s.pool == nil {
 		return nil, errors.New("postgres connection pool is nil")
 	}
 
+	querier := &pgxPoolAdminQuerier{pool: s.pool}
+	return pgRepo.WithRetry(ctx, s.pool, func() (*domain.AdminContentPage, error) {
+		return ListAdminWithQuerier(ctx, querier, params)
+	})
+}
+
+// ListAdminWithQuerier assembles cursor-paginated admin pages using the provided query runner.
+func ListAdminWithQuerier(ctx context.Context, querier adminPgQuerier, params mongoRepo.AdminListParams) (*domain.AdminContentPage, error) {
 	sort := params.Sort
 	if sort == "" {
 		sort = domain.ContentSortUpdatedDesc
@@ -588,97 +643,84 @@ func (s *PostgresContentStore) ListAdmin(ctx context.Context, params mongoRepo.A
 	}
 	countQuery, countArgs := BuildAdminContentCountQuery(params)
 
-	return pgRepo.WithRetry(ctx, s.pool, func() (*domain.AdminContentPage, error) {
-		var total int
-		if err := s.pool.QueryRow(ctx, countQuery, countArgs...).Scan(&total); err != nil {
-			return nil, err
-		}
+	total, err := querier.Count(ctx, countQuery, countArgs...)
+	if err != nil {
+		return nil, err
+	}
 
-		rows, err := s.pool.Query(ctx, listQuery, listArgs...)
+	items, err := querier.QueryRows(ctx, listQuery, listArgs...)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(items) == 0 {
+		return &domain.AdminContentPage{
+			Contents: []*domain.Content{},
+			Total:    total,
+			HasNext:  false,
+			HasPrev:  false,
+		}, nil
+	}
+
+	hasMore := len(items) > limit
+	if hasMore {
+		items = items[:limit]
+	}
+	if reverse {
+		slices.Reverse(items)
+	}
+
+	var hasNext, hasPrev bool
+	if reverse {
+		hasPrev = hasMore
+		last := items[len(items)-1]
+		existsQuery, existsArgs, err := BuildAdminContentExistsQuery(params, adminCursorFromContent(sort, last), true)
 		if err != nil {
 			return nil, err
 		}
-		defer rows.Close()
-
-		var items []*domain.Content
-		for rows.Next() {
-			c, scanErr := scanAdminContent(rows)
-			if scanErr != nil {
-				return nil, scanErr
-			}
-			items = append(items, c)
-		}
-		if err := rows.Err(); err != nil {
+		hasNext, err = querier.Exists(ctx, existsQuery, existsArgs...)
+		if err != nil {
 			return nil, err
 		}
-
-		if len(items) == 0 {
-			return &domain.AdminContentPage{
-				Contents: []*domain.Content{},
-				Total:    total,
-				HasNext:  false,
-				HasPrev:  false,
-			}, nil
-		}
-
-		hasMore := len(items) > limit
-		if hasMore {
-			items = items[:limit]
-		}
-		if reverse {
-			slices.Reverse(items)
-		}
-
-		var hasNext, hasPrev bool
-		if reverse {
-			hasPrev = hasMore
-			last := items[len(items)-1]
-			existsQuery, existsArgs, err := BuildAdminContentExistsQuery(params, adminCursorFromContent(sort, last), true)
+	} else {
+		hasNext = hasMore
+		if params.After != nil {
+			first := items[0]
+			existsQuery, existsArgs, err := BuildAdminContentExistsQuery(params, adminCursorFromContent(sort, first), false)
 			if err != nil {
 				return nil, err
 			}
-			if err := s.pool.QueryRow(ctx, existsQuery, existsArgs...).Scan(&hasNext); err != nil {
-				return nil, err
-			}
-		} else {
-			hasNext = hasMore
-			if params.After != nil {
-				first := items[0]
-				existsQuery, existsArgs, err := BuildAdminContentExistsQuery(params, adminCursorFromContent(sort, first), false)
-				if err != nil {
-					return nil, err
-				}
-				if err := s.pool.QueryRow(ctx, existsQuery, existsArgs...).Scan(&hasPrev); err != nil {
-					return nil, err
-				}
-			}
-		}
-
-		var nextCursor, prevCursor *string
-		if hasNext {
-			nc, err := mongoRepo.EncodeAdminCursor(sort, items[len(items)-1])
+			hasPrev, err = querier.Exists(ctx, existsQuery, existsArgs...)
 			if err != nil {
 				return nil, err
 			}
-			nextCursor = &nc
 		}
-		if hasPrev {
-			pc, err := mongoRepo.EncodeAdminCursor(sort, items[0])
-			if err != nil {
-				return nil, err
-			}
-			prevCursor = &pc
-		}
+	}
 
-		return &domain.AdminContentPage{
-			Contents:   items,
-			Total:      total,
-			NextCursor: nextCursor,
-			PrevCursor: prevCursor,
-			HasNext:    hasNext,
-			HasPrev:    hasPrev,
-		}, nil
-	})
+	var nextCursor, prevCursor *string
+	if hasNext {
+		nc, err := mongoRepo.EncodeAdminCursor(sort, items[len(items)-1])
+		if err != nil {
+			return nil, err
+		}
+		nextCursor = &nc
+	}
+	if hasPrev {
+		pc, err := mongoRepo.EncodeAdminCursor(sort, items[0])
+		if err != nil {
+			return nil, err
+		}
+		prevCursor = &pc
+	}
+
+	return &domain.AdminContentPage{
+		Contents:   items,
+		Total:      total,
+		NextCursor: nextCursor,
+		PrevCursor: prevCursor,
+		HasNext:    hasNext,
+		HasPrev:    hasPrev,
+	}, nil
 }
 
 func adminCursorFromContent(sort domain.ContentSort, c *domain.Content) *mongoRepo.AdminCursor {

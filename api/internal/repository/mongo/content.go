@@ -481,11 +481,73 @@ func timeForSort(sort domain.ContentSort, c *domain.Content) time.Time {
 	}
 }
 
+type adminDocStore interface {
+	FindUnmigrated(ctx context.Context, filter bson.M) (bool, error)
+	CountDocuments(ctx context.Context, filter bson.M) (int64, error)
+	FindAdminDocs(ctx context.Context, filter bson.M, sort bson.D, limit int64) ([]mongoAdminDoc, error)
+	ExistsAdminDoc(ctx context.Context, filter bson.M) (bool, error)
+}
+
+type mongoCollectionAdminStore struct {
+	col *mongo.Collection
+}
+
+func (s *mongoCollectionAdminStore) FindUnmigrated(ctx context.Context, filter bson.M) (bool, error) {
+	var probe bson.M
+	err := s.col.FindOne(ctx, filter, options.FindOne().SetProjection(bson.M{"_id": 1})).Decode(&probe)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return false, nil
+	}
+	return false, err
+}
+
+func (s *mongoCollectionAdminStore) CountDocuments(ctx context.Context, filter bson.M) (int64, error) {
+	return s.col.CountDocuments(ctx, filter)
+}
+
+func (s *mongoCollectionAdminStore) FindAdminDocs(ctx context.Context, filter bson.M, sort bson.D, limit int64) ([]mongoAdminDoc, error) {
+	opts := options.Find().SetSort(sort).SetLimit(limit)
+	cursor, err := s.col.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var docs []mongoAdminDoc
+	if err := cursor.All(ctx, &docs); err != nil {
+		return nil, err
+	}
+	return docs, nil
+}
+
+func (s *mongoCollectionAdminStore) ExistsAdminDoc(ctx context.Context, filter bson.M) (bool, error) {
+	var probe bson.M
+	err := s.col.FindOne(ctx, filter, options.FindOne().SetProjection(bson.M{"_id": 1})).Decode(&probe)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return false, nil
+	}
+	return false, err
+}
+
 func (r *ContentRepository) ListAdmin(ctx context.Context, params AdminListParams) (*domain.AdminContentPage, error) {
 	if r.col == nil {
 		return nil, errors.New("mongo collection is nil")
 	}
+	if !r.indexesEnsured.Load() {
+		if err := r.EnsureIndexes(ctx); err != nil {
+			return nil, err
+		}
+	}
+	return r.listAdminWithStore(ctx, &mongoCollectionAdminStore{col: r.col}, params)
+}
 
+func (r *ContentRepository) listAdminWithStore(ctx context.Context, store adminDocStore, params AdminListParams) (*domain.AdminContentPage, error) {
 	sort := params.Sort
 	if sort == "" {
 		sort = domain.ContentSortUpdatedDesc
@@ -502,43 +564,26 @@ func (r *ContentRepository) ListAdmin(ctx context.Context, params AdminListParam
 		return nil, err
 	}
 
-	if !r.indexesEnsured.Load() {
-		if err := r.EnsureIndexes(ctx); err != nil {
+	if !r.migrated.Load() {
+		foundUnmigrated, err := store.FindUnmigrated(ctx, unmigratedAdminDocFilter())
+		if err != nil {
 			return nil, err
 		}
-	}
-
-	if !r.migrated.Load() {
-		var probe bson.M
-		err := r.col.FindOne(ctx, unmigratedAdminDocFilter(), options.FindOne().SetProjection(bson.M{"_id": 1})).Decode(&probe)
-		if err == nil {
+		if foundUnmigrated {
 			slog.WarnContext(ctx, "unmigrated document detected in mongodb contents collection; falling back to postgres")
 			return nil, ErrUnmigratedReadModel
-		}
-		if !errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, err
 		}
 		r.migrated.Store(true)
 	}
 
-	total64, err := r.col.CountDocuments(ctx, plan.BaseFilter)
+	total64, err := store.CountDocuments(ctx, plan.BaseFilter)
 	if err != nil {
 		return nil, err
 	}
 	total := int(total64)
 
-	opts := options.Find().
-		SetSort(plan.Sort).
-		SetLimit(plan.FetchLimit)
-
-	cursor, err := r.col.Find(ctx, plan.FindFilter, opts)
+	docs, err := store.FindAdminDocs(ctx, plan.FindFilter, plan.Sort, plan.FetchLimit)
 	if err != nil {
-		return nil, err
-	}
-	defer cursor.Close(ctx)
-
-	var docs []mongoAdminDoc
-	if err := cursor.All(ctx, &docs); err != nil {
 		return nil, err
 	}
 
@@ -570,25 +615,21 @@ func (r *ContentRepository) ListAdmin(ctx context.Context, params AdminListParam
 		hasPrev = hasMore
 		last := contents[len(contents)-1]
 		afterFilter := combineFilters(plan.BaseFilter, buildAdminRangeFilter(plan.Field, plan.Dir, cursorFromContent(sort, last), true))
-		var probe bson.M
-		err := r.col.FindOne(ctx, afterFilter, options.FindOne().SetProjection(bson.M{"_id": 1})).Decode(&probe)
-		if err == nil {
-			hasNext = true
-		} else if !errors.Is(err, mongo.ErrNoDocuments) {
+		exists, err := store.ExistsAdminDoc(ctx, afterFilter)
+		if err != nil {
 			return nil, err
 		}
+		hasNext = exists
 	} else {
 		hasNext = hasMore
 		if params.After != nil {
 			first := contents[0]
 			beforeFilter := combineFilters(plan.BaseFilter, buildAdminRangeFilter(plan.Field, plan.Dir, cursorFromContent(sort, first), false))
-			var probe bson.M
-			err := r.col.FindOne(ctx, beforeFilter, options.FindOne().SetProjection(bson.M{"_id": 1})).Decode(&probe)
-			if err == nil {
-				hasPrev = true
-			} else if !errors.Is(err, mongo.ErrNoDocuments) {
+			exists, err := store.ExistsAdminDoc(ctx, beforeFilter)
+			if err != nil {
 				return nil, err
 			}
+			hasPrev = exists
 		}
 	}
 

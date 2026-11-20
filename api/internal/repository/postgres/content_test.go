@@ -256,3 +256,34 @@ func TestRefreshLatestPlaylistWithBeginner_UploadErrorRollsBack(t *testing.T) {
 		t.Errorf("execution order = %q, want %q", got, wantOrder)
 	}
 }
+
+func TestRefreshLatestPlaylistWithTimeout_DeadlineReleasesLock(t *testing.T) {
+	if LatestPlaylistTimeout <= 0 {
+		t.Fatalf("LatestPlaylistTimeout must be positive, got %v", LatestPlaylistTimeout)
+	}
+	events := []string{}
+	beginner := &mockPlaylistBeginner{
+		events: &events,
+		tx: &mockPlaylistTx{
+			events: &events,
+			items:  []PlaylistItem{{ShortID: "s1", Title: "Video"}},
+		},
+	}
+
+	var hasDeadline bool
+	err := refreshLatestPlaylistWithTimeout(context.Background(), beginner, 20*time.Millisecond, func(ctx context.Context, _ string) error {
+		_, hasDeadline = ctx.Deadline()
+		events = append(events, "upload_wait")
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	if !hasDeadline {
+		t.Fatal("expected uploadFn context to have a deadline")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context.DeadlineExceeded, got %v", err)
+	}
+	if got := strings.Join(events, ","); got != "begin,lock,query,upload_wait,rollback" {
+		t.Errorf("expected rollback without commit on deadline, got %q", got)
+	}
+}

@@ -322,3 +322,215 @@ func indexStr(s, sub string) int {
 	}
 	return -1
 }
+
+type mockAdminDocStore struct {
+	findUnmigratedFn func(ctx context.Context, filter bson.M) (bool, error)
+	countFn          func(ctx context.Context, filter bson.M) (int64, error)
+	findDocsFn       func(ctx context.Context, filter bson.M, sort bson.D, limit int64) ([]mongoAdminDoc, error)
+	existsFn         func(ctx context.Context, filter bson.M) (bool, error)
+	existsCalls      int
+}
+
+func (m *mockAdminDocStore) FindUnmigrated(ctx context.Context, filter bson.M) (bool, error) {
+	if m.findUnmigratedFn != nil {
+		return m.findUnmigratedFn(ctx, filter)
+	}
+	return false, nil
+}
+
+func (m *mockAdminDocStore) CountDocuments(ctx context.Context, filter bson.M) (int64, error) {
+	if m.countFn != nil {
+		return m.countFn(ctx, filter)
+	}
+	return 0, nil
+}
+
+func (m *mockAdminDocStore) FindAdminDocs(ctx context.Context, filter bson.M, sort bson.D, limit int64) ([]mongoAdminDoc, error) {
+	if m.findDocsFn != nil {
+		return m.findDocsFn(ctx, filter, sort, limit)
+	}
+	return nil, nil
+}
+
+func (m *mockAdminDocStore) ExistsAdminDoc(ctx context.Context, filter bson.M) (bool, error) {
+	m.existsCalls++
+	if m.existsFn != nil {
+		return m.existsFn(ctx, filter)
+	}
+	return false, nil
+}
+
+func makeMongoDoc(uuid, shortID, title string, ts time.Time) mongoAdminDoc {
+	return mongoAdminDoc{
+		ShortID:     shortID,
+		UUID:        uuid,
+		ContentType: domain.ContentTypeVideo,
+		ChannelID:   "bluray",
+		Title:       title,
+		Status:      domain.ContentStatusReady,
+		CreatedAt:   ts,
+		UpdatedAt:   ts,
+	}
+}
+
+func TestListAdminWithStore_PageAssemblyAndBoundaries(t *testing.T) {
+	ctx := context.Background()
+	tsSame := time.UnixMilli(1700000000123).UTC()
+
+	t.Run("unmigrated document returns ErrUnmigratedReadModel", func(t *testing.T) {
+		repo := &ContentRepository{}
+		store := &mockAdminDocStore{
+			findUnmigratedFn: func(_ context.Context, _ bson.M) (bool, error) { return true, nil },
+		}
+		_, err := repo.listAdminWithStore(ctx, store, AdminListParams{Limit: 2})
+		if !errors.Is(err, ErrUnmigratedReadModel) {
+			t.Fatalf("expected ErrUnmigratedReadModel, got %v", err)
+		}
+	})
+
+	t.Run("0 items with cursor skips exists probe", func(t *testing.T) {
+		repo := &ContentRepository{}
+		cur := &AdminCursor{Sort: domain.ContentSortUpdatedDesc, Time: tsSame, ID: "s1"}
+		store := &mockAdminDocStore{
+			countFn: func(_ context.Context, _ bson.M) (int64, error) { return 3, nil },
+			findDocsFn: func(_ context.Context, _ bson.M, _ bson.D, _ int64) ([]mongoAdminDoc, error) {
+				return []mongoAdminDoc{}, nil
+			},
+		}
+		page, err := repo.listAdminWithStore(ctx, store, AdminListParams{Sort: domain.ContentSortUpdatedDesc, After: cur, Limit: 2})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(page.Contents) != 0 || page.Total != 3 || page.HasNext || page.HasPrev || page.NextCursor != nil || page.PrevCursor != nil {
+			t.Errorf("unexpected empty page: %+v", page)
+		}
+		if store.existsCalls != 0 {
+			t.Errorf("expected 0 exists calls on empty result, got %d", store.existsCalls)
+		}
+	})
+
+	t.Run("exact limit items hasNext is false", func(t *testing.T) {
+		repo := &ContentRepository{}
+		docs := []mongoAdminDoc{
+			makeMongoDoc("u1", "s1", "Same", tsSame),
+			makeMongoDoc("u2", "s2", "Same", tsSame),
+		}
+		store := &mockAdminDocStore{
+			countFn: func(_ context.Context, _ bson.M) (int64, error) { return 2, nil },
+			findDocsFn: func(_ context.Context, _ bson.M, _ bson.D, limit int64) ([]mongoAdminDoc, error) {
+				if limit != 3 {
+					t.Errorf("expected fetch limit 3, got %d", limit)
+				}
+				return docs, nil
+			},
+		}
+		page, err := repo.listAdminWithStore(ctx, store, AdminListParams{Sort: domain.ContentSortTitleAsc, Limit: 2})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(page.Contents) != 2 || page.HasNext || page.HasPrev || page.NextCursor != nil || page.PrevCursor != nil {
+			t.Errorf("unexpected exact-limit page: %+v", page)
+		}
+	})
+
+	t.Run("limit+1 items with after truncates and verifies tiebreaker cursors", func(t *testing.T) {
+		repo := &ContentRepository{}
+		afterCur := &AdminCursor{Sort: domain.ContentSortTitleAsc, Title: "Same", ID: "s0"}
+		// Equal title boundary: s1, s2, s3 (limit=2 -> keep s1, s2; s3 triggers hasNext=true)
+		docs := []mongoAdminDoc{
+			makeMongoDoc("u1", "s1", "Same", tsSame),
+			makeMongoDoc("u2", "s2", "Same", tsSame),
+			makeMongoDoc("u3", "s3", "Same", tsSame),
+		}
+		var gotExistsFilter bson.M
+		store := &mockAdminDocStore{
+			countFn:    func(_ context.Context, _ bson.M) (int64, error) { return 4, nil },
+			findDocsFn: func(_ context.Context, _ bson.M, _ bson.D, _ int64) ([]mongoAdminDoc, error) { return docs, nil },
+			existsFn: func(_ context.Context, filter bson.M) (bool, error) {
+				gotExistsFilter = filter
+				return true, nil
+			},
+		}
+		page, err := repo.listAdminWithStore(ctx, store, AdminListParams{Sort: domain.ContentSortTitleAsc, After: afterCur, Limit: 2})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(page.Contents) != 2 || page.Contents[0].ShortID != "s1" || page.Contents[1].ShortID != "s2" {
+			t.Fatalf("unexpected truncated contents: %+v", page.Contents)
+		}
+		if !page.HasNext || !page.HasPrev || page.NextCursor == nil || page.PrevCursor == nil {
+			t.Fatalf("expected both cursors and flags true, got %+v", page)
+		}
+		nc, err := DecodeAdminCursor(*page.NextCursor, domain.ContentSortTitleAsc)
+		if err != nil || nc.ID != "s2" || nc.Title != "Same" {
+			t.Errorf("unexpected next cursor: %+v err=%v", nc, err)
+		}
+		pc, err := DecodeAdminCursor(*page.PrevCursor, domain.ContentSortTitleAsc)
+		if err != nil || pc.ID != "s1" || pc.Title != "Same" {
+			t.Errorf("unexpected prev cursor: %+v err=%v", pc, err)
+		}
+		rawExists, _ := json.Marshal(gotExistsFilter)
+		if !containsStr(string(rawExists), `"_id":{"$lt":"s1"}`) {
+			t.Errorf("expected prev exists filter to probe before s1, got %s", string(rawExists))
+		}
+	})
+
+	t.Run("before cursor reverses slice back to forward order and checks hasNext", func(t *testing.T) {
+		repo := &ContentRepository{}
+		beforeCur := &AdminCursor{Sort: domain.ContentSortUpdatedDesc, Time: tsSame, ID: "s4"}
+		// Reverse query returns [s3, s2, s1]; limit=2 -> slice [:2]=[s3, s2], reverse -> [s2, s3], hasPrev=true
+		docsDescReverse := []mongoAdminDoc{
+			makeMongoDoc("u3", "s3", "T3", tsSame),
+			makeMongoDoc("u2", "s2", "T2", tsSame),
+			makeMongoDoc("u1", "s1", "T1", tsSame),
+		}
+		var gotExistsFilter bson.M
+		store := &mockAdminDocStore{
+			countFn: func(_ context.Context, _ bson.M) (int64, error) { return 4, nil },
+			findDocsFn: func(_ context.Context, _ bson.M, _ bson.D, _ int64) ([]mongoAdminDoc, error) {
+				return docsDescReverse, nil
+			},
+			existsFn: func(_ context.Context, filter bson.M) (bool, error) {
+				gotExistsFilter = filter
+				return true, nil
+			},
+		}
+		page, err := repo.listAdminWithStore(ctx, store, AdminListParams{Sort: domain.ContentSortUpdatedDesc, Before: beforeCur, Limit: 2})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(page.Contents) != 2 || page.Contents[0].ShortID != "s2" || page.Contents[1].ShortID != "s3" {
+			t.Fatalf("expected reversed forward order [s2, s3], got %+v", page.Contents)
+		}
+		if !page.HasPrev || !page.HasNext || page.PrevCursor == nil || page.NextCursor == nil {
+			t.Fatalf("expected hasPrev & hasNext true, got %+v", page)
+		}
+		pc, _ := DecodeAdminCursor(*page.PrevCursor, domain.ContentSortUpdatedDesc)
+		nc, _ := DecodeAdminCursor(*page.NextCursor, domain.ContentSortUpdatedDesc)
+		if pc.ID != "s2" || nc.ID != "s3" {
+			t.Errorf("unexpected cursors after reverse: prev=%s next=%s", pc.ID, nc.ID)
+		}
+		rawExists, _ := json.Marshal(gotExistsFilter)
+		if !containsStr(string(rawExists), `"_id":{"$gt":"s3"}`) {
+			t.Errorf("expected next exists filter to probe after s3, got %s", string(rawExists))
+		}
+	})
+
+	t.Run("exists probe error is propagated", func(t *testing.T) {
+		repo := &ContentRepository{}
+		afterCur := &AdminCursor{Sort: domain.ContentSortUpdatedDesc, Time: tsSame, ID: "s0"}
+		store := &mockAdminDocStore{
+			countFn: func(_ context.Context, _ bson.M) (int64, error) { return 2, nil },
+			findDocsFn: func(_ context.Context, _ bson.M, _ bson.D, _ int64) ([]mongoAdminDoc, error) {
+				return []mongoAdminDoc{makeMongoDoc("u1", "s1", "T1", tsSame)}, nil
+			},
+			existsFn: func(_ context.Context, _ bson.M) (bool, error) {
+				return false, errors.New("mongo read timeout")
+			},
+		}
+		_, err := repo.listAdminWithStore(ctx, store, AdminListParams{Sort: domain.ContentSortUpdatedDesc, After: afterCur, Limit: 2})
+		if err == nil || !containsStr(err.Error(), "mongo read timeout") {
+			t.Fatalf("expected exists error to propagate, got %v", err)
+		}
+	})
+}

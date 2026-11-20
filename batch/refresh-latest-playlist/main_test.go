@@ -321,3 +321,41 @@ func TestRefreshPlaylist_LockOrderAndNullPublishedAt(t *testing.T) {
 		t.Errorf("fail execution order = %q", got)
 	}
 }
+
+type blockingUploader struct {
+	events      *[]string
+	hasDeadline bool
+}
+
+func (u *blockingUploader) PutObject(ctx context.Context, _, _ string, _ io.Reader, _ int64, _ minio.PutObjectOptions) (minio.UploadInfo, error) {
+	_, u.hasDeadline = ctx.Deadline()
+	*u.events = append(*u.events, "put_wait")
+	<-ctx.Done()
+	return minio.UploadInfo{}, ctx.Err()
+}
+
+func TestRefreshPlaylistWithTimeout_DeadlineReleasesLock(t *testing.T) {
+	if latestPlaylistTimeout <= 0 {
+		t.Fatalf("latestPlaylistTimeout must be positive, got %v", latestPlaylistTimeout)
+	}
+	events := []string{}
+	beginner := &mockBeginner{
+		events: &events,
+		tx: &mockPlaylistTx{
+			events: &events,
+			items:  []contentRow{{shortID: "s1", title: "V1"}},
+		},
+	}
+	uploader := &blockingUploader{events: &events}
+
+	_, err := refreshPlaylistWithTimeout(context.Background(), beginner, uploader, "test-bucket", 20*time.Millisecond)
+	if !uploader.hasDeadline {
+		t.Fatal("expected uploader context to have a deadline")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context.DeadlineExceeded, got %v", err)
+	}
+	if got := strings.Join(events, ","); got != "begin,lock,query,put_wait,rollback" {
+		t.Errorf("expected rollback without commit on deadline, got %q", got)
+	}
+}
