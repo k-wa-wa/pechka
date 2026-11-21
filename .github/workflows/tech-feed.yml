@@ -15,6 +15,12 @@ on:
       - '.github/workflows/tech-feed.yml'
   pull_request:
 
+# 同一 PR への連続 push で古いビルドが後から完了し :pr-<N> を上書きするのを防ぐため、PR 実行時は前の run をキャンセルする。
+# master への push やタグ push はキャンセルせず直列化する。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   detect-changes:
     name: Detect Changes

@@ -1,12 +1,13 @@
 # preview 環境で tech-feed の produce（音声合成・動画レンダリング・HLS/DB 登録）を手動実行する Job。
 # 通常の PR プレビューで勝手に起動しないよう spec.suspend: true で作成し、確認時のみ suspend を解除する。
-# Job の spec.template は不変フィールドのため、PR 更新時の同期失敗を防ぐ目的で Force=true を付与する。
+# Job の spec.template は不変フィールドであり、preview は ServerSideApply=true で同期するため、
+# PR 更新時の同期失敗を防ぐ目的で Force=true,Replace=true を付与する。
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: tech-feed-produce
   annotations:
-    argocd.argoproj.io/sync-options: Force=true
+    argocd.argoproj.io/sync-options: Force=true,Replace=true
 spec:
   suspend: true
   backoffLimit: 0
