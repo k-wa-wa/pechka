@@ -231,6 +231,7 @@ var legacyAdminIndexNames = []string{
 	"idx_admin_created_asc",
 	"idx_admin_title_asc",
 	"idx_admin_title_desc",
+	"idx_admin_deleted_filter",
 }
 
 // AdminIndexModels は管理画面一覧の 6 種類のソートと未削除件数取得に対応する複合インデックス定義を返す。
@@ -271,13 +272,38 @@ func AdminIndexModels() []mongo.IndexModel {
 	return models
 }
 
+type existingIndexSpec struct {
+	Name                    string `bson:"name"`
+	Key                     bson.D `bson:"key"`
+	Unique                  bool   `bson:"unique"`
+	Sparse                  bool   `bson:"sparse"`
+	PartialFilterExpression bson.M `bson:"partialFilterExpression"`
+	Collation               bson.M `bson:"collation"`
+	ExpireAfterSeconds      *int32 `bson:"expireAfterSeconds"`
+}
+
 type adminIndexManager interface {
+	List(ctx context.Context) ([]existingIndexSpec, error)
 	CreateMany(ctx context.Context, models []mongo.IndexModel) ([]string, error)
 	DropOne(ctx context.Context, name string) error
 }
 
 type mongoAdminIndexManager struct {
 	view mongo.IndexView
+}
+
+func (m mongoAdminIndexManager) List(ctx context.Context) ([]existingIndexSpec, error) {
+	cursor, err := m.view.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var specs []existingIndexSpec
+	if err := cursor.All(ctx, &specs); err != nil {
+		return nil, err
+	}
+	return specs, nil
 }
 
 func (m mongoAdminIndexManager) CreateMany(ctx context.Context, models []mongo.IndexModel) ([]string, error) {
@@ -293,9 +319,67 @@ func isIndexNotFoundError(err error) bool {
 	return errors.As(err, &cmdErr) && cmdErr.Code == 27 // 27: IndexNotFound
 }
 
+func normalizeIndexDir(v any) (int32, bool) {
+	switch n := v.(type) {
+	case int32:
+		return n, true
+	case int64:
+		return int32(n), true
+	case int:
+		return int32(n), true
+	case float64:
+		return int32(n), float64(int32(n)) == n
+	default:
+		return 0, false
+	}
+}
+
+func indexKeysEqual(a, b bson.D) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Key != b[i].Key {
+			return false
+		}
+		da, okA := normalizeIndexDir(a[i].Value)
+		db, okB := normalizeIndexDir(b[i].Value)
+		if okA && okB {
+			if da != db {
+				return false
+			}
+			continue
+		}
+		if a[i].Value != b[i].Value {
+			return false
+		}
+	}
+	return true
+}
+
+func isEquivalentPlainIndex(existing existingIndexSpec, desiredKeys bson.D) bool {
+	if existing.Unique || existing.Sparse || len(existing.PartialFilterExpression) > 0 || len(existing.Collation) > 0 || existing.ExpireAfterSeconds != nil {
+		return false
+	}
+	return indexKeysEqual(existing.Key, desiredKeys)
+}
+
+func desiredAdminIndexNames() []string {
+	return []string{
+		"idx_admin_v2_updated_desc",
+		"idx_admin_v2_updated_asc",
+		"idx_admin_v2_created_desc",
+		"idx_admin_v2_created_asc",
+		"idx_admin_v2_title_asc",
+		"idx_admin_v2_title_desc",
+		"idx_admin_v2_deleted_filter",
+	}
+}
+
 // EnsureIndexes は管理一覧用複合インデックスを冪等に作成する。
-// 新定義（idx_admin_v2_*）を先に構築して完了を確認した後にのみ旧定義（idx_admin_*）を撤去し、
-// 複数レプリカの同時起動時やタイムアウト時でも稼働中インデックスが欠落しないようにする。
+// 既存のインデックス定義をキーとオプションで照合し、同一キーのインデックス（別名含む）が既にあれば
+// IndexOptionsConflict を避けるため再作成せず再利用する。欠けている新定義（idx_admin_v2_*）を
+// 先に構築・完了させた後にのみ不要な旧定義を撤去し、複数レプリカの同時起動時やタイムアウト時の欠落を防ぐ。
 func (r *ContentRepository) EnsureIndexes(ctx context.Context) error {
 	if r.col == nil {
 		return errors.New("mongo collection is nil")
@@ -304,14 +388,67 @@ func (r *ContentRepository) EnsureIndexes(ctx context.Context) error {
 }
 
 func (r *ContentRepository) ensureIndexesWithManager(ctx context.Context, mgr adminIndexManager) error {
-	if _, err := mgr.CreateMany(ctx, AdminIndexModels()); err != nil {
+	existing, err := mgr.List(ctx)
+	if err != nil {
 		return err
 	}
-	for _, name := range legacyAdminIndexNames {
+
+	models := AdminIndexModels()
+	names := desiredAdminIndexNames()
+	var toCreate []mongo.IndexModel
+	var mismatchedSameName []string
+
+	for i, model := range models {
+		desiredKeys, _ := model.Keys.(bson.D)
+		desiredName := names[i]
+
+		matched := false
+		for _, ex := range existing {
+			if isEquivalentPlainIndex(ex, desiredKeys) {
+				matched = true
+				break
+			}
+			if ex.Name == desiredName {
+				mismatchedSameName = append(mismatchedSameName, ex.Name)
+			}
+		}
+		if !matched {
+			toCreate = append(toCreate, model)
+		}
+	}
+
+	for _, name := range mismatchedSameName {
 		if err := mgr.DropOne(ctx, name); err != nil && !isIndexNotFoundError(err) {
 			return err
 		}
 	}
+
+	if len(toCreate) > 0 {
+		if _, err := mgr.CreateMany(ctx, toCreate); err != nil {
+			return err
+		}
+	}
+
+	for _, ex := range existing {
+		if !slices.Contains(legacyAdminIndexNames, ex.Name) {
+			continue
+		}
+		reused := false
+		for _, model := range models {
+			desiredKeys, _ := model.Keys.(bson.D)
+			if isEquivalentPlainIndex(ex, desiredKeys) {
+				reused = true
+				break
+			}
+		}
+		if reused {
+			continue
+		}
+		if err := mgr.DropOne(ctx, ex.Name); err != nil && !isIndexNotFoundError(err) {
+			return err
+		}
+	}
+
 	r.indexesEnsured.Store(true)
 	return nil
 }

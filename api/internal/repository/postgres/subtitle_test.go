@@ -53,13 +53,14 @@ func (r fakeSubtitleRow) Scan(dest ...any) error {
 }
 
 type inMemoryLockDB struct {
-	mu           sync.Mutex
-	parentLocked bool
-	parentCond   *sync.Cond
-	deleted      bool
-	trackStatus  domain.SubtitleTrackStatus
-	cueText      string
-	cueDeleted   bool
+	mu             sync.Mutex
+	parentLocked   bool
+	parentCond     *sync.Cond
+	deleted        bool
+	trackStatus    domain.SubtitleTrackStatus
+	manuallyEdited bool
+	cueText        string
+	cueDeleted     bool
 	// PostgreSQL の FOR SHARE（対象指定なし）による st / cu 共有ロック競合・デッドロックを再現するための状態
 	trackShareHolders int
 	cueShareHolders   int
@@ -182,18 +183,48 @@ func (tx *mockSubtitleTx) QueryRow(_ context.Context, sql string, _ ...any) pgx.
 			return nil
 		}}
 	}
+	if strings.HasPrefix(sql, "DELETE FROM subtitle_cues") {
+		*tx.events = append(*tx.events, "delete_cue")
+		return fakeSubtitleRow{scanFn: func(dest ...any) error {
+			tx.db.mu.Lock()
+			tx.db.cueDeleted = true
+			tx.db.mu.Unlock()
+			*(dest[0].(*string)) = "t1"
+			return nil
+		}}
+	}
+	if strings.Contains(sql, "INSERT INTO subtitle_cues") {
+		*tx.events = append(*tx.events, "insert_cue")
+		return fakeSubtitleRow{scanFn: func(dest ...any) error {
+			now := time.Now().UTC()
+			*(dest[0].(*string)) = "cue-new"
+			*(dest[1].(*string)) = "t1"
+			*(dest[2].(*int)) = 2
+			*(dest[3].(*int)) = 1000
+			*(dest[4].(*int)) = 2000
+			*(dest[5].(*string)) = "inserted"
+			*(dest[6].(*string)) = "inserted"
+			*(dest[7].(*bool)) = false
+			*(dest[8].(*time.Time)) = now
+			return nil
+		}}
+	}
 	return fakeSubtitleRow{scanFn: func(_ ...any) error { return errors.New("unexpected query") }}
 }
 
 func (tx *mockSubtitleTx) Exec(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
-	if strings.HasPrefix(sql, "DELETE FROM subtitle_cues") {
-		*tx.events = append(*tx.events, "delete_cue")
-		tx.db.mu.Lock()
-		tx.db.cueDeleted = true
-		tx.db.mu.Unlock()
-		return pgconn.NewCommandTag("DELETE 1"), nil
+	if strings.HasPrefix(sql, "UPDATE subtitle_cues SET seq = seq + 1") {
+		*tx.events = append(*tx.events, "shift_cues")
+		return pgconn.NewCommandTag("UPDATE 1"), nil
 	}
-	return pgconn.CommandTag{}, errors.New("unexpected exec")
+	if strings.HasPrefix(sql, "UPDATE subtitle_tracks SET manually_edited = TRUE") {
+		*tx.events = append(*tx.events, "mark_manually_edited")
+		tx.db.mu.Lock()
+		tx.db.manuallyEdited = true
+		tx.db.mu.Unlock()
+		return pgconn.NewCommandTag("UPDATE 1"), nil
+	}
+	return pgconn.CommandTag{}, errors.New("unexpected exec: " + sql)
 }
 
 func (tx *mockSubtitleTx) Commit(_ context.Context) error {
@@ -395,6 +426,54 @@ func TestSubtitleMutations_ConcurrentSameTargetNoDeadlock(t *testing.T) {
 
 		if errA != nil || errB != nil {
 			t.Fatalf("expected no deadlock errors, got errA=%v errB=%v", errA, errB)
+		}
+	})
+}
+
+func TestSubtitleMutations_MarkTrackManuallyEdited(t *testing.T) {
+	t.Run("UpdateCue timing-only edit sets manually_edited on track", func(t *testing.T) {
+		db := newInMemoryLockDB()
+		events := []string{}
+		beginner := &mockSubtitleBeginner{db: db, events: &events}
+		start := 500
+		if _, err := updateCueWithBeginner(context.Background(), beginner, UpdateCueParams{ID: "cue1", StartMs: &start}); err != nil {
+			t.Fatalf("UpdateCue failed: %v", err)
+		}
+		if !db.manuallyEdited {
+			t.Fatal("expected manuallyEdited=true after timing-only UpdateCue")
+		}
+		if got := strings.Join(events, ","); got != "begin,lock_parent,update_cue,mark_manually_edited,commit,rollback" {
+			t.Errorf("unexpected execution order: %q", got)
+		}
+	})
+
+	t.Run("InsertCue sets manually_edited on track", func(t *testing.T) {
+		db := newInMemoryLockDB()
+		events := []string{}
+		beginner := &mockSubtitleBeginner{db: db, events: &events}
+		if _, err := insertCueWithBeginner(context.Background(), beginner, InsertCueParams{TrackID: "t1", Seq: 2, StartMs: 1000, EndMs: 2000, Text: "inserted"}); err != nil {
+			t.Fatalf("InsertCue failed: %v", err)
+		}
+		if !db.manuallyEdited {
+			t.Fatal("expected manuallyEdited=true after InsertCue")
+		}
+		if got := strings.Join(events, ","); got != "begin,lock_parent,shift_cues,insert_cue,mark_manually_edited,commit,rollback" {
+			t.Errorf("unexpected execution order: %q", got)
+		}
+	})
+
+	t.Run("DeleteCue sets manually_edited on track", func(t *testing.T) {
+		db := newInMemoryLockDB()
+		events := []string{}
+		beginner := &mockSubtitleBeginner{db: db, events: &events}
+		if err := deleteCueWithBeginner(context.Background(), beginner, "cue1"); err != nil {
+			t.Fatalf("DeleteCue failed: %v", err)
+		}
+		if !db.manuallyEdited {
+			t.Fatal("expected manuallyEdited=true after DeleteCue")
+		}
+		if got := strings.Join(events, ","); got != "begin,lock_parent,delete_cue,mark_manually_edited,commit,rollback" {
+			t.Errorf("unexpected execution order: %q", got)
 		}
 	})
 }

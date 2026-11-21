@@ -81,7 +81,9 @@ const (
 
 	insertCueCheckParentQuery = lockParentByTrackQuery
 
-	deleteCueQuery = "DELETE FROM subtitle_cues WHERE id = $1"
+	markTrackManuallyEditedQuery = "UPDATE subtitle_tracks SET manually_edited = TRUE WHERE id = $1 AND manually_edited = FALSE"
+
+	deleteCueQuery = "DELETE FROM subtitle_cues WHERE id = $1 RETURNING track_id"
 )
 
 func (r *SubtitleRepository) ListTracksByContentID(ctx context.Context, contentID string) ([]*domain.SubtitleTrack, error) {
@@ -237,6 +239,10 @@ func updateCueWithBeginner(ctx context.Context, beginner subtitleTxBeginner, par
 		return nil, err
 	}
 
+	if _, err := tx.Exec(ctx, markTrackManuallyEditedQuery, cue.TrackID); err != nil {
+		return nil, err
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
@@ -257,42 +263,50 @@ type InsertCueParams struct {
 // 一時的にseqが重複しうるため、DEFERRABLE UNIQUE制約でコミット時にまとめて検査させる。
 func (r *SubtitleRepository) InsertCue(ctx context.Context, params InsertCueParams) (*domain.SubtitleCue, error) {
 	return WithRetryWrite(ctx, r.pool, func() (*domain.SubtitleCue, error) {
-		tx, err := r.pool.Begin(ctx)
-		if err != nil {
-			return nil, err
-		}
-		defer func() {
-			_ = tx.Rollback(ctx)
-		}()
-
-		var ok int
-		if err := tx.QueryRow(ctx, insertCueCheckParentQuery, params.TrackID).Scan(&ok); err != nil {
-			return nil, err
-		}
-
-		if _, err := tx.Exec(ctx,
-			"UPDATE subtitle_cues SET seq = seq + 1 WHERE track_id = $1 AND seq >= $2",
-			params.TrackID, params.Seq,
-		); err != nil {
-			return nil, err
-		}
-
-		row := tx.QueryRow(ctx, `
-			INSERT INTO subtitle_cues (track_id, seq, start_ms, end_ms, text, original_text, flagged)
-			VALUES ($1, $2, $3, $4, $5, $5, false)
-			RETURNING `+cueColumns,
-			params.TrackID, params.Seq, params.StartMs, params.EndMs, params.Text,
-		)
-		cue, err := scanCue(row)
-		if err != nil {
-			return nil, err
-		}
-
-		if err := tx.Commit(ctx); err != nil {
-			return nil, err
-		}
-		return cue, nil
+		return insertCueWithBeginner(ctx, pgxPoolSubtitleBeginner{pool: r.pool}, params)
 	})
+}
+
+func insertCueWithBeginner(ctx context.Context, beginner subtitleTxBeginner, params InsertCueParams) (*domain.SubtitleCue, error) {
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	var ok int
+	if err := tx.QueryRow(ctx, insertCueCheckParentQuery, params.TrackID).Scan(&ok); err != nil {
+		return nil, err
+	}
+
+	if _, err := tx.Exec(ctx,
+		"UPDATE subtitle_cues SET seq = seq + 1 WHERE track_id = $1 AND seq >= $2",
+		params.TrackID, params.Seq,
+	); err != nil {
+		return nil, err
+	}
+
+	row := tx.QueryRow(ctx, `
+		INSERT INTO subtitle_cues (track_id, seq, start_ms, end_ms, text, original_text, flagged)
+		VALUES ($1, $2, $3, $4, $5, $5, false)
+		RETURNING `+cueColumns,
+		params.TrackID, params.Seq, params.StartMs, params.EndMs, params.Text,
+	)
+	cue, err := scanCue(row)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := tx.Exec(ctx, markTrackManuallyEditedQuery, params.TrackID); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return cue, nil
 }
 
 func (r *SubtitleRepository) DeleteCue(ctx context.Context, id string) error {
@@ -315,12 +329,13 @@ func deleteCueWithBeginner(ctx context.Context, beginner subtitleTxBeginner, id 
 		return err
 	}
 
-	tag, err := tx.Exec(ctx, deleteCueQuery, id)
-	if err != nil {
+	var trackID string
+	if err := tx.QueryRow(ctx, deleteCueQuery, id).Scan(&trackID); err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
-		return pgx.ErrNoRows
+
+	if _, err := tx.Exec(ctx, markTrackManuallyEditedQuery, trackID); err != nil {
+		return err
 	}
 
 	return tx.Commit(ctx)

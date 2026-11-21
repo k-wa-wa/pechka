@@ -89,77 +89,186 @@ func TestAdminIndexModels(t *testing.T) {
 	}
 }
 
-type mockAdminIndexManager struct {
-	createManyFn func(ctx context.Context, models []mongo.IndexModel) ([]string, error)
-	dropOneFn    func(ctx context.Context, name string) error
-	events       []string
-	dropped      []string
+type mockMongo7IndexCatalog struct {
+	indexes     []existingIndexSpec
+	events      []string
+	createCalls int
+	dropCalls   int
+	failCreate  error
 }
 
-func (m *mockAdminIndexManager) CreateMany(ctx context.Context, models []mongo.IndexModel) ([]string, error) {
+func newMockMongo7IndexCatalog(initial []existingIndexSpec) *mockMongo7IndexCatalog {
+	return &mockMongo7IndexCatalog{
+		indexes: append([]existingIndexSpec(nil), initial...),
+	}
+}
+
+func (m *mockMongo7IndexCatalog) List(_ context.Context) ([]existingIndexSpec, error) {
+	m.events = append(m.events, "list")
+	out := make([]existingIndexSpec, len(m.indexes))
+	copy(out, m.indexes)
+	return out, nil
+}
+
+func (m *mockMongo7IndexCatalog) CreateMany(_ context.Context, models []mongo.IndexModel) ([]string, error) {
+	m.createCalls++
 	m.events = append(m.events, "create_many")
-	if m.createManyFn != nil {
-		return m.createManyFn(ctx, models)
+	if m.failCreate != nil {
+		return nil, m.failCreate
 	}
-	return []string{"ok"}, nil
-}
-
-func (m *mockAdminIndexManager) DropOne(ctx context.Context, name string) error {
-	m.events = append(m.events, "drop:"+name)
-	m.dropped = append(m.dropped, name)
-	if m.dropOneFn != nil {
-		return m.dropOneFn(ctx, name)
-	}
-	return nil
-}
-
-func TestEnsureIndexesWithManager_BuildV2BeforeDroppingLegacy(t *testing.T) {
-	t.Run("creates v2 indexes before dropping legacy names and never drops v2", func(t *testing.T) {
-		repo := &ContentRepository{}
-		mgr := &mockAdminIndexManager{
-			dropOneFn: func(_ context.Context, name string) error {
-				if name == "idx_admin_updated_asc" {
-					// Concurrent replica already dropped this legacy index -> IndexNotFound (27) is ignored
-					return mongo.CommandError{Code: 27, Message: "index not found"}
-				}
-				return nil
-			},
-		}
-		if err := repo.ensureIndexesWithManager(context.Background(), mgr); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !repo.indexesEnsured.Load() {
-			t.Fatal("expected indexesEnsured to be true")
-		}
-		if len(mgr.events) == 0 || mgr.events[0] != "create_many" {
-			t.Fatalf("expected create_many to execute first, got %v", mgr.events)
-		}
-		for _, name := range mgr.dropped {
-			if containsStr(name, "v2") {
-				t.Errorf("must never drop new v2 index %q", name)
+	desiredNames := desiredAdminIndexNames()
+	created := make([]string, 0, len(models))
+	for _, model := range models {
+		keys, _ := model.Keys.(bson.D)
+		name := ""
+		// AdminIndexModels の定義順と名前を照合してモック側の名前を解決する
+		for i, am := range AdminIndexModels() {
+			ak, _ := am.Keys.(bson.D)
+			if indexKeysEqual(ak, keys) {
+				name = desiredNames[i]
+				break
 			}
 		}
-		if len(mgr.dropped) != len(legacyAdminIndexNames) {
-			t.Errorf("dropped %d legacy names, want %d", len(mgr.dropped), len(legacyAdminIndexNames))
+		for _, ex := range m.indexes {
+			if ex.Name == name && !isEquivalentPlainIndex(ex, keys) {
+				return nil, mongo.CommandError{Code: 86, Name: "IndexKeySpecsConflict", Message: "same name with different keys: " + name}
+			}
+			if ex.Name != name && isEquivalentPlainIndex(ex, keys) {
+				// MongoDB 7 は同一キー・同一オプションで名前だけ異なる作成を IndexOptionsConflict (85) で拒否する
+				return nil, mongo.CommandError{Code: 85, Name: "IndexOptionsConflict", Message: "index already exists with a different name: " + ex.Name}
+			}
+		}
+		alreadySame := false
+		for _, ex := range m.indexes {
+			if ex.Name == name && isEquivalentPlainIndex(ex, keys) {
+				alreadySame = true
+				break
+			}
+		}
+		if !alreadySame {
+			m.indexes = append(m.indexes, existingIndexSpec{Name: name, Key: keys})
+		}
+		created = append(created, name)
+	}
+	return created, nil
+}
+
+func (m *mockMongo7IndexCatalog) DropOne(_ context.Context, name string) error {
+	m.dropCalls++
+	m.events = append(m.events, "drop:"+name)
+	for i, ex := range m.indexes {
+		if ex.Name == name {
+			m.indexes = append(m.indexes[:i], m.indexes[i+1:]...)
+			return nil
+		}
+	}
+	return mongo.CommandError{Code: 27, Name: "IndexNotFound", Message: "index not found: " + name}
+}
+
+func TestEnsureIndexesWithManager_Mongo7CompatibilityAndReentrancy(t *testing.T) {
+	t.Run("fresh collection creates 7 v2 indexes and second init is a no-op", func(t *testing.T) {
+		cat := newMockMongo7IndexCatalog([]existingIndexSpec{
+			{Name: "_id_", Key: bson.D{{Key: "_id", Value: int32(1)}}},
+		})
+		repo1 := &ContentRepository{}
+		if err := repo1.ensureIndexesWithManager(context.Background(), cat); err != nil {
+			t.Fatalf("first init failed: %v", err)
+		}
+		if cat.createCalls != 1 || cat.dropCalls != 0 {
+			t.Errorf("unexpected calls on fresh init: create=%d drop=%d", cat.createCalls, cat.dropCalls)
+		}
+		repo2 := &ContentRepository{}
+		if err := repo2.ensureIndexesWithManager(context.Background(), cat); err != nil {
+			t.Fatalf("second init failed: %v", err)
+		}
+		if cat.createCalls != 1 || cat.dropCalls != 0 {
+			t.Errorf("second init should be no-op, got create=%d drop=%d", cat.createCalls, cat.dropCalls)
 		}
 	})
 
-	t.Run("does not drop any legacy index when CreateMany fails", func(t *testing.T) {
+	t.Run("reuses previous 7 indexes with legacy names across two consecutive initializations without IndexOptionsConflict", func(t *testing.T) {
+		// f8bd8da2 が作成していた「deleted_at 先頭付きだが旧名 idx_admin_*」の7本を再現
+		prevModels := AdminIndexModels()
+		initial := []existingIndexSpec{{Name: "_id_", Key: bson.D{{Key: "_id", Value: int32(1)}}}}
+		for i, name := range legacyAdminIndexNames {
+			initial = append(initial, existingIndexSpec{
+				Name: name,
+				Key:  prevModels[i].Keys.(bson.D),
+			})
+		}
+		cat := newMockMongo7IndexCatalog(initial)
+
+		repo1 := &ContentRepository{}
+		if err := repo1.ensureIndexesWithManager(context.Background(), cat); err != nil {
+			t.Fatalf("first init with existing 7 legacy-named indexes failed: %v", err)
+		}
+		repo2 := &ContentRepository{}
+		if err := repo2.ensureIndexesWithManager(context.Background(), cat); err != nil {
+			t.Fatalf("second consecutive init failed: %v", err)
+		}
+		if cat.createCalls != 0 {
+			t.Errorf("expected 0 CreateMany calls when matching keys exist under legacy names, got %d", cat.createCalls)
+		}
+		if cat.dropCalls != 0 {
+			t.Errorf("expected 0 DropOne calls for equivalent legacy-named indexes, got %d", cat.dropCalls)
+		}
+		if len(cat.indexes) != 8 { // _id_ + 7 reused
+			t.Errorf("expected 8 indexes preserved, got %d", len(cat.indexes))
+		}
+	})
+
+	t.Run("builds v2 indexes before dropping obsolete indexes without deleted_at", func(t *testing.T) {
+		cat := newMockMongo7IndexCatalog([]existingIndexSpec{
+			{Name: "_id_", Key: bson.D{{Key: "_id", Value: int32(1)}}},
+			{Name: "idx_admin_updated_desc", Key: bson.D{{Key: "updated_at", Value: int32(-1)}, {Key: "_id", Value: int32(1)}}},
+			{Name: "idx_admin_updated_asc", Key: bson.D{{Key: "updated_at", Value: int32(1)}, {Key: "_id", Value: int32(1)}}},
+			{Name: "idx_admin_created_desc", Key: bson.D{{Key: "created_at", Value: int32(-1)}, {Key: "_id", Value: int32(1)}}},
+			{Name: "idx_admin_created_asc", Key: bson.D{{Key: "created_at", Value: int32(1)}, {Key: "_id", Value: int32(1)}}},
+			{Name: "idx_admin_title_asc", Key: bson.D{{Key: "title", Value: int32(1)}, {Key: "_id", Value: int32(1)}}},
+			{Name: "idx_admin_title_desc", Key: bson.D{{Key: "title", Value: int32(-1)}, {Key: "_id", Value: int32(1)}}},
+		})
 		repo := &ContentRepository{}
-		mgr := &mockAdminIndexManager{
-			createManyFn: func(_ context.Context, _ []mongo.IndexModel) ([]string, error) {
-				return nil, context.DeadlineExceeded
-			},
+		if err := repo.ensureIndexesWithManager(context.Background(), cat); err != nil {
+			t.Fatalf("upgrade init failed: %v", err)
 		}
-		err := repo.ensureIndexesWithManager(context.Background(), mgr)
-		if !errors.Is(err, context.DeadlineExceeded) {
-			t.Fatalf("expected DeadlineExceeded, got %v", err)
+		if len(cat.events) < 3 || cat.events[0] != "list" || cat.events[1] != "create_many" {
+			t.Fatalf("expected list -> create_many -> drop order, got %v", cat.events)
 		}
-		if len(mgr.dropped) != 0 {
-			t.Errorf("expected no drops when CreateMany fails, got %v", mgr.dropped)
+		if cat.dropCalls != 6 {
+			t.Errorf("expected 6 obsolete legacy indexes dropped, got %d", cat.dropCalls)
 		}
-		if repo.indexesEnsured.Load() {
-			t.Error("indexesEnsured must remain false on failure")
+		for _, ex := range cat.indexes {
+			if ex.Name != "_id_" && !containsStr(ex.Name, "v2") {
+				t.Errorf("unexpected remaining non-v2 index %q", ex.Name)
+			}
+		}
+
+		// Second init must be clean no-op
+		repo2 := &ContentRepository{}
+		if err := repo2.ensureIndexesWithManager(context.Background(), cat); err != nil {
+			t.Fatalf("second init failed: %v", err)
+		}
+		if cat.createCalls != 1 || cat.dropCalls != 6 {
+			t.Errorf("second init should not create or drop, create=%d drop=%d", cat.createCalls, cat.dropCalls)
+		}
+	})
+
+	t.Run("does not reuse existing index with incompatible unique option", func(t *testing.T) {
+		prevModels := AdminIndexModels()
+		cat := newMockMongo7IndexCatalog([]existingIndexSpec{
+			{Name: "_id_", Key: bson.D{{Key: "_id", Value: int32(1)}}},
+			{Name: "idx_admin_updated_desc", Key: prevModels[0].Keys.(bson.D), Unique: true},
+		})
+		repo := &ContentRepository{}
+		// Note: mock CreateMany rejects same-key plain vs unique if MongoDB wouldn't allow two same-key indexes;
+		// here verify incompatible unique index is not treated as equivalent and CreateMany is attempted.
+		cat.failCreate = errors.New("attempted create")
+		err := repo.ensureIndexesWithManager(context.Background(), cat)
+		if err == nil || !containsStr(err.Error(), "attempted create") {
+			t.Fatalf("expected CreateMany to be attempted when existing index is unique, got %v", err)
+		}
+		if cat.dropCalls != 0 {
+			t.Errorf("must not drop existing index when CreateMany fails, got dropCalls=%d", cat.dropCalls)
 		}
 	})
 }
