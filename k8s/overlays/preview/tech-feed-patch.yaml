@@ -1,5 +1,5 @@
 # preview 環境では CronWorkflow を動かさず、preview-apps AppProject の許可リスト (WorkflowTemplate のみ) に
-# 収めるため削除する。手動実行は workflowTemplateRef: { name: tech-feed } の Workflow を kubectl create する。
+# 収めるため削除する。手動確認は tech-feed-produce-job.yaml の Job (job/tech-feed-produce) で行う。
 apiVersion: argoproj.io/v1alpha1
 kind: CronWorkflow
 metadata:

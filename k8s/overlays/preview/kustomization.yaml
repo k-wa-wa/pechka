@@ -8,20 +8,25 @@
 #   (pechka-config の s3-fallback-endpoint) へ透過フォールバックする
 #   (k8s/base/infra/nginx/nginx.conf の @minio_prod_fallback)。本番への書き込みは nginx 側で禁止している。
 #
-# - postgres-seed-from-prod Job が読む postgres-seed-secret と tech-feed が読む openai-secret は、
+# - postgres-seed-from-prod Job が読む postgres-seed-secret は、
 #   この overlay ではなく同じ namespace にデプロイされる k8s/overlays/preview-secret (別 Application) が用意する。
+#   k8s/overlays/preview-secret が用意する Secret は postgres-seed-secret のみである (openai-secret は含めない)。
 #   secret の実体化だけ argocd-vault-plugin (plugin) を使うため、Application 自体を分けている
 #   (この overlay はネイティブ kustomize のみで、CMP/plugin 類は一切使わない)。
 # - tech-feed: CronWorkflow (tech-feed-daily-ai / tech-feed-weekly-k8s) は preview-apps AppProject の
 #   許可リスト外のため tech-feed-patch.yaml ($patch: delete) で除外し、aivisspeech Deployment は
-#   既定 replicas: 0 としてある。手動で確かめる手順:
-#   1. argocd app set pechka-pr-<N> --self-heal=false (selfHeal による replicas: 0 戻しを止める)
-#   2. kubectl -n <namespace> scale deployment aivisspeech --replicas=1
-#   3. kubectl -n <namespace> rollout status deployment/aivisspeech
-#   4. kubectl create で workflowTemplateRef: { name: tech-feed } の Workflow を作る
-#      (注: 現状の preview-network-policy では kube-apiserver 10.96.0.1:443 が遮断されているため、
-#       preview 内で Workflow を実実行するにはネットワーク方針または構成の見直しが別途必要)
-#   5. 確認後: kubectl -n <namespace> scale deployment aivisspeech --replicas=0 && argocd app set pechka-pr-<N> --self-heal=true
+#   既定 replicas: 0 としてある。手動で見本台本 (examples/script_sample.json) の produce を確かめる手順:
+#   1. argocd app set pechka-pr-<N> --self-heal=false (selfHeal による replicas: 0 戻しと Job suspend: true 戻しを抑止する)
+#   2. kubectl -n <namespace> scale deployment aivisspeech --replicas=1 && kubectl -n <namespace> rollout status deployment/aivisspeech
+#   3. kubectl -n <namespace> patch job tech-feed-produce --type=merge -p '{"spec":{"suspend":false}}'
+#   4. 結果確認:
+#      - kubectl -n <namespace> logs -f job/tech-feed-produce (content is ready: /contents/<short_id> を確認する)
+#      - MinIO (s3mock) への HLS / サムネイル書き込み、およびプレビュー UI (https://pechka-pr-<N>.wpcapp.net/contents/<short_id>) の再生を確認する
+#      - PostgreSQL の contents / video_variants テーブルへの登録を確認する (channel_id = 'tech-feed', status = 'ready')
+#   5. 片付け・復帰:
+#      - kubectl -n <namespace> delete job tech-feed-produce
+#      - kubectl -n <namespace> scale deployment aivisspeech --replicas=0
+#      - argocd app set pechka-pr-<N> --self-heal=true (selfHeal 再有効化により job/tech-feed-produce は spec.suspend: true で再作成される)
 #
 # namespace 名・イメージタグ・ingress host は ArgoCD 側のネイティブな kustomize.namespace/images/patches
 # 上書きで PR ごとに書き換える (docs/ideas/nash/nash-preview.yaml と同じやり方)。
@@ -45,6 +50,7 @@ resources:
   - minio-local.yaml
   - postgres-prod-shim.yaml
   - seed-from-prod-job.yaml
+  - tech-feed-produce-job.yaml
   - vrt-report.yaml
   - storybook-report.yaml
   - ingress.yaml
