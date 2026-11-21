@@ -17,11 +17,12 @@ func NewSubtitleRepository(db *mongo.Database) *SubtitleRepository {
 	return &SubtitleRepository{col: db.Collection("subtitles")}
 }
 
-// GetByShortIDAndLanguage は published の字幕トラックのみを返す。
-// draft トラックは Benthos の同期対象外のため、そもそもこのコレクションに存在しない。
+// GetByShortIDAndLanguage は published かつ未削除コンテンツに属する字幕トラックのみを返す。
+// draft トラックおよび論理削除済みコンテンツの字幕は Benthos 側で delete-one されるが、
+// 同期遅延や残存に備えて deleted_at: nil でも除外する。
 func (r *SubtitleRepository) GetByShortIDAndLanguage(ctx context.Context, shortID, language string) (*domain.MongoSubtitle, error) {
 	var s domain.MongoSubtitle
-	err := r.col.FindOne(ctx, bson.M{"_id": shortID + ":" + language}).Decode(&s)
+	err := r.col.FindOne(ctx, bson.M{"_id": shortID + ":" + language, "deleted_at": nil}).Decode(&s)
 	if err != nil {
 		return nil, err
 	}

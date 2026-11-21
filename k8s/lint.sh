@@ -1,5 +1,5 @@
 #!/usr/bin/env nix-shell
-#!nix-shell -i bash -p kustomize kubeconform pluto kube-linter yamllint python3Packages.pyyaml -I nixpkgs=channel:nixpkgs-unstable
+#!nix-shell -i bash -p benthos kustomize kubeconform pluto kube-linter yamllint python3Packages.pyyaml -I nixpkgs=channel:nixpkgs-unstable
 
 set -euo pipefail
 
@@ -21,6 +21,15 @@ if python3 scripts/check-k8s-env-vars.py; then
   echo "env vars check passed!"
 else
   echo "env vars check failed!"
+  FAILED=1
+fi
+echo ""
+
+echo "=== 3. Testing Benthos stream Bloblang mappings and switch branches ==="
+if python3 scripts/test-benthos-streams.py; then
+  echo "Benthos stream tests passed!"
+else
+  echo "Benthos stream tests failed!"
   FAILED=1
 fi
 echo ""

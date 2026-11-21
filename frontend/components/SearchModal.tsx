@@ -69,11 +69,11 @@ export default function SearchModal({ isOpen, onClose }: Props) {
   }, [query, doSearch]);
 
   useEffect(() => {
+    if (!isOpen) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+      if (e.key === "Escape") {
         e.preventDefault();
-        if (!isOpen) onClose(); // toggle handled in header
+        onClose();
       }
     };
     window.addEventListener("keydown", handler);
@@ -97,6 +97,9 @@ export default function SearchModal({ isOpen, onClose }: Props) {
       onClick={onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("header.search")}
         style={{
           width: "100%",
           maxWidth: 600,

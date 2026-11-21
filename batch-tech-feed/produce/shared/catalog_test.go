@@ -1,11 +1,15 @@
 package shared_test
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/k-wa-wa/pechka/batch-tech-feed/produce/shared"
 )
 
@@ -158,4 +162,86 @@ func TestLoadScript(t *testing.T) {
 			t.Fatal("expected parse error, got nil")
 		}
 	})
+}
+
+type mockRow struct {
+	scanFn func(dest ...any) error
+}
+
+func (r mockRow) Scan(dest ...any) error { return r.scanFn(dest...) }
+
+type mockCatalogDB struct {
+	lastQuery string
+	tag       pgconn.CommandTag
+	rowErr    error
+	execErr   error
+}
+
+func (m *mockCatalogDB) QueryRow(_ context.Context, sql string, _ ...any) pgx.Row {
+	m.lastQuery = sql
+	return mockRow{scanFn: func(dest ...any) error {
+		if m.rowErr != nil {
+			return m.rowErr
+		}
+		*(dest[0].(*string)) = "uuid-1"
+		*(dest[1].(*string)) = "short-1"
+		return nil
+	}}
+}
+
+func (m *mockCatalogDB) Exec(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+	m.lastQuery = sql
+	return m.tag, m.execErr
+}
+
+func TestCatalogSoftDeleteGuards(t *testing.T) {
+	ctx := context.Background()
+
+	// UpsertContent: WHERE contents.deleted_at IS NULL and ErrNoRows on deleted conflict
+	dbUpsertErr := &mockCatalogDB{rowErr: pgx.ErrNoRows}
+	if _, _, err := shared.UpsertContentWithQuerier(ctx, dbUpsertErr, "k1", "t", "d", 10, nil); !errors.Is(err, pgx.ErrNoRows) {
+		t.Errorf("expected ErrNoRows when upserting deleted content, got %v", err)
+	}
+	if !strings.Contains(dbUpsertErr.lastQuery, "WHERE contents.deleted_at IS NULL") {
+		t.Errorf("UpsertContent missing WHERE contents.deleted_at IS NULL: %s", dbUpsertErr.lastQuery)
+	}
+
+	// RegisterVariant: 0 rows -> error, 1 row -> nil
+	dbZero := &mockCatalogDB{tag: pgconn.NewCommandTag("INSERT 0 0")}
+	if err := shared.RegisterVariantWithExec(ctx, dbZero, "c1", "s1", "720p", nil, nil, nil); err == nil || !strings.Contains(err.Error(), "not found or deleted") {
+		t.Errorf("RegisterVariant expected explicit error on 0 rows, got %v", err)
+	}
+	if !strings.Contains(dbZero.lastQuery, "deleted_at IS NULL FOR SHARE") {
+		t.Errorf("RegisterVariant missing deleted_at IS NULL FOR SHARE: %s", dbZero.lastQuery)
+	}
+	dbOne := &mockCatalogDB{tag: pgconn.NewCommandTag("INSERT 0 1")}
+	if err := shared.RegisterVariantWithExec(ctx, dbOne, "c1", "s1", "720p", nil, nil, nil); err != nil {
+		t.Errorf("RegisterVariant expected nil on 1 row, got %v", err)
+	}
+
+	// SetThumbnail: 0 rows -> error, 1 row -> nil
+	dbThumbZero := &mockCatalogDB{tag: pgconn.NewCommandTag("UPDATE 0")}
+	if err := shared.SetThumbnailWithExec(ctx, dbThumbZero, "c1", "k1"); err == nil || !strings.Contains(err.Error(), "not found or deleted") {
+		t.Errorf("SetThumbnail expected explicit error on 0 rows, got %v", err)
+	}
+	if !strings.Contains(dbThumbZero.lastQuery, "AND deleted_at IS NULL") {
+		t.Errorf("SetThumbnail missing AND deleted_at IS NULL: %s", dbThumbZero.lastQuery)
+	}
+	dbThumbOne := &mockCatalogDB{tag: pgconn.NewCommandTag("UPDATE 1")}
+	if err := shared.SetThumbnailWithExec(ctx, dbThumbOne, "c1", "k1"); err != nil {
+		t.Errorf("SetThumbnail expected nil on 1 row, got %v", err)
+	}
+
+	// MarkReady: 0 rows -> error, 1 row -> nil
+	dbReadyZero := &mockCatalogDB{tag: pgconn.NewCommandTag("UPDATE 0")}
+	if err := shared.MarkReadyWithExec(ctx, dbReadyZero, "c1"); err == nil || !strings.Contains(err.Error(), "not found or deleted") {
+		t.Errorf("MarkReady expected explicit error on 0 rows, got %v", err)
+	}
+	if !strings.Contains(dbReadyZero.lastQuery, "AND deleted_at IS NULL") {
+		t.Errorf("MarkReady missing AND deleted_at IS NULL: %s", dbReadyZero.lastQuery)
+	}
+	dbReadyOne := &mockCatalogDB{tag: pgconn.NewCommandTag("UPDATE 1")}
+	if err := shared.MarkReadyWithExec(ctx, dbReadyOne, "c1"); err != nil {
+		t.Errorf("MarkReady expected nil on 1 row, got %v", err)
+	}
 }

@@ -76,19 +76,34 @@ class TestAnalyze(unittest.TestCase):
     def test_register_assets(self):
         mock_conn = MagicMock()
         mock_cur = MagicMock()
+        mock_cur.rowcount = 1
         mock_conn.cursor.return_value.__enter__.return_value = mock_cur
         s3_key = "thumbnails/sid1/thumb_01.jpg"
         analyze.register_assets(mock_conn, "c-uuid", [s3_key], s3_key)
         self.assertEqual(mock_cur.execute.call_count, 2)
-        # 1回目は assets テーブルへの INSERT
+        # 1回目は contents.thumbnail_key の UPDATE (deleted_at IS NULL ガード付き)
         first_call_args = mock_cur.execute.call_args_list[0]
-        self.assertIn("INSERT INTO assets", first_call_args[0][0])
-        self.assertEqual(first_call_args[0][1], ("c-uuid", s3_key))
-        # 2回目は contents.thumbnail_key の UPDATE
+        self.assertIn("UPDATE contents SET thumbnail_key", first_call_args[0][0])
+        self.assertIn("deleted_at IS NULL", first_call_args[0][0])
+        self.assertEqual(first_call_args[0][1], (s3_key, "c-uuid"))
+        # 2回目は assets テーブルへの INSERT
         second_call_args = mock_cur.execute.call_args_list[1]
-        self.assertIn("UPDATE contents SET thumbnail_key", second_call_args[0][0])
-        self.assertEqual(second_call_args[0][1], (s3_key, "c-uuid"))
+        self.assertIn("INSERT INTO assets", second_call_args[0][0])
+        self.assertEqual(second_call_args[0][1], ("c-uuid", s3_key))
         mock_conn.commit.assert_called_once()
+        mock_conn.rollback.assert_not_called()
+
+    def test_register_assets_deleted_or_missing_content_rolls_back(self):
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_cur.rowcount = 0
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+        s3_key = "thumbnails/sid1/thumb_01.jpg"
+        with self.assertRaises(RuntimeError):
+            analyze.register_assets(mock_conn, "deleted-uuid", [s3_key], s3_key)
+        self.assertEqual(mock_cur.execute.call_count, 1)
+        mock_conn.rollback.assert_called_once()
+        mock_conn.commit.assert_not_called()
 
     @patch("socket.getaddrinfo")
     def test_resolve_postgres_dsn_multi_host(self, mock_getaddrinfo):

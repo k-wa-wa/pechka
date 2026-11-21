@@ -16,14 +16,19 @@ export default function Header() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        // 他のモーダルダイアログ（編集・アップロード等）が開いている間は検索を開かない
+        if (!searchOpen && document.querySelector('[role="dialog"][aria-modal="true"]')) {
+          e.preventDefault();
+          return;
+        }
         e.preventDefault();
         setSearchOpen((v) => !v);
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [searchOpen]);
 
   // Close drawer on route change
   useEffect(() => {

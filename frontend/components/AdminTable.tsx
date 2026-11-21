@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { archiveContent, getAdminContents, unarchiveContent } from "@/lib/api";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
-import type { Channel, Content, ContentStatus } from "@/lib/types";
+import type { AdminContentSort, Channel, Content, ContentStatus } from "@/lib/types";
 import EditModal from "./EditModal";
 import SubtitleEditorModal from "./SubtitleEditorModal";
 import UploadModal from "./UploadModal";
@@ -11,6 +11,9 @@ import UploadModal from "./UploadModal";
 interface Props {
   initialContents: Content[];
   channels?: Channel[];
+  sort?: AdminContentSort;
+  onSortChange?: (sort: AdminContentSort) => void;
+  sortDisabled?: boolean;
   onUploaded?: () => void;
 }
 
@@ -38,33 +41,69 @@ const CONTENT_TYPE_LABEL: Record<string, string> = {
   document: "Document",
 };
 
-export default function AdminTable({ initialContents, channels, onUploaded }: Props) {
+export default function AdminTable({
+  initialContents,
+  channels,
+  sort,
+  onSortChange,
+  sortDisabled,
+  onUploaded,
+}: Props) {
   const [contents, setContents] = useState<Content[]>(initialContents);
   const [editingContent, setEditingContent] = useState<Content | null>(null);
   const [subtitleContent, setSubtitleContent] = useState<Content | null>(null);
   const [archivingId, setArchivingId] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const { t, language } = useLanguage();
+  // 編集・アーカイブ成功直後の行が、CQRS 同期前のポーリング応答で古い値に巻き戻るのを防ぐため
+  // 保存済み行の updated_at（ms）を記録し、それより新しい応答が返るまで上書きしない。
+  const protectedUpdatedAtRef = useRef<Map<string, number>>(new Map());
 
   // Poll while any row is still converting so pending/processing rows flip to
   // ready (or error) without requiring a manual page reload.
   useEffect(() => {
     if (!contents.some((c) => IN_PROGRESS_STATUSES.includes(c.status))) return;
 
+    let cancelled = false;
     const timer = setTimeout(async () => {
       try {
-        const res = await getAdminContents({ limit: 100, offset: 0 });
+        const res = await getAdminContents({ limit: 100 });
+        if (cancelled) return;
         const byId = new Map(res.contents.map((c) => [c.id, c]));
-        setContents((prev) => prev.map((c) => byId.get(c.id) ?? c));
+        setContents((prev) =>
+          prev.map((c) => {
+            const polled = byId.get(c.id);
+            if (!polled) return c;
+
+            const polledMs = Date.parse(polled.updated_at);
+            const savedMs = protectedUpdatedAtRef.current.get(c.id);
+            if (savedMs !== undefined) {
+              if (!Number.isFinite(polledMs) || !Number.isFinite(savedMs) || polledMs <= savedMs) {
+                return c;
+              }
+              protectedUpdatedAtRef.current.delete(c.id);
+            }
+
+            const currentMs = Date.parse(c.updated_at);
+            if (Number.isFinite(polledMs) && Number.isFinite(currentMs) && polledMs < currentMs) {
+              return c;
+            }
+            return polled;
+          }),
+        );
       } catch {
         // Ignore transient poll failures; the next tick will retry.
       }
     }, POLL_INTERVAL_MS);
 
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [contents]);
 
   function handleSave(updated: Content) {
+    protectedUpdatedAtRef.current.set(updated.id, Date.parse(updated.updated_at));
     setContents((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
     setEditingContent(null);
   }
@@ -87,6 +126,7 @@ export default function AdminTable({ initialContents, channels, onUploaded }: Pr
       const updated = archiving
         ? await archiveContent(content.id)
         : await unarchiveContent(content.id);
+      protectedUpdatedAtRef.current.set(updated.id, Date.parse(updated.updated_at));
       setContents((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
     } catch (e) {
       window.alert(e instanceof Error ? e.message : t("admin.table.archiveError"));
@@ -110,10 +150,39 @@ export default function AdminTable({ initialContents, channels, onUploaded }: Pr
       <div
         style={{
           display: "flex",
-          justifyContent: "flex-end",
+          justifyContent: onSortChange ? "space-between" : "flex-end",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 12,
           marginBottom: 12,
         }}
       >
+        {onSortChange && (
+          <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 13, color: "var(--muted)" }}>{t("admin.sort.label")}</span>
+            <select
+              value={sort ?? "updated_desc"}
+              disabled={sortDisabled}
+              onChange={(e) => onSortChange(e.target.value as AdminContentSort)}
+              style={{
+                padding: "6px 10px",
+                borderRadius: "var(--radius-md)",
+                border: "1px solid var(--line)",
+                backgroundColor: "var(--bg)",
+                color: "var(--fg)",
+                fontSize: 13,
+                cursor: sortDisabled ? "not-allowed" : "pointer",
+              }}
+            >
+              <option value="updated_desc">{t("admin.sort.updatedDesc")}</option>
+              <option value="updated_asc">{t("admin.sort.updatedAsc")}</option>
+              <option value="created_desc">{t("admin.sort.createdDesc")}</option>
+              <option value="created_asc">{t("admin.sort.createdAsc")}</option>
+              <option value="title_asc">{t("admin.sort.titleAsc")}</option>
+              <option value="title_desc">{t("admin.sort.titleDesc")}</option>
+            </select>
+          </label>
+        )}
         <button
           onClick={() => setUploadOpen(true)}
           className="admin-btn-primary"
@@ -269,7 +338,7 @@ export default function AdminTable({ initialContents, channels, onUploaded }: Pr
                 {/* Tags */}
                 <td style={{ padding: "10px 14px" }}>
                   <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                    {content.tags.slice(0, 3).map((tag) => (
+                    {(content.tags ?? []).slice(0, 3).map((tag) => (
                       <span
                         key={tag}
                         style={{
@@ -285,9 +354,9 @@ export default function AdminTable({ initialContents, channels, onUploaded }: Pr
                         {tag}
                       </span>
                     ))}
-                    {content.tags.length > 3 && (
+                    {(content.tags ?? []).length > 3 && (
                       <span style={{ fontSize: 11, color: "var(--muted)" }}>
-                        +{content.tags.length - 3}
+                        +{(content.tags ?? []).length - 3}
                       </span>
                     )}
                   </div>

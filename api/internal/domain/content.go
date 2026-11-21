@@ -4,6 +4,7 @@ import "time"
 
 type ContentType string
 type ContentStatus string
+type ContentSort string
 
 const (
 	ContentTypeVideo        ContentType = "video"
@@ -15,7 +16,37 @@ const (
 	ContentStatusProcessing ContentStatus = "processing"
 	ContentStatusReady      ContentStatus = "ready"
 	ContentStatusError      ContentStatus = "error"
+
+	ContentSortUpdatedDesc ContentSort = "updated_desc"
+	ContentSortUpdatedAsc  ContentSort = "updated_asc"
+	ContentSortCreatedDesc ContentSort = "created_desc"
+	ContentSortCreatedAsc  ContentSort = "created_asc"
+	ContentSortTitleAsc    ContentSort = "title_asc"
+	ContentSortTitleDesc   ContentSort = "title_desc"
 )
+
+func IsValidContentSort(s ContentSort) bool {
+	switch s {
+	case ContentSortUpdatedDesc,
+		ContentSortUpdatedAsc,
+		ContentSortCreatedDesc,
+		ContentSortCreatedAsc,
+		ContentSortTitleAsc,
+		ContentSortTitleDesc:
+		return true
+	default:
+		return false
+	}
+}
+
+type AdminContentPage struct {
+	Contents   []*Content
+	Total      int
+	NextCursor *string
+	PrevCursor *string
+	HasNext    bool
+	HasPrev    bool
+}
 
 type Content struct {
 	ID               string        `json:"id"`

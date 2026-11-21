@@ -98,16 +98,45 @@ describe("lib/api", () => {
     );
   });
 
-  it("getAdminContents parses response", async () => {
-    const mockData = { contents: [{ id: "1", short_id: "s1" }], total: 100 };
+  it("getAdminContents sends sort/after/before and parses cursor response", async () => {
+    const mockData = {
+      contents: [{ id: "1", short_id: "s1" }],
+      total: 100,
+      limit: 10,
+      next_cursor: "cur-next",
+      prev_cursor: "cur-prev",
+      has_next: true,
+      has_prev: true,
+    };
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => mockData,
     });
 
-    const res = await getAdminContents({ limit: 10, offset: 0, status: "ready" });
+    const res = await getAdminContents({
+      limit: 10,
+      status: "ready",
+      sort: "title_asc",
+      after: "cur-after",
+    });
     expect(res.contents).toHaveLength(1);
     expect(res.total).toBe(100);
+    expect(res.next_cursor).toBe("cur-next");
+    expect(res.has_next).toBe(true);
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "/api/v1/admin/contents?status=ready&limit=10&sort=title_asc&after=cur-after",
+      ),
+      expect.any(Object),
+    );
+
+    await getAdminContents({ limit: 20, sort: "created_desc", before: "cur-before" });
+    expect(global.fetch).toHaveBeenLastCalledWith(
+      expect.stringContaining(
+        "/api/v1/admin/contents?limit=20&sort=created_desc&before=cur-before",
+      ),
+      expect.any(Object),
+    );
   });
 
   it("updateContent sends PUT request", async () => {

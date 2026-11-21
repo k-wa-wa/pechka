@@ -156,38 +156,70 @@ def flag_hallucinations(segments: list[dict]) -> list[dict]:
     return segments
 
 
-def find_unsafe_overwrite_reason(conn, content_id: str, language: str) -> str | None:
-    """既存トラックが人手レビュー済み/編集済みの場合、上書きしてよい理由がないので
-    None以外を返す（呼び出し側は処理を中断する）。バッチは常にトラックを丸ごと
-    作り直す設計のため、ここで弾かないとadmin画面での修正が再実行一発で消えてしまう。"""
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT id, status FROM subtitle_tracks WHERE content_id = %s AND language = %s",
-            (content_id, language),
-        )
-        row = cur.fetchone()
-        if row is None:
-            return None
-        track_id, status = row
+def _check_existing_track_unsafe(cur, content_id: str, language: str, *, lock_track: bool = False) -> str | None:
+    """既存トラックが公開済み、または手動編集済み（トラックフラグまたは本文差分）の場合は上書き禁止理由を返す。"""
+    lock_clause = " FOR UPDATE" if lock_track else ""
+    cur.execute(
+        f"SELECT id, status, manually_edited FROM subtitle_tracks WHERE content_id = %s AND language = %s{lock_clause}",
+        (content_id, language),
+    )
+    row = cur.fetchone()
+    if row is None:
+        return None
+    track_id, status, manually_edited = row
 
-        if status == "published":
-            return f"existing track {track_id} is published"
+    if status == "published":
+        return f"existing track {track_id} is published"
 
-        cur.execute(
-            "SELECT COUNT(*) FROM subtitle_cues WHERE track_id = %s AND text != original_text",
-            (track_id,),
-        )
-        edited_count = cur.fetchone()[0]
-        if edited_count > 0:
-            return f"existing track {track_id} has {edited_count} manually edited cue(s)"
+    if manually_edited:
+        return f"existing track {track_id} is manually edited"
+
+    cur.execute(
+        "SELECT COUNT(*) FROM subtitle_cues WHERE track_id = %s AND text != original_text",
+        (track_id,),
+    )
+    edited_count = cur.fetchone()[0]
+    if edited_count > 0:
+        return f"existing track {track_id} has {edited_count} manually edited cue(s)"
 
     return None
 
 
+def find_unsafe_overwrite_reason(conn, content_id: str, language: str) -> str | None:
+    """親コンテンツが未存在・論理削除済みの場合、または既存トラックが人手レビュー済み/編集済みの場合、
+    上書き・生成してよい理由がないので None 以外を返す（呼び出し側は処理を中断する）。"""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT deleted_at FROM contents WHERE id = %s",
+            (content_id,),
+        )
+        content_row = cur.fetchone()
+        if content_row is None:
+            return f"content {content_id} does not exist"
+        if content_row[0] is not None:
+            return f"content {content_id} is deleted"
+
+        return _check_existing_track_unsafe(cur, content_id, language, lock_track=False)
+
+
 def register_track(conn, content_id: str, language: str, segments: list[dict]) -> None:
     with conn.cursor() as cur:
+        # 文字起こし中に親コンテンツが論理削除された場合はトラック/キューを登録せずロールバックして失敗させる。
+        cur.execute(
+            "SELECT 1 FROM contents WHERE id = %s AND deleted_at IS NULL FOR UPDATE",
+            (content_id,),
+        )
+        if cur.fetchone() is None:
+            conn.rollback()
+            raise RuntimeError(f"content {content_id} not found or deleted")
+
+        # 親ロック取得後・DELETE 直前に、文字起こし中の公開化・手動編集を再検査して上書きを防ぐ。
+        unsafe_reason = _check_existing_track_unsafe(cur, content_id, language, lock_track=True)
+        if unsafe_reason is not None:
+            conn.rollback()
+            raise RuntimeError(f"refusing to overwrite: {unsafe_reason}")
+
         # 再実行時は既存トラックを丸ごと入れ替える（cueはON DELETE CASCADEで消える）。
-        # find_unsafe_overwrite_reason() で published/編集済みでないことを事前に確認済み。
         cur.execute(
             "DELETE FROM subtitle_tracks WHERE content_id = %s AND language = %s",
             (content_id, language),

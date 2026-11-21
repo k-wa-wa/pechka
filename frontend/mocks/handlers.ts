@@ -1,5 +1,6 @@
 import { HttpResponse, http } from "msw";
 import {
+  type AdminContentSort,
   type Content,
   resolveDocumentViewerKind,
   type SubtitleCue,
@@ -17,11 +18,182 @@ import {
   VARIANTS,
 } from "./fixtures";
 
+type MockAdminContent = Content & { deleted_at?: string | null };
+
 // Mutable copies so stories can exercise create/update/delete flows without
 // polluting the shared fixtures.
-const adminContents: Content[] = ADMIN_CONTENTS.map((c) => ({ ...c }));
+const adminContents: MockAdminContent[] = ADMIN_CONTENTS.map((c) => ({ ...c, deleted_at: null }));
 const subtitleTracks: Record<string, SubtitleTrack[]> = structuredClone(SUBTITLE_TRACKS);
 const subtitleCues: Record<string, SubtitleCue[]> = structuredClone(SUBTITLE_CUES);
+
+const VALID_ADMIN_SORTS = new Set<AdminContentSort>([
+  "updated_desc",
+  "updated_asc",
+  "created_desc",
+  "created_asc",
+  "title_asc",
+  "title_desc",
+]);
+
+const VALID_CHANNEL_ID_RE = /^[a-z0-9][a-z0-9-]{0,49}$/;
+
+function parseStrictLimit(rawParam: string | null): number {
+  if (rawParam === null || !/^-?\d+$/.test(rawParam)) {
+    return 20;
+  }
+  const parsed = Number(rawParam);
+  return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 100 ? parsed : 20;
+}
+
+function compareCodePoints(a: string, b: string): number {
+  if (a === b) return 0;
+  const iterA = a[Symbol.iterator]();
+  const iterB = b[Symbol.iterator]();
+  while (true) {
+    const nextA = iterA.next();
+    const nextB = iterB.next();
+    if (nextA.done && nextB.done) return 0;
+    if (nextA.done) return -1;
+    if (nextB.done) return 1;
+    const cpA = nextA.value.codePointAt(0) ?? 0;
+    const cpB = nextB.value.codePointAt(0) ?? 0;
+    if (cpA !== cpB) return cpA < cpB ? -1 : 1;
+  }
+}
+
+function sortMeta(sort: AdminContentSort): {
+  field: "updated_at" | "created_at" | "title";
+  dir: 1 | -1;
+  isTitle: boolean;
+} {
+  switch (sort) {
+    case "updated_desc":
+      return { field: "updated_at", dir: -1, isTitle: false };
+    case "updated_asc":
+      return { field: "updated_at", dir: 1, isTitle: false };
+    case "created_desc":
+      return { field: "created_at", dir: -1, isTitle: false };
+    case "created_asc":
+      return { field: "created_at", dir: 1, isTitle: false };
+    case "title_asc":
+      return { field: "title", dir: 1, isTitle: true };
+    case "title_desc":
+      return { field: "title", dir: -1, isTitle: true };
+  }
+}
+
+function toBase64Url(str: string): string {
+  const bytes = new TextEncoder().encode(str);
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function fromBase64Url(token: string): string | null {
+  if (!token || token.includes("=")) return null;
+  try {
+    const base64 = token.replace(/-/g, "+").replace(/_/g, "/");
+    const pad = base64.length % 4 === 0 ? "" : "=".repeat(4 - (base64.length % 4));
+    const binary = atob(base64 + pad);
+    const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return null;
+  }
+}
+
+interface DecodedCursor {
+  sort: AdminContentSort;
+  v: string | number;
+  id: string;
+}
+
+function encodeAdminCursor(sort: AdminContentSort, item: MockAdminContent): string {
+  const meta = sortMeta(sort);
+  const v = meta.isTitle ? item.title : Date.parse(item[meta.field]);
+  return toBase64Url(JSON.stringify({ sort, v, id: item.short_id }));
+}
+
+function decodeAdminCursor(token: string, expectedSort: AdminContentSort): DecodedCursor | null {
+  const raw = fromBase64Url(token);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<DecodedCursor>;
+    if (!parsed || typeof parsed !== "object") return null;
+    if (!parsed.sort || !VALID_ADMIN_SORTS.has(parsed.sort) || parsed.sort !== expectedSort)
+      return null;
+    if (typeof parsed.id !== "string" || parsed.id === "") return null;
+    const meta = sortMeta(parsed.sort);
+    if (meta.isTitle) {
+      if (typeof parsed.v !== "string") return null;
+    } else if (typeof parsed.v !== "number" || !Number.isInteger(parsed.v)) {
+      return null;
+    }
+    return { sort: parsed.sort, v: parsed.v, id: parsed.id };
+  } catch {
+    return null;
+  }
+}
+
+function compareAdminItems(
+  a: MockAdminContent,
+  b: MockAdminContent,
+  sort: AdminContentSort,
+): number {
+  const meta = sortMeta(sort);
+  let cmp = 0;
+  if (meta.isTitle) {
+    cmp = compareCodePoints(a.title, b.title);
+  } else {
+    const ta = Date.parse(a[meta.field]);
+    const tb = Date.parse(b[meta.field]);
+    cmp = ta === tb ? 0 : ta < tb ? -1 : 1;
+  }
+  if (cmp !== 0) return cmp * meta.dir;
+  return compareCodePoints(a.short_id, b.short_id);
+}
+
+function compareItemToCursor(
+  item: MockAdminContent,
+  cursor: DecodedCursor,
+  sort: AdminContentSort,
+): number {
+  const meta = sortMeta(sort);
+  let cmp = 0;
+  if (meta.isTitle) {
+    cmp = compareCodePoints(item.title, String(cursor.v));
+  } else {
+    const ti = Date.parse(item[meta.field]);
+    const tc = Number(cursor.v);
+    cmp = ti === tc ? 0 : ti < tc ? -1 : 1;
+  }
+  if (cmp !== 0) return cmp * meta.dir;
+  return compareCodePoints(item.short_id, cursor.id);
+}
+
+function stripDeletedField({ deleted_at: _deletedAt, ...rest }: MockAdminContent): Content {
+  return rest;
+}
+
+function isDeletedShortId(shortId: string): boolean {
+  const item = adminContents.find((c) => c.short_id === shortId);
+  return item != null && item.deleted_at != null;
+}
+
+function isContentDeleted(contentId: string): boolean {
+  const item = adminContents.find((c) => c.id === contentId);
+  return item != null && item.deleted_at != null;
+}
+
+function findActiveTrack(trackId: string): SubtitleTrack | null {
+  for (const tracks of Object.values(subtitleTracks)) {
+    const track = tracks.find((t) => t.id === trackId);
+    if (track) {
+      return isContentDeleted(track.content_id) ? null : track;
+    }
+  }
+  return null;
+}
 
 export const handlers = [
   http.get("/api/v1/channels", () => {
@@ -39,20 +211,28 @@ export const handlers = [
     const contentType = url.searchParams.get("content_type");
     const channelId = url.searchParams.get("channel_id");
     const limit = Number(url.searchParams.get("limit") ?? "100");
-    let items = CONTENTS;
+    let items = CONTENTS.filter((c) => !isDeletedShortId(c.short_id));
     if (contentType) items = items.filter((c) => c.content_type === contentType);
     if (channelId) items = items.filter((c) => c.channel_id === channelId);
     return HttpResponse.json(items.slice(0, limit));
   }),
 
   http.get("/api/v1/contents/:shortId", ({ params }) => {
-    const item = CONTENTS.find((c) => c.short_id === params.shortId);
+    const shortId = params.shortId as string;
+    if (isDeletedShortId(shortId)) {
+      return HttpResponse.json({ error: "not found" }, { status: 404 });
+    }
+    const item = CONTENTS.find((c) => c.short_id === shortId);
     if (!item) return HttpResponse.json({ error: "not found" }, { status: 404 });
     return HttpResponse.json(item);
   }),
 
   http.get("/api/v1/contents/:shortId/variants", ({ params }) => {
-    const variants = VARIANTS[params.shortId as string] ?? [];
+    const shortId = params.shortId as string;
+    if (isDeletedShortId(shortId)) {
+      return HttpResponse.json({ error: "not found" }, { status: 404 });
+    }
+    const variants = VARIANTS[shortId] ?? [];
     return HttpResponse.json(variants);
   }),
 
@@ -78,9 +258,10 @@ export const handlers = [
     const q = (url.searchParams.get("q") ?? "").toLowerCase();
     const results = SEARCH_RESULTS.filter(
       (c) =>
-        c.title.toLowerCase().includes(q) ||
-        c.description.toLowerCase().includes(q) ||
-        c.tags.some((t) => t.toLowerCase().includes(q)),
+        !isDeletedShortId(c.short_id) &&
+        (c.title.toLowerCase().includes(q) ||
+          c.description.toLowerCase().includes(q) ||
+          c.tags.some((t) => t.toLowerCase().includes(q))),
     );
     return HttpResponse.json(results);
   }),
@@ -88,21 +269,102 @@ export const handlers = [
   http.get("/api/v1/admin/contents", ({ request }) => {
     const url = new URL(request.url);
     const status = url.searchParams.get("status");
-    const limit = Number(url.searchParams.get("limit") ?? "20");
-    const offset = Number(url.searchParams.get("offset") ?? "0");
-    let items = adminContents;
+    const channelId = url.searchParams.get("channel_id");
+    if (channelId && !VALID_CHANNEL_ID_RE.test(channelId)) {
+      return HttpResponse.json({ message: "invalid channel_id" }, { status: 400 });
+    }
+    const limit = parseStrictLimit(url.searchParams.get("limit"));
+    const sortParam = (url.searchParams.get("sort") || "updated_desc") as AdminContentSort;
+    if (!VALID_ADMIN_SORTS.has(sortParam)) {
+      return HttpResponse.json({ message: "invalid sort" }, { status: 400 });
+    }
+    const afterParam = url.searchParams.get("after") ?? "";
+    const beforeParam = url.searchParams.get("before") ?? "";
+    if (afterParam && beforeParam) {
+      return HttpResponse.json(
+        { message: "after and before cannot be specified together" },
+        { status: 400 },
+      );
+    }
+    const afterCur = afterParam ? decodeAdminCursor(afterParam, sortParam) : null;
+    const beforeCur = beforeParam ? decodeAdminCursor(beforeParam, sortParam) : null;
+    if ((afterParam && !afterCur) || (beforeParam && !beforeCur)) {
+      return HttpResponse.json({ message: "invalid cursor" }, { status: 400 });
+    }
+
+    let items = adminContents.filter((c) => c.deleted_at == null);
     if (status) items = items.filter((c) => c.status === status);
+    if (channelId) items = items.filter((c) => c.channel_id === channelId);
+
+    const sorted = [...items].sort((a, b) => compareAdminItems(a, b, sortParam));
+    const total = sorted.length;
+
+    let pageItems: MockAdminContent[] = [];
+    let hasNext = false;
+    let hasPrev = false;
+    const meta = sortMeta(sortParam);
+
+    if (afterCur) {
+      const afterMatches = sorted.filter((c) => compareItemToCursor(c, afterCur, sortParam) > 0);
+      pageItems = afterMatches.slice(0, limit);
+      if (pageItems.length > 0) {
+        hasNext = afterMatches.length > limit;
+        const firstCur: DecodedCursor = {
+          sort: sortParam,
+          v: meta.isTitle ? pageItems[0].title : Date.parse(pageItems[0][meta.field]),
+          id: pageItems[0].short_id,
+        };
+        hasPrev = sorted.some((c) => compareItemToCursor(c, firstCur, sortParam) < 0);
+      }
+    } else if (beforeCur) {
+      const beforeMatches = sorted.filter((c) => compareItemToCursor(c, beforeCur, sortParam) < 0);
+      hasPrev = beforeMatches.length > limit;
+      pageItems = beforeMatches.slice(-limit);
+      if (pageItems.length > 0) {
+        const last = pageItems[pageItems.length - 1];
+        const lastCur: DecodedCursor = {
+          sort: sortParam,
+          v: meta.isTitle ? last.title : Date.parse(last[meta.field]),
+          id: last.short_id,
+        };
+        hasNext = sorted.some((c) => compareItemToCursor(c, lastCur, sortParam) > 0);
+      }
+    } else {
+      pageItems = sorted.slice(0, limit);
+      hasNext = sorted.length > limit;
+      hasPrev = false;
+    }
+
+    const nextCursor =
+      hasNext && pageItems.length > 0
+        ? encodeAdminCursor(sortParam, pageItems[pageItems.length - 1])
+        : null;
+    const prevCursor =
+      hasPrev && pageItems.length > 0 ? encodeAdminCursor(sortParam, pageItems[0]) : null;
+
     return HttpResponse.json({
-      contents: items.slice(offset, offset + limit),
-      total: items.length,
+      contents: pageItems.map(({ deleted_at: _deletedAt, ...rest }) => rest),
+      total,
       limit,
-      offset,
+      next_cursor: nextCursor,
+      prev_cursor: prevCursor,
+      has_next: hasNext,
+      has_prev: hasPrev,
     });
+  }),
+
+  http.delete("/api/v1/admin/contents/:id", ({ params }) => {
+    const idx = adminContents.findIndex((c) => c.id === params.id);
+    if (idx !== -1 && adminContents[idx].deleted_at == null) {
+      const now = new Date().toISOString();
+      adminContents[idx] = { ...adminContents[idx], deleted_at: now, updated_at: now };
+    }
+    return new HttpResponse(null, { status: 204 });
   }),
 
   http.put("/api/v1/admin/contents/:id", async ({ params, request }) => {
     const body = (await request.json()) as UpdateContentRequest;
-    const idx = adminContents.findIndex((c) => c.id === params.id);
+    const idx = adminContents.findIndex((c) => c.id === params.id && c.deleted_at == null);
     if (idx === -1) return HttpResponse.json({ error: "not found" }, { status: 404 });
     adminContents[idx] = {
       ...adminContents[idx],
@@ -113,7 +375,7 @@ export const handlers = [
       ...(body.status != null && { status: body.status }),
       updated_at: new Date().toISOString(),
     };
-    return HttpResponse.json(adminContents[idx]);
+    return HttpResponse.json(stripDeletedField(adminContents[idx]));
   }),
 
   http.post("/api/v1/admin/contents/upload", async ({ request }) => {
@@ -177,53 +439,62 @@ export const handlers = [
   }),
 
   http.post("/api/v1/admin/contents/:id/archive", ({ params }) => {
-    const idx = adminContents.findIndex((c) => c.id === params.id);
+    const idx = adminContents.findIndex((c) => c.id === params.id && c.deleted_at == null);
     if (idx === -1) return HttpResponse.json({ error: "not found" }, { status: 404 });
     adminContents[idx] = { ...adminContents[idx], archived_at: new Date().toISOString() };
-    return HttpResponse.json(adminContents[idx]);
+    return HttpResponse.json(stripDeletedField(adminContents[idx]));
   }),
 
   http.post("/api/v1/admin/contents/:id/unarchive", ({ params }) => {
-    const idx = adminContents.findIndex((c) => c.id === params.id);
+    const idx = adminContents.findIndex((c) => c.id === params.id && c.deleted_at == null);
     if (idx === -1) return HttpResponse.json({ error: "not found" }, { status: 404 });
     adminContents[idx] = { ...adminContents[idx], archived_at: null };
-    return HttpResponse.json(adminContents[idx]);
+    return HttpResponse.json(stripDeletedField(adminContents[idx]));
   }),
 
   http.get("/api/v1/admin/contents/:contentId/subtitles", ({ params }) => {
-    const tracks = subtitleTracks[params.contentId as string] ?? [];
+    const contentId = params.contentId as string;
+    if (isContentDeleted(contentId)) {
+      return HttpResponse.json([]);
+    }
+    const tracks = subtitleTracks[contentId] ?? [];
     return HttpResponse.json(tracks);
   }),
 
   http.put("/api/v1/admin/subtitles/:trackId/status", async ({ params, request }) => {
     const body = (await request.json()) as { status: SubtitleTrack["status"] };
-    for (const tracks of Object.values(subtitleTracks)) {
-      const track = tracks.find((t) => t.id === params.trackId);
-      if (track) {
-        track.status = body.status;
-        track.updated_at = new Date().toISOString();
-        return HttpResponse.json(track);
-      }
+    const track = findActiveTrack(params.trackId as string);
+    if (!track) {
+      return HttpResponse.json({ error: "not found" }, { status: 404 });
     }
-    return HttpResponse.json({ error: "not found" }, { status: 404 });
+    track.status = body.status;
+    track.updated_at = new Date().toISOString();
+    return HttpResponse.json(track);
   }),
 
   http.get("/api/v1/admin/subtitles/:trackId/cues", ({ params }) => {
-    const cues = subtitleCues[params.trackId as string] ?? [];
+    const track = findActiveTrack(params.trackId as string);
+    if (!track) {
+      return HttpResponse.json([]);
+    }
+    const cues = subtitleCues[track.id] ?? [];
     return HttpResponse.json(cues);
   }),
 
   http.post("/api/v1/admin/subtitles/:trackId/cues", async ({ params, request }) => {
+    const track = findActiveTrack(params.trackId as string);
+    if (!track) {
+      return HttpResponse.json({ error: "not found" }, { status: 404 });
+    }
     const body = (await request.json()) as {
       seq: number;
       start_ms: number;
       end_ms: number;
       text: string;
     };
-    const trackId = params.trackId as string;
     const cue: SubtitleCue = {
       id: `cue-${Date.now()}`,
-      track_id: trackId,
+      track_id: track.id,
       seq: body.seq,
       start_ms: body.start_ms,
       end_ms: body.end_ms,
@@ -232,8 +503,8 @@ export const handlers = [
       flagged: false,
       updated_at: new Date().toISOString(),
     };
-    subtitleCues[trackId] = [...(subtitleCues[trackId] ?? []), cue];
-    return HttpResponse.json(cue);
+    subtitleCues[track.id] = [...(subtitleCues[track.id] ?? []), cue];
+    return HttpResponse.json(cue, { status: 201 });
   }),
 
   http.put("/api/v1/admin/subtitles/cues/:cueId", async ({ params, request }) => {
@@ -241,6 +512,9 @@ export const handlers = [
     for (const cues of Object.values(subtitleCues)) {
       const cue = cues.find((c) => c.id === params.cueId);
       if (cue) {
+        if (!findActiveTrack(cue.track_id)) {
+          return HttpResponse.json({ error: "not found" }, { status: 404 });
+        }
         Object.assign(cue, body, { updated_at: new Date().toISOString() });
         return HttpResponse.json(cue);
       }
@@ -252,6 +526,9 @@ export const handlers = [
     for (const [trackId, cues] of Object.entries(subtitleCues)) {
       const idx = cues.findIndex((c) => c.id === params.cueId);
       if (idx !== -1) {
+        if (!findActiveTrack(trackId)) {
+          return HttpResponse.json({ error: "not found" }, { status: 404 });
+        }
         subtitleCues[trackId] = cues.filter((c) => c.id !== params.cueId);
         return new HttpResponse(null, { status: 204 });
       }
