@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/k-wa-wa/pechka/api/internal/domain"
 )
@@ -47,12 +48,12 @@ func TestAdminIndexModels(t *testing.T) {
 		field string
 		dir   int32
 	}{
-		{"idx_admin_updated_desc", "updated_at", -1},
-		{"idx_admin_updated_asc", "updated_at", 1},
-		{"idx_admin_created_desc", "created_at", -1},
-		{"idx_admin_created_asc", "created_at", 1},
-		{"idx_admin_title_asc", "title", 1},
-		{"idx_admin_title_desc", "title", -1},
+		{"idx_admin_v2_updated_desc", "updated_at", -1},
+		{"idx_admin_v2_updated_asc", "updated_at", 1},
+		{"idx_admin_v2_created_desc", "created_at", -1},
+		{"idx_admin_v2_created_asc", "created_at", 1},
+		{"idx_admin_v2_title_asc", "title", 1},
+		{"idx_admin_v2_title_desc", "title", -1},
 	}
 
 	for i, exp := range expected {
@@ -86,6 +87,81 @@ func TestAdminIndexModels(t *testing.T) {
 	if !reflect.DeepEqual(filterKeys, wantFilterKeys) {
 		t.Errorf("filter index keys = %v, want %v", filterKeys, wantFilterKeys)
 	}
+}
+
+type mockAdminIndexManager struct {
+	createManyFn func(ctx context.Context, models []mongo.IndexModel) ([]string, error)
+	dropOneFn    func(ctx context.Context, name string) error
+	events       []string
+	dropped      []string
+}
+
+func (m *mockAdminIndexManager) CreateMany(ctx context.Context, models []mongo.IndexModel) ([]string, error) {
+	m.events = append(m.events, "create_many")
+	if m.createManyFn != nil {
+		return m.createManyFn(ctx, models)
+	}
+	return []string{"ok"}, nil
+}
+
+func (m *mockAdminIndexManager) DropOne(ctx context.Context, name string) error {
+	m.events = append(m.events, "drop:"+name)
+	m.dropped = append(m.dropped, name)
+	if m.dropOneFn != nil {
+		return m.dropOneFn(ctx, name)
+	}
+	return nil
+}
+
+func TestEnsureIndexesWithManager_BuildV2BeforeDroppingLegacy(t *testing.T) {
+	t.Run("creates v2 indexes before dropping legacy names and never drops v2", func(t *testing.T) {
+		repo := &ContentRepository{}
+		mgr := &mockAdminIndexManager{
+			dropOneFn: func(_ context.Context, name string) error {
+				if name == "idx_admin_updated_asc" {
+					// Concurrent replica already dropped this legacy index -> IndexNotFound (27) is ignored
+					return mongo.CommandError{Code: 27, Message: "index not found"}
+				}
+				return nil
+			},
+		}
+		if err := repo.ensureIndexesWithManager(context.Background(), mgr); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !repo.indexesEnsured.Load() {
+			t.Fatal("expected indexesEnsured to be true")
+		}
+		if len(mgr.events) == 0 || mgr.events[0] != "create_many" {
+			t.Fatalf("expected create_many to execute first, got %v", mgr.events)
+		}
+		for _, name := range mgr.dropped {
+			if containsStr(name, "v2") {
+				t.Errorf("must never drop new v2 index %q", name)
+			}
+		}
+		if len(mgr.dropped) != len(legacyAdminIndexNames) {
+			t.Errorf("dropped %d legacy names, want %d", len(mgr.dropped), len(legacyAdminIndexNames))
+		}
+	})
+
+	t.Run("does not drop any legacy index when CreateMany fails", func(t *testing.T) {
+		repo := &ContentRepository{}
+		mgr := &mockAdminIndexManager{
+			createManyFn: func(_ context.Context, _ []mongo.IndexModel) ([]string, error) {
+				return nil, context.DeadlineExceeded
+			},
+		}
+		err := repo.ensureIndexesWithManager(context.Background(), mgr)
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("expected DeadlineExceeded, got %v", err)
+		}
+		if len(mgr.dropped) != 0 {
+			t.Errorf("expected no drops when CreateMany fails, got %v", mgr.dropped)
+		}
+		if repo.indexesEnsured.Load() {
+			t.Error("indexesEnsured must remain false on failure")
+		}
+	})
 }
 
 func TestEncodeAndDecodeAdminCursor(t *testing.T) {

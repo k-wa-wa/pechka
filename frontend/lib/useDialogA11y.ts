@@ -50,6 +50,12 @@ export function useDialogA11y({
       const currentDialog = dialogRef.current;
       if (!currentDialog) return;
 
+      // 複数ダイアログが重なった場合は最前面のモーダルのみがキー操作を処理する
+      const modalDialogs = document.querySelectorAll('[role="dialog"][aria-modal="true"]');
+      if (modalDialogs.length > 0 && modalDialogs[modalDialogs.length - 1] !== currentDialog) {
+        return;
+      }
+
       if (e.key === "Escape") {
         if (!closeDisabledRef.current) {
           e.preventDefault();

@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/url"
 	"strings"
@@ -271,6 +272,106 @@ func TestBuildLatestPlaylist_RelativeURIResolutionAndSanitization(t *testing.T) 
 	}
 	if strings.Join(resolved, ",") != strings.Join(wantPaths, ",") {
 		t.Errorf("resolved paths = %v, want %v", resolved, wantPaths)
+	}
+}
+
+type fullContentRowScanner struct {
+	vals []any
+}
+
+func (s fullContentRowScanner) Scan(dest ...any) error {
+	for i := range dest {
+		switch d := dest[i].(type) {
+		case *string:
+			*d = s.vals[i].(string)
+		case **string:
+			if s.vals[i] == nil {
+				*d = nil
+			} else {
+				v := s.vals[i].(*string)
+				*d = v
+			}
+		case *domain.ContentType:
+			*d = s.vals[i].(domain.ContentType)
+		case *domain.ContentStatus:
+			*d = s.vals[i].(domain.ContentStatus)
+		case **int:
+			if s.vals[i] == nil {
+				*d = nil
+			} else {
+				v := s.vals[i].(*int)
+				*d = v
+			}
+		case *[]string:
+			if s.vals[i] == nil {
+				*d = nil
+			} else {
+				*d = s.vals[i].([]string)
+			}
+		case **time.Time:
+			if s.vals[i] == nil {
+				*d = nil
+			} else {
+				v := s.vals[i].(*time.Time)
+				*d = v
+			}
+		case *time.Time:
+			*d = s.vals[i].(time.Time)
+		default:
+			if ns, ok := d.(interface{ Scan(any) error }); ok {
+				if err := ns.Scan(s.vals[i]); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func TestScanContent_NullNullableFieldsNormalized(t *testing.T) {
+	for _, col := range []string{"COALESCE(title, '')", "COALESCE(description, '')", "COALESCE(is_360, false)", "COALESCE(tags, '{}')"} {
+		if !strings.Contains(contentColumns, col) {
+			t.Errorf("contentColumns missing %q: %s", col, contentColumns)
+		}
+	}
+
+	now := time.Now().UTC()
+	c, err := scanContent(fullContentRowScanner{
+		vals: []any{
+			"uuid-1",
+			"short-1",
+			domain.ContentTypeVideo,
+			"bluray",
+			nil, // disc_id
+			nil, // title NULL
+			nil, // description NULL
+			nil, // duration_seconds
+			nil, // is_360 NULL
+			nil, // tags NULL
+			domain.ContentStatusReady,
+			nil,  // document_key
+			nil,  // document_mime_type
+			nil,  // published_at
+			&now, // archived_at
+			now,
+			now,
+		},
+	})
+	if err != nil {
+		t.Fatalf("scanContent failed on nullable columns: %v", err)
+	}
+	if c.Title != "" || c.Description != "" || c.Is360 {
+		t.Errorf("unexpected normalized scalar fields: %+v", c)
+	}
+	if c.Tags == nil || len(c.Tags) != 0 {
+		t.Fatalf("expected non-nil empty Tags slice, got %#v", c.Tags)
+	}
+	raw, err := json.Marshal(c)
+	if err != nil {
+		t.Fatalf("json.Marshal failed: %v", err)
+	}
+	if !strings.Contains(string(raw), `"tags":[]`) {
+		t.Errorf("expected serialized JSON to contain \"tags\":[], got %s", string(raw))
 	}
 }
 

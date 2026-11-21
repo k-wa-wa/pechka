@@ -629,7 +629,7 @@ func TestAdminHandler_ArchiveContent_Success(t *testing.T) {
 	contentRepo := &mockPgContentRepo{
 		setArchivedFn: func(_ context.Context, id string, archived bool) (*domain.Content, error) {
 			gotArchived = archived
-			return &domain.Content{ID: id}, nil
+			return &domain.Content{ID: id, Tags: []string{}}, nil
 		},
 	}
 	refresher := &mockPlaylistRefresher{}
@@ -654,6 +654,9 @@ func TestAdminHandler_ArchiveContent_Success(t *testing.T) {
 	}
 	if refresher.called != 1 {
 		t.Errorf("expected playlist refresher to be called once, got %d", refresher.called)
+	}
+	if !strings.Contains(rec.Body.String(), `"tags":[]`) {
+		t.Errorf("expected archive response JSON to contain \"tags\":[], got %s", rec.Body.String())
 	}
 }
 

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -225,20 +224,30 @@ func DecodeAdminCursor(token string, expectedSort domain.ContentSort) (*AdminCur
 	return cur, nil
 }
 
+var legacyAdminIndexNames = []string{
+	"idx_admin_updated_desc",
+	"idx_admin_updated_asc",
+	"idx_admin_created_desc",
+	"idx_admin_created_asc",
+	"idx_admin_title_asc",
+	"idx_admin_title_desc",
+}
+
 // AdminIndexModels は管理画面一覧の 6 種類のソートと未削除件数取得に対応する複合インデックス定義を返す。
 // すべてのインデックス先頭に deleted_at を含め、一覧取得の IXSCAN と CountDocuments の COUNT_SCAN を効かせる。
+// 旧定義（deleted_at なし）と名前衝突・レプリカ間競合を起こさず先に新定義を構築できるよう、v2 命名を使用する。
 func AdminIndexModels() []mongo.IndexModel {
 	specs := []struct {
 		name  string
 		field string
 		dir   int32
 	}{
-		{name: "idx_admin_updated_desc", field: "updated_at", dir: -1},
-		{name: "idx_admin_updated_asc", field: "updated_at", dir: 1},
-		{name: "idx_admin_created_desc", field: "created_at", dir: -1},
-		{name: "idx_admin_created_asc", field: "created_at", dir: 1},
-		{name: "idx_admin_title_asc", field: "title", dir: 1},
-		{name: "idx_admin_title_desc", field: "title", dir: -1},
+		{name: "idx_admin_v2_updated_desc", field: "updated_at", dir: -1},
+		{name: "idx_admin_v2_updated_asc", field: "updated_at", dir: 1},
+		{name: "idx_admin_v2_created_desc", field: "created_at", dir: -1},
+		{name: "idx_admin_v2_created_asc", field: "created_at", dir: 1},
+		{name: "idx_admin_v2_title_asc", field: "title", dir: 1},
+		{name: "idx_admin_v2_title_desc", field: "title", dir: -1},
 	}
 	models := make([]mongo.IndexModel, 0, len(specs)+1)
 	for _, s := range specs {
@@ -257,51 +266,49 @@ func AdminIndexModels() []mongo.IndexModel {
 			{Key: "status", Value: int32(1)},
 			{Key: "channel_id", Value: int32(1)},
 		},
-		Options: options.Index().SetName("idx_admin_deleted_filter"),
+		Options: options.Index().SetName("idx_admin_v2_deleted_filter"),
 	})
 	return models
 }
 
-func isIndexConflictError(err error) bool {
-	if err == nil {
-		return false
-	}
+type adminIndexManager interface {
+	CreateMany(ctx context.Context, models []mongo.IndexModel) ([]string, error)
+	DropOne(ctx context.Context, name string) error
+}
+
+type mongoAdminIndexManager struct {
+	view mongo.IndexView
+}
+
+func (m mongoAdminIndexManager) CreateMany(ctx context.Context, models []mongo.IndexModel) ([]string, error) {
+	return m.view.CreateMany(ctx, models)
+}
+
+func (m mongoAdminIndexManager) DropOne(ctx context.Context, name string) error {
+	return m.view.DropOne(ctx, name)
+}
+
+func isIndexNotFoundError(err error) bool {
 	var cmdErr mongo.CommandError
-	if errors.As(err, &cmdErr) && (cmdErr.Code == 85 || cmdErr.Code == 86) {
-		return true
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "IndexKeySpecsConflict") || strings.Contains(msg, "IndexOptionsConflict")
+	return errors.As(err, &cmdErr) && cmdErr.Code == 27 // 27: IndexNotFound
 }
 
 // EnsureIndexes は管理一覧用複合インデックスを冪等に作成する。
-// 既存の同名インデックスが旧キー定義（deleted_at なし等）で衝突する場合は差し替える。
+// 新定義（idx_admin_v2_*）を先に構築して完了を確認した後にのみ旧定義（idx_admin_*）を撤去し、
+// 複数レプリカの同時起動時やタイムアウト時でも稼働中インデックスが欠落しないようにする。
 func (r *ContentRepository) EnsureIndexes(ctx context.Context) error {
 	if r.col == nil {
 		return errors.New("mongo collection is nil")
 	}
-	models := AdminIndexModels()
-	if _, err := r.col.Indexes().CreateMany(ctx, models); err != nil {
-		if !isIndexConflictError(err) {
-			return err
-		}
-		for _, name := range []string{
-			"idx_admin_updated_desc",
-			"idx_admin_updated_asc",
-			"idx_admin_created_desc",
-			"idx_admin_created_asc",
-			"idx_admin_title_asc",
-			"idx_admin_title_desc",
-			"idx_admin_deleted_filter",
-		} {
-			if err := r.col.Indexes().DropOne(ctx, name); err != nil {
-				var cmdErr mongo.CommandError
-				if !errors.As(err, &cmdErr) || cmdErr.Code != 27 { // 27: IndexNotFound
-					return err
-				}
-			}
-		}
-		if _, err := r.col.Indexes().CreateMany(ctx, models); err != nil {
+	return r.ensureIndexesWithManager(ctx, mongoAdminIndexManager{view: r.col.Indexes()})
+}
+
+func (r *ContentRepository) ensureIndexesWithManager(ctx context.Context, mgr adminIndexManager) error {
+	if _, err := mgr.CreateMany(ctx, AdminIndexModels()); err != nil {
+		return err
+	}
+	for _, name := range legacyAdminIndexNames {
+		if err := mgr.DropOne(ctx, name); err != nil && !isIndexNotFoundError(err) {
 			return err
 		}
 	}

@@ -63,17 +63,64 @@ class TestGenerate(unittest.TestCase):
         mock_conn.rollback.assert_called_once()
         mock_conn.commit.assert_not_called()
 
+    def test_register_track_published_during_transcription_rolls_back(self):
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+        mock_cur.fetchone.side_effect = [(1,), ("track-1", "published")]
+
+        segments = [{"start_ms": 0, "end_ms": 1000, "text": "Hello", "flagged": False}]
+        with self.assertRaisesRegex(RuntimeError, "published"):
+            generate.register_track(mock_conn, "active-c1", "ja", segments)
+
+        executed_sql = [call[0][0] for call in mock_cur.execute.call_args_list]
+        self.assertTrue(any("FOR UPDATE" in sql and "subtitle_tracks" in sql for sql in executed_sql))
+        self.assertFalse(any("DELETE FROM subtitle_tracks" in sql for sql in executed_sql))
+        mock_conn.rollback.assert_called_once()
+        mock_conn.commit.assert_not_called()
+
+    def test_register_track_edited_during_transcription_rolls_back(self):
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+        mock_cur.fetchone.side_effect = [(1,), ("track-1", "draft"), (2,)]
+
+        segments = [{"start_ms": 0, "end_ms": 1000, "text": "Hello", "flagged": False}]
+        with self.assertRaisesRegex(RuntimeError, "2 manually edited cue"):
+            generate.register_track(mock_conn, "active-c1", "ja", segments)
+
+        executed_sql = [call[0][0] for call in mock_cur.execute.call_args_list]
+        self.assertFalse(any("DELETE FROM subtitle_tracks" in sql for sql in executed_sql))
+        mock_conn.rollback.assert_called_once()
+        mock_conn.commit.assert_not_called()
+
     def test_register_track_success(self):
         mock_conn = MagicMock()
         mock_cur = MagicMock()
         mock_conn.cursor.return_value.__enter__.return_value = mock_cur
-        mock_cur.fetchone.side_effect = [(1,), ("track-uuid",)]
+        mock_cur.fetchone.side_effect = [(1,), None, ("track-uuid",)]
 
         segments = [{"start_ms": 0, "end_ms": 1000, "text": "Hello", "flagged": False}]
         with patch("generate.psycopg2") as mock_pg:
             generate.register_track(mock_conn, "active-c1", "ja", segments)
             mock_pg.extras.execute_values.assert_called_once()
 
+        mock_conn.commit.assert_called_once()
+        mock_conn.rollback.assert_not_called()
+
+    def test_register_track_replaces_unedited_draft_success(self):
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+        mock_cur.fetchone.side_effect = [(1,), ("old-track", "draft"), (0,), ("new-track",)]
+
+        segments = [{"start_ms": 0, "end_ms": 1000, "text": "Hello", "flagged": False}]
+        with patch("generate.psycopg2") as mock_pg:
+            generate.register_track(mock_conn, "active-c1", "ja", segments)
+            mock_pg.extras.execute_values.assert_called_once()
+
+        executed_sql = [call[0][0] for call in mock_cur.execute.call_args_list]
+        self.assertTrue(any("DELETE FROM subtitle_tracks" in sql for sql in executed_sql))
         mock_conn.commit.assert_called_once()
         mock_conn.rollback.assert_not_called()
 

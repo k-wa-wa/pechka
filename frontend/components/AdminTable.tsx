@@ -338,7 +338,7 @@ export default function AdminTable({
                 {/* Tags */}
                 <td style={{ padding: "10px 14px" }}>
                   <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                    {content.tags.slice(0, 3).map((tag) => (
+                    {(content.tags ?? []).slice(0, 3).map((tag) => (
                       <span
                         key={tag}
                         style={{
@@ -354,9 +354,9 @@ export default function AdminTable({
                         {tag}
                       </span>
                     ))}
-                    {content.tags.length > 3 && (
+                    {(content.tags ?? []).length > 3 && (
                       <span style={{ fontSize: 11, color: "var(--muted)" }}>
-                        +{content.tags.length - 3}
+                        +{(content.tags ?? []).length - 3}
                       </span>
                     )}
                   </div>

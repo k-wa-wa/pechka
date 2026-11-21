@@ -24,7 +24,7 @@ export default function EditModal({ content, channels, onClose, onSave }: Props)
   const [channelId, setChannelId] = useState(content.channel_id ?? "bluray");
   const [title, setTitle] = useState(content.title);
   const [description, setDescription] = useState(content.description);
-  const [tags, setTags] = useState(content.tags.join(", "));
+  const [tags, setTags] = useState((content.tags ?? []).join(", "));
   const [status, setStatus] = useState<ContentStatus>(content.status);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);

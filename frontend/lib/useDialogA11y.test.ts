@@ -60,4 +60,28 @@ describe("useDialogA11y", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  it("does not intercept Escape or Tab when another modal dialog is stacked on top", () => {
+    const onUnderlyingClose = vi.fn();
+    render(
+      createElement(
+        "div",
+        null,
+        createElement(TestDialog, { onClose: onUnderlyingClose }),
+        createElement(
+          "div",
+          { role: "dialog", "aria-modal": "true" },
+          createElement("input", { "aria-label": "Top Input" }),
+        ),
+      ),
+    );
+
+    const topInput = screen.getByLabelText("Top Input");
+    topInput.focus();
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(document.activeElement).toBe(topInput);
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onUnderlyingClose).not.toHaveBeenCalled();
+  });
 });

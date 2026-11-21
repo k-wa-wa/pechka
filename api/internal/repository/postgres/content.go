@@ -3,6 +3,7 @@ package postgres
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -21,7 +22,7 @@ func NewContentRepository(pool *pgxpool.Pool) *ContentRepository {
 	return &ContentRepository{pool: pool}
 }
 
-const contentColumns = `id, short_id, content_type, channel_id, disc_id, title, description, duration_seconds, is_360, tags, status, document_key, document_mime_type, published_at, archived_at, created_at, updated_at`
+const contentColumns = `id, short_id, content_type, channel_id, disc_id, COALESCE(title, ''), COALESCE(description, ''), duration_seconds, COALESCE(is_360, false), COALESCE(tags, '{}'), status, document_key, document_mime_type, published_at, archived_at, created_at, updated_at`
 
 type CreateContentParams struct {
 	ShortID          string
@@ -416,13 +417,22 @@ type scanner interface {
 
 func scanContent(row scanner) (*domain.Content, error) {
 	var c domain.Content
+	var title sql.NullString
+	var description sql.NullString
+	var is360 sql.NullBool
 	err := row.Scan(
-		&c.ID, &c.ShortID, &c.ContentType, &c.ChannelID, &c.DiscID, &c.Title, &c.Description,
-		&c.DurationSeconds, &c.Is360, &c.Tags, &c.Status, &c.DocumentKey, &c.DocumentMimeType,
+		&c.ID, &c.ShortID, &c.ContentType, &c.ChannelID, &c.DiscID, &title, &description,
+		&c.DurationSeconds, &is360, &c.Tags, &c.Status, &c.DocumentKey, &c.DocumentMimeType,
 		&c.PublishedAt, &c.ArchivedAt, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
+	}
+	c.Title = title.String
+	c.Description = description.String
+	c.Is360 = is360.Bool
+	if c.Tags == nil {
+		c.Tags = []string{}
 	}
 	return &c, nil
 }

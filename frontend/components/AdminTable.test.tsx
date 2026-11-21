@@ -278,4 +278,39 @@ describe("AdminTable", () => {
     expect(screen.getByText("Target Video Synced")).toBeDefined();
     expect(screen.getByText("Archived")).toBeDefined();
   });
+
+  it("handles archive response with empty tags array without crashing", async () => {
+    const readyItem = {
+      ...ADMIN_CONTENTS[1],
+      id: "r-empty-tags",
+      status: "ready" as const,
+      title: "Empty Tags Content",
+      tags: [],
+      archived_at: null,
+    };
+
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.spyOn(api, "archiveContent").mockResolvedValue({
+      ...readyItem,
+      tags: [],
+      archived_at: "2025-01-01T00:01:00Z",
+      updated_at: "2025-01-01T00:01:00Z",
+    });
+
+    render(
+      <LanguageProvider>
+        <AdminTable initialContents={[readyItem]} channels={CHANNELS} />
+      </LanguageProvider>,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Archive" }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("Empty Tags Content")).toBeDefined();
+    expect(screen.getByText("Archived")).toBeDefined();
+    expect(screen.getByRole("button", { name: "Unarchive" })).toBeDefined();
+  });
 });
