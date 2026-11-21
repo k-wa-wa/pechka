@@ -280,6 +280,7 @@ type existingIndexSpec struct {
 	PartialFilterExpression bson.M `bson:"partialFilterExpression"`
 	Collation               bson.M `bson:"collation"`
 	ExpireAfterSeconds      *int32 `bson:"expireAfterSeconds"`
+	BuildUUID               any    `bson:"buildUUID,omitempty"`
 }
 
 type adminIndexManager interface {
@@ -357,11 +358,15 @@ func indexKeysEqual(a, b bson.D) bool {
 	return true
 }
 
-func isEquivalentPlainIndex(existing existingIndexSpec, desiredKeys bson.D) bool {
+func hasSameKeysAndPlainOptions(existing existingIndexSpec, desiredKeys bson.D) bool {
 	if existing.Unique || existing.Sparse || len(existing.PartialFilterExpression) > 0 || len(existing.Collation) > 0 || existing.ExpireAfterSeconds != nil {
 		return false
 	}
 	return indexKeysEqual(existing.Key, desiredKeys)
+}
+
+func isReadyEquivalentPlainIndex(existing existingIndexSpec, desiredKeys bson.D) bool {
+	return existing.BuildUUID == nil && hasSameKeysAndPlainOptions(existing, desiredKeys)
 }
 
 func desiredAdminIndexNames() []string {
@@ -376,10 +381,32 @@ func desiredAdminIndexNames() []string {
 	}
 }
 
+func hasInProgressLegacyMatch(existing []existingIndexSpec, models []mongo.IndexModel) bool {
+	for _, model := range models {
+		desiredKeys, _ := model.Keys.(bson.D)
+		hasReady := false
+		hasInProgressLegacy := false
+		for _, ex := range existing {
+			if isReadyEquivalentPlainIndex(ex, desiredKeys) {
+				hasReady = true
+				break
+			}
+			if ex.BuildUUID != nil && slices.Contains(legacyAdminIndexNames, ex.Name) && hasSameKeysAndPlainOptions(ex, desiredKeys) {
+				hasInProgressLegacy = true
+			}
+		}
+		if !hasReady && hasInProgressLegacy {
+			return true
+		}
+	}
+	return false
+}
+
 // EnsureIndexes は管理一覧用複合インデックスを冪等に作成する。
-// 既存のインデックス定義をキーとオプションで照合し、同一キーのインデックス（別名含む）が既にあれば
-// IndexOptionsConflict を避けるため再作成せず再利用する。欠けている新定義（idx_admin_v2_*）を
-// 先に構築・完了させた後にのみ不要な旧定義を撤去し、複数レプリカの同時起動時やタイムアウト時の欠落を防ぐ。
+// 既存のインデックス定義をキー・オプションおよび構築完了状態（buildUUID 不在）で照合し、
+// 完成済みの同一キー定義があれば再作成せず再利用する。名前衝突する不一致定義を先に撤去した上で
+// 残存定義を基準に不足分（構築中の同一 v2 定義を含む）を作成・待機し、全7本の完了確認後にのみ
+// 不要な旧定義を撤去する。
 func (r *ContentRepository) EnsureIndexes(ctx context.Context) error {
 	if r.col == nil {
 		return errors.New("mongo collection is nil")
@@ -388,38 +415,66 @@ func (r *ContentRepository) EnsureIndexes(ctx context.Context) error {
 }
 
 func (r *ContentRepository) ensureIndexesWithManager(ctx context.Context, mgr adminIndexManager) error {
-	existing, err := mgr.List(ctx)
-	if err != nil {
-		return err
-	}
-
 	models := AdminIndexModels()
 	names := desiredAdminIndexNames()
-	var toCreate []mongo.IndexModel
-	var mismatchedSameName []string
 
+	var existing []existingIndexSpec
+	for {
+		var err error
+		existing, err = mgr.List(ctx)
+		if err != nil {
+			return err
+		}
+		if !hasInProgressLegacyMatch(existing, models) {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+
+	// 1. まず名前が衝突してキー・オプションが不一致の v2 定義を特定し、撤去して残存集合（surviving）を確定する。
+	// 撤去後に残る定義だけを基準に作成対象を決めることで、別ソートで再利用予定だった定義を後から消す欠落を防ぐ。
+	dropSet := make(map[string]bool)
 	for i, model := range models {
 		desiredKeys, _ := model.Keys.(bson.D)
 		desiredName := names[i]
-
-		matched := false
 		for _, ex := range existing {
-			if isEquivalentPlainIndex(ex, desiredKeys) {
-				matched = true
-				break
+			if ex.Name == desiredName && !hasSameKeysAndPlainOptions(ex, desiredKeys) {
+				dropSet[ex.Name] = true
 			}
-			if ex.Name == desiredName {
-				mismatchedSameName = append(mismatchedSameName, ex.Name)
-			}
-		}
-		if !matched {
-			toCreate = append(toCreate, model)
 		}
 	}
 
-	for _, name := range mismatchedSameName {
+	for name := range dropSet {
 		if err := mgr.DropOne(ctx, name); err != nil && !isIndexNotFoundError(err) {
 			return err
+		}
+	}
+
+	surviving := make([]existingIndexSpec, 0, len(existing))
+	for _, ex := range existing {
+		if !dropSet[ex.Name] {
+			surviving = append(surviving, ex)
+		}
+	}
+
+	// 2. 撤去後の残存集合から「完成済み（buildUUID == nil）かつ同等キー」が存在しないモデルを作成対象にする。
+	// 他レプリカが同一 v2 定義を構築中（buildUUID != nil）の場合も CreateMany に含め、MongoDB 側で完了/失敗を待機する。
+	var toCreate []mongo.IndexModel
+	for _, model := range models {
+		desiredKeys, _ := model.Keys.(bson.D)
+		matchedReady := false
+		for _, ex := range surviving {
+			if isReadyEquivalentPlainIndex(ex, desiredKeys) {
+				matchedReady = true
+				break
+			}
+		}
+		if !matchedReady {
+			toCreate = append(toCreate, model)
 		}
 	}
 
@@ -429,14 +484,15 @@ func (r *ContentRepository) ensureIndexesWithManager(ctx context.Context, mgr ad
 		}
 	}
 
-	for _, ex := range existing {
+	// 3. 新定義（または再利用する旧名定義）がすべて利用可能になった後でのみ、不要な旧定義を撤去する。
+	for _, ex := range surviving {
 		if !slices.Contains(legacyAdminIndexNames, ex.Name) {
 			continue
 		}
 		reused := false
 		for _, model := range models {
 			desiredKeys, _ := model.Keys.(bson.D)
-			if isEquivalentPlainIndex(ex, desiredKeys) {
+			if isReadyEquivalentPlainIndex(ex, desiredKeys) {
 				reused = true
 				break
 			}

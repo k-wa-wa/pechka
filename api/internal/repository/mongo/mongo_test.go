@@ -95,6 +95,7 @@ type mockMongo7IndexCatalog struct {
 	createCalls int
 	dropCalls   int
 	failCreate  error
+	createHook  func(ctx context.Context, cat *mockMongo7IndexCatalog, models []mongo.IndexModel) error
 }
 
 func newMockMongo7IndexCatalog(initial []existingIndexSpec) *mockMongo7IndexCatalog {
@@ -110,9 +111,14 @@ func (m *mockMongo7IndexCatalog) List(_ context.Context) ([]existingIndexSpec, e
 	return out, nil
 }
 
-func (m *mockMongo7IndexCatalog) CreateMany(_ context.Context, models []mongo.IndexModel) ([]string, error) {
+func (m *mockMongo7IndexCatalog) CreateMany(ctx context.Context, models []mongo.IndexModel) ([]string, error) {
 	m.createCalls++
 	m.events = append(m.events, "create_many")
+	if m.createHook != nil {
+		if err := m.createHook(ctx, m, models); err != nil {
+			return nil, err
+		}
+	}
 	if m.failCreate != nil {
 		return nil, m.failCreate
 	}
@@ -129,18 +135,22 @@ func (m *mockMongo7IndexCatalog) CreateMany(_ context.Context, models []mongo.In
 				break
 			}
 		}
-		for _, ex := range m.indexes {
-			if ex.Name == name && !isEquivalentPlainIndex(ex, keys) {
+		for i, ex := range m.indexes {
+			if ex.Name == name && !hasSameKeysAndPlainOptions(ex, keys) {
 				return nil, mongo.CommandError{Code: 86, Name: "IndexKeySpecsConflict", Message: "same name with different keys: " + name}
 			}
-			if ex.Name != name && isEquivalentPlainIndex(ex, keys) {
+			if ex.Name != name && hasSameKeysAndPlainOptions(ex, keys) {
 				// MongoDB 7 は同一キー・同一オプションで名前だけ異なる作成を IndexOptionsConflict (85) で拒否する
 				return nil, mongo.CommandError{Code: 85, Name: "IndexOptionsConflict", Message: "index already exists with a different name: " + ex.Name}
+			}
+			if ex.Name == name && hasSameKeysAndPlainOptions(ex, keys) && ex.BuildUUID != nil {
+				// 先行する構築中インデックスの完了を模倣して BuildUUID をクリアする
+				m.indexes[i].BuildUUID = nil
 			}
 		}
 		alreadySame := false
 		for _, ex := range m.indexes {
-			if ex.Name == name && isEquivalentPlainIndex(ex, keys) {
+			if ex.Name == name && hasSameKeysAndPlainOptions(ex, keys) {
 				alreadySame = true
 				break
 			}
@@ -163,6 +173,23 @@ func (m *mockMongo7IndexCatalog) DropOne(_ context.Context, name string) error {
 		}
 	}
 	return mongo.CommandError{Code: 27, Name: "IndexNotFound", Message: "index not found: " + name}
+}
+
+func assertAll7AdminIndexesReady(t *testing.T, indexes []existingIndexSpec) {
+	t.Helper()
+	for _, model := range AdminIndexModels() {
+		desiredKeys := model.Keys.(bson.D)
+		found := false
+		for _, ex := range indexes {
+			if isReadyEquivalentPlainIndex(ex, desiredKeys) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("missing ready index for keys %v in %+v", desiredKeys, indexes)
+		}
+	}
 }
 
 func TestEnsureIndexesWithManager_Mongo7CompatibilityAndReentrancy(t *testing.T) {
@@ -269,6 +296,68 @@ func TestEnsureIndexesWithManager_Mongo7CompatibilityAndReentrancy(t *testing.T)
 		}
 		if cat.dropCalls != 0 {
 			t.Errorf("must not drop existing index when CreateMany fails, got dropCalls=%d", cat.dropCalls)
+		}
+	})
+
+	t.Run("repairs mismatched v2-named index without losing ascending index that matched it", func(t *testing.T) {
+		// idx_admin_v2_updated_desc という名前に昇順キー（updated_at: 1）が入っていた場合でも、
+		// 撤去後に残る定義を基準に作成対象を決めるため、降順・昇順を含む7本すべてが完成する。
+		ascKeys := AdminIndexModels()[1].Keys.(bson.D)
+		cat := newMockMongo7IndexCatalog([]existingIndexSpec{
+			{Name: "_id_", Key: bson.D{{Key: "_id", Value: int32(1)}}},
+			{Name: "idx_admin_v2_updated_desc", Key: ascKeys},
+		})
+		repo := &ContentRepository{}
+		if err := repo.ensureIndexesWithManager(context.Background(), cat); err != nil {
+			t.Fatalf("repair init failed: %v", err)
+		}
+		assertAll7AdminIndexesReady(t, cat.indexes)
+		if len(cat.indexes) != 8 { // _id_ + all 7 admin indexes
+			t.Errorf("expected 8 total indexes, got %d (%+v)", len(cat.indexes), cat.indexes)
+		}
+	})
+
+	t.Run("does not treat in-progress buildUUID index from another replica as complete", func(t *testing.T) {
+		models := AdminIndexModels()
+		cat := newMockMongo7IndexCatalog([]existingIndexSpec{
+			{Name: "_id_", Key: bson.D{{Key: "_id", Value: int32(1)}}},
+			{Name: "idx_admin_updated_desc", Key: bson.D{{Key: "updated_at", Value: int32(-1)}, {Key: "_id", Value: int32(1)}}},
+			// 1台目のレプリカが構築中（buildUUID あり）の idx_admin_v2_updated_desc
+			{Name: "idx_admin_v2_updated_desc", Key: models[0].Keys.(bson.D), BuildUUID: "building-uuid-1"},
+		})
+
+		// 1台目の構築が失敗したケース: 2台目も失敗し、旧インデックス撤去も indexesEnsured=true も行わない
+		cat.createHook = func(_ context.Context, c *mockMongo7IndexCatalog, gotModels []mongo.IndexModel) error {
+			if len(gotModels) != 7 {
+				return errors.New("expected in-progress index to be included in CreateMany")
+			}
+			// 構築失敗により buildUUID 付きエントリは消滅
+			c.indexes = c.indexes[:2]
+			return errors.New("replica 1 index build failed")
+		}
+		repo2 := &ContentRepository{}
+		err := repo2.ensureIndexesWithManager(context.Background(), cat)
+		if err == nil || !containsStr(err.Error(), "replica 1 index build failed") {
+			t.Fatalf("expected build failure error, got %v", err)
+		}
+		if repo2.indexesEnsured.Load() {
+			t.Fatal("indexesEnsured must stay false when in-progress build fails")
+		}
+		if cat.dropCalls != 0 {
+			t.Fatalf("must not drop legacy indexes before build succeeds, got dropCalls=%d", cat.dropCalls)
+		}
+
+		// 次のリクエストでは再検査して7本を構築し、旧定義を撤去して完了する
+		cat.createHook = nil
+		if err := repo2.ensureIndexesWithManager(context.Background(), cat); err != nil {
+			t.Fatalf("retry after failed build should succeed: %v", err)
+		}
+		if !repo2.indexesEnsured.Load() {
+			t.Fatal("expected indexesEnsured=true after retry succeeds")
+		}
+		assertAll7AdminIndexesReady(t, cat.indexes)
+		if cat.dropCalls != 1 {
+			t.Errorf("expected 1 obsolete legacy index dropped after build succeeds, got %d", cat.dropCalls)
 		}
 	})
 }
