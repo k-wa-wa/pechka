@@ -1,0 +1,101 @@
+# preview 環境で tech-feed の produce（音声合成・動画レンダリング・HLS/DB 登録）を手動実行する Job。
+# 通常の PR プレビューで勝手に起動しないよう spec.suspend: true で作成し、確認時のみ suspend を解除する。
+# Job の spec.template は不変フィールドであり、preview は ServerSideApply=true で同期するため、
+# PR 更新時の同期失敗を防ぐ目的で Force=true,Replace=true を付与する。
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tech-feed-produce
+  annotations:
+    argocd.argoproj.io/sync-options: Force=true,Replace=true
+spec:
+  suspend: true
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  activeDeadlineSeconds: 10800
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: produce
+          image: ghcr.io/k-wa-wa/pechka/tech-feed-produce:latest
+          imagePullPolicy: Always
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              cp -r /app/examples/assets /work/assets
+              exec ./produce all \
+                --script /app/examples/script_sample.json \
+                --out /work \
+                --engine voicevox \
+                --engine-url http://aivisspeech:10101 \
+                --speaker 888753760 \
+                --quiet
+          resources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+            limits:
+              cpu: "4"
+              memory: 8Gi
+          volumeMounts:
+            - name: work
+              mountPath: /work
+          env:
+            - name: MINIO_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: minio-bucket
+            - name: MINIO_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: minio-url
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: MINIO_ROOT_USER
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: MINIO_ROOT_PASSWORD
+            - name: POSTGRES_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: postgres-host
+            - name: POSTGRES_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: postgres-port
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_DB
+            - name: SSL_MODE
+              valueFrom:
+                configMapKeyRef:
+                  name: pechka-config
+                  key: ssl-mode
+            - name: POSTGRES_DSN
+              value: "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/$(POSTGRES_DB)?target_session_attrs=read-write&sslmode=$(SSL_MODE)&connect_timeout=3"
+      volumes:
+        - name: work
+          emptyDir:
+            sizeLimit: 8Gi

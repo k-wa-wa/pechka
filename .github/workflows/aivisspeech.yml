@@ -1,7 +1,9 @@
 name: AivisSpeech
 
 # 上流の AivisSpeech Engine からビルド用の道具を除いたイメージ (batch-tech-feed/aivisspeech/Dockerfile) を作る。
-# PR ではビルドと動作確認だけを行い、GHCR への push は master への push のときだけにする。
+# 変更がある PR ではビルド・検証後に :pr-<N> / :sha-<SHA> を GHCR へ push し、
+# 変更がない PR では :latest を :pr-<N> へ付け替えるだけに留め、4GB 超のビルドを省く。
+# master への push では :latest / :sha-<SHA> を push する。
 
 permissions:
   contents: read
@@ -14,18 +16,49 @@ on:
       - 'batch-tech-feed/aivisspeech/**'
       - '.github/workflows/aivisspeech.yml'
   pull_request:
-    paths:
-      - 'batch-tech-feed/aivisspeech/**'
-      - '.github/workflows/aivisspeech.yml'
+
+# 同一 PR への連続 push で古いビルドが後から完了し :pr-<N> を上書きするのを防ぐため、PR 実行時は前の run をキャンセルする。
+# master への push は :latest 更新の取りこぼしを防ぐためキャンセルせず直列化する。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  detect-changes:
+    name: Detect Changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.filter.outputs.changed }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check changed files
+        id: filter
+        run: |
+          if git diff --name-only "origin/${{ github.base_ref }}...HEAD" | grep -Eq '^(batch-tech-feed/aivisspeech/|\.github/workflows/aivisspeech\.yml$)'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
     name: Build, Verify and Push Image
+    needs: [detect-changes]
+    if: |
+      !cancelled() && (
+        (github.event_name == 'push' && github.ref == 'refs/heads/master') ||
+        (github.event_name == 'pull_request' && needs.detect-changes.result == 'success' && needs.detect-changes.outputs.changed == 'true')
+      )
     runs-on: ubuntu-latest
     # 通常は数分で終わる。起動待ち (最大 15 分) と trivy (最大 30 分) の上限に pull・push の時間を足して、ハングしても 1 時間で止める。
     timeout-minutes: 60
     env:
       IMAGE: ghcr.io/${{ github.repository }}/aivisspeech-engine
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       # trivy-operator (nuage-monitoring-stack の trivy-operator チャート 0.38.1) と同じ trivy の版
       TRIVY_IMAGE: mirror.gcr.io/aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
     steps:
@@ -50,12 +83,11 @@ jobs:
           load: true
           push: false
           tags: |
-            ${{ env.IMAGE }}:latest
-            ${{ env.IMAGE }}:sha-${{ github.sha }}
+            ${{ env.IMAGE }}:sha-${{ env.HEAD_SHA }}
 
       - name: Verify build tools are removed
         run: |
-          docker run --rm "${IMAGE}:sha-${GITHUB_SHA}" sh -c '
+          docker run --rm "${IMAGE}:sha-${HEAD_SHA}" sh -c '
             rc=0
             for p in build-essential gcc g++ make cmake git libc6-dev linux-libc-dev; do
               status=$(dpkg-query -W -f="\${db:Status-Status}" "$p" 2>/dev/null || true)
@@ -69,10 +101,41 @@ jobs:
             exit $rc
           '
 
+      - name: Verify KEV vulnerability fixes
+        run: |
+          docker run --rm -i "${IMAGE}:sha-${HEAD_SHA}" sh -eu <<'EOF'
+          brotli_ver=$(dpkg-query -W -f='${Version}' libbrotli1)
+          echo "libbrotli1: ${brotli_ver}"
+          if ! dpkg --compare-versions "${brotli_ver}" ge "1.0.9-2ubuntu0.1"; then
+            echo "::error::libbrotli1 が修正版 (1.0.9-2ubuntu0.1 以上) ではない: ${brotli_ver}"
+            exit 1
+          fi
+
+          /opt/aivisspeech-engine/.venv/bin/python -c '
+          import re
+          from importlib.metadata import version
+          import starlette
+
+          meta_ver = version("starlette")
+          mod_ver = starlette.__version__
+          print(f"starlette: metadata={meta_ver}, __version__={mod_ver}")
+          if meta_ver != mod_ver:
+              raise SystemExit(f"::error::starlette の版が一致しない: {meta_ver} != {mod_ver}")
+          m = re.match(r"^(\d+)\.(\d+)\.(\d+)", meta_ver)
+          if not m:
+              raise SystemExit(f"::error::starlette の版を解釈できない: {meta_ver}")
+          ver_tuple = tuple(int(x) for x in m.groups())
+          if ver_tuple < (1, 0, 1):
+              raise SystemExit(f"::error::starlette が修正版 (1.0.1 以上) ではない: {meta_ver}")
+          '
+
+          /opt/python/bin/pip --python /opt/aivisspeech-engine/.venv/bin/python check
+          EOF
+
       - name: Verify speech synthesis
         run: |
           set -euo pipefail
-          docker run -d --name aivisspeech -p 127.0.0.1:10101:10101 "${IMAGE}:sha-${GITHUB_SHA}"
+          docker run -d --name aivisspeech -p 127.0.0.1:10101:10101 "${IMAGE}:sha-${HEAD_SHA}"
           base=http://127.0.0.1:10101
 
           # 初回起動はモデルの取得などで数分かかることがあるため、最大 15 分待つ。
@@ -121,10 +184,10 @@ jobs:
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "${RUNNER_TEMP}/trivy:/out" \
             "${TRIVY_IMAGE}" image --scanners vuln --timeout 30m --quiet \
-            --format json --output /out/report.json "${IMAGE}:sha-${GITHUB_SHA}"
+            --format json --output /out/report.json "${IMAGE}:sha-${HEAD_SHA}"
           report="${RUNNER_TEMP}/trivy/report.json"
           {
-            echo "### trivy の件数 (${IMAGE}:sha-${GITHUB_SHA})"
+            echo "### trivy の件数 (${IMAGE}:sha-${HEAD_SHA})"
             echo
             echo "| 重要度 | 件数 |"
             echo "| --- | --- |"
@@ -137,10 +200,23 @@ jobs:
             echo
             jq -r '[.Results[]?.Vulnerabilities[]?.PkgName] | group_by(.) | map({p: .[0], n: length})
               | sort_by(-.n) | .[:10][] | "- \(.p): \(.n)"' "${report}"
+            echo
+            echo "KEV 対象 CVE の検出状況"
+            echo
+            for cve in CVE-2026-111497 CVE-2026-48710; do
+              hits=$(jq -r --arg cve "${cve}" '[.Results[]? | .Target as $t | .Vulnerabilities[]? | select(.VulnerabilityID == $cve) | "\($t) (\(.PkgName) \(.InstalledVersion))"] | join(", ")' "${report}")
+              if [ -n "${hits}" ]; then
+                echo "- ${cve}: 検出 (${hits})"
+              else
+                echo "- ${cve}: なし"
+              fi
+            done
           } | tee -a "${GITHUB_STEP_SUMMARY}"
 
       - name: Log in to GitHub Container Registry
-        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+        if: |
+          (github.ref == 'refs/heads/master' && github.event_name == 'push') ||
+          (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -149,7 +225,46 @@ jobs:
 
       # 動作確認を通したイメージそのものを push する。意図しないタグを送らないよう、タグを明示する。
       - name: Push Docker image
-        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+        if: |
+          (github.ref == 'refs/heads/master' && github.event_name == 'push') ||
+          (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
         run: |
-          docker push "${IMAGE}:sha-${GITHUB_SHA}"
-          docker push "${IMAGE}:latest"
+          docker push "${IMAGE}:sha-${HEAD_SHA}"
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            PR_TAG="pr-${{ github.event.pull_request.number }}"
+            docker tag "${IMAGE}:sha-${HEAD_SHA}" "${IMAGE}:${PR_TAG}"
+            docker push "${IMAGE}:${PR_TAG}"
+          else
+            docker tag "${IMAGE}:sha-${HEAD_SHA}" "${IMAGE}:latest"
+            docker push "${IMAGE}:latest"
+          fi
+
+  # aivisspeech に触れない PR でも preview 用の :pr-<N> タグを欠かさないため、
+  # :latest のマニフェストをビルドなしで付け替える。
+  retag-preview-image:
+    name: Tag Preview Image (:latest -> :pr-N)
+    needs: [detect-changes]
+    if: |
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.detect-changes.result == 'success' &&
+      needs.detect-changes.outputs.changed == 'false'
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}/aivisspeech-engine
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag latest image for PR preview
+        run: |
+          docker buildx imagetools create \
+            -t "${IMAGE}:pr-${{ github.event.pull_request.number }}" \
+            "${IMAGE}:latest"
