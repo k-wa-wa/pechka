@@ -1,11 +1,21 @@
 BEGIN;
 
--- 論理削除後の同一 disc_id 再取り込みが行われていた場合、旧一意制約へ戻すと重複で失敗する。
--- インデックスを削除する前に復元可否を検査し、不可ならトランザクションごとロールバックして現行制約を保全する。
+-- 論理削除済みレコードが残る状態で deleted_at 列を落とすと、旧 API から再び有効行として公開されてしまう。
+-- また、論理削除後の同一 disc_id 再取り込みが行われていた場合、旧一意制約へ戻すと重複で失敗する。
+-- いずれかに該当する場合は列やインデックスを変更する前にトランザクションごとロールバックする。
 DO $$
 DECLARE
+    deleted_count INTEGER;
     dup_count INTEGER;
 BEGIN
+    SELECT COUNT(*) INTO deleted_count
+    FROM contents
+    WHERE deleted_at IS NOT NULL;
+
+    IF deleted_count > 0 THEN
+        RAISE EXCEPTION 'cannot rollback 009_add_deleted_at: % soft-deleted row(s) exist in contents', deleted_count;
+    END IF;
+
     SELECT COUNT(*) INTO dup_count
     FROM (
         SELECT disc_id

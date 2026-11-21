@@ -1,0 +1,6 @@
+BEGIN;
+
+ALTER TABLE contents ALTER COLUMN created_at DROP NOT NULL;
+ALTER TABLE contents ALTER COLUMN updated_at DROP NOT NULL;
+
+COMMIT;

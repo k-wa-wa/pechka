@@ -36,9 +36,10 @@ type ContentFallbackStore interface {
 
 // FallbackContentRepository wraps primary MongoDB repository with PostgreSQL fallback and circuit breaking.
 type FallbackContentRepository struct {
-	primary  ContentPrimaryRepository
-	fallback ContentFallbackStore
-	breaker  *CircuitBreaker
+	primary      ContentPrimaryRepository
+	fallback     ContentFallbackStore
+	breaker      *CircuitBreaker
+	adminBreaker *CircuitBreaker
 }
 
 // NewContentRepository creates a new FallbackContentRepository with default PostgresContentStore.
@@ -53,6 +54,12 @@ func NewContentRepositoryWithStore(primary ContentPrimaryRepository, fallbackSto
 		fallback: fallbackStore,
 		breaker:  breaker,
 	}
+}
+
+// WithAdminBreaker sets a dedicated CircuitBreaker for ListAdmin so admin queries cannot trip the public breaker.
+func (r *FallbackContentRepository) WithAdminBreaker(breaker *CircuitBreaker) *FallbackContentRepository {
+	r.adminBreaker = breaker
+	return r
 }
 
 func isMongoFailure(err error) bool {
@@ -133,9 +140,14 @@ func (r *FallbackContentRepository) ListAdmin(ctx context.Context, params mongoR
 		params.Sort = domain.ContentSortUpdatedDesc
 	}
 
+	breaker := r.adminBreaker
+	if breaker == nil {
+		breaker = r.breaker
+	}
+
 	return Execute(
 		ctx,
-		r.breaker,
+		breaker,
 		"list_admin",
 		"mongo",
 		func(c context.Context) (*domain.AdminContentPage, error) {

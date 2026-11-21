@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -22,10 +23,16 @@ const (
 	latestPlaylistLockKey int64 = 0x706563686b610001
 	latestPlaylistLimit         = 50
 	latestPlaylistTimeout       = 15 * time.Second
-	latestPlaylistQuery         = `SELECT short_id, title, published_at
-		 FROM contents
-		 WHERE status = 'ready' AND archived_at IS NULL AND deleted_at IS NULL
-		 ORDER BY published_at DESC NULLS LAST, updated_at DESC, short_id ASC
+	latestPlaylistQuery         = `SELECT c.short_id, c.title, c.published_at
+		 FROM contents c
+		 WHERE c.status = 'ready'
+		   AND c.archived_at IS NULL
+		   AND c.deleted_at IS NULL
+		   AND EXISTS (
+		     SELECT 1 FROM video_variants v
+		     WHERE v.content_id = c.id AND v.variant_type = 'master'
+		   )
+		 ORDER BY c.published_at DESC NULLS LAST, c.updated_at DESC, c.short_id ASC
 		 LIMIT $1`
 )
 
@@ -210,12 +217,18 @@ func refreshPlaylistWithTimeout(ctx context.Context, beginner playlistTxBeginner
 	return len(contents), nil
 }
 
+var playlistTitleReplacer = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ")
+
+func sanitizePlaylistTitle(title string) string {
+	return playlistTitleReplacer.Replace(title)
+}
+
 func buildPlaylist(contents []contentRow) string {
 	var buf bytes.Buffer
 	buf.WriteString("#EXTM3U\n")
 	for _, c := range contents {
-		buf.WriteString(fmt.Sprintf("#EXTINF:-1,%s\n", c.title))
-		buf.WriteString(fmt.Sprintf("resources/hls/%s/master.m3u8\n", c.shortID))
+		buf.WriteString(fmt.Sprintf("#EXTINF:-1,%s\n", sanitizePlaylistTitle(c.title)))
+		buf.WriteString(fmt.Sprintf("%s/master.m3u8\n", c.shortID))
 	}
 	return buf.String()
 }

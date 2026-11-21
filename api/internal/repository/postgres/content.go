@@ -246,10 +246,16 @@ const (
 	LatestPlaylistLimit         = 50
 	LatestPlaylistTimeout       = 10 * time.Second
 	LatestPlaylistKey           = "resources/hls/latest.m3u8"
-	LatestPlaylistQuery         = `SELECT short_id, title, published_at
-		 FROM contents
-		 WHERE status = 'ready' AND archived_at IS NULL AND deleted_at IS NULL
-		 ORDER BY published_at DESC NULLS LAST, updated_at DESC, short_id ASC
+	LatestPlaylistQuery         = `SELECT c.short_id, c.title, c.published_at
+		 FROM contents c
+		 WHERE c.status = 'ready'
+		   AND c.archived_at IS NULL
+		   AND c.deleted_at IS NULL
+		   AND EXISTS (
+		     SELECT 1 FROM video_variants v
+		     WHERE v.content_id = c.id AND v.variant_type = 'master'
+		   )
+		 ORDER BY c.published_at DESC NULLS LAST, c.updated_at DESC, c.short_id ASC
 		 LIMIT $1`
 )
 
@@ -317,13 +323,20 @@ func scanPlaylistItem(row scanner) (PlaylistItem, error) {
 	return item, nil
 }
 
+var playlistTitleReplacer = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ")
+
+func sanitizePlaylistTitle(title string) string {
+	return playlistTitleReplacer.Replace(title)
+}
+
 // BuildLatestPlaylist は batch/refresh-latest-playlist と同一の #EXTM3U 形式でプレイリスト文字列を生成する。
+// 配信先が /resources/hls/latest.m3u8 であるため、各エントリは相対 URI（<short_id>/master.m3u8）を出力する。
 func BuildLatestPlaylist(items []PlaylistItem) string {
 	var buf bytes.Buffer
 	buf.WriteString("#EXTM3U\n")
 	for _, item := range items {
-		buf.WriteString(fmt.Sprintf("#EXTINF:-1,%s\n", item.Title))
-		buf.WriteString(fmt.Sprintf("resources/hls/%s/master.m3u8\n", item.ShortID))
+		buf.WriteString(fmt.Sprintf("#EXTINF:-1,%s\n", sanitizePlaylistTitle(item.Title)))
+		buf.WriteString(fmt.Sprintf("%s/master.m3u8\n", item.ShortID))
 	}
 	return buf.String()
 }

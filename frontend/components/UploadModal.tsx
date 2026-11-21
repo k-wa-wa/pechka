@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useRef, useState } from "react";
 import { uploadContent } from "@/lib/api";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { type Channel, type Content, UPLOAD_ACCEPT_ATTR } from "@/lib/types";
+import { useDialogA11y } from "@/lib/useDialogA11y";
 
 const FALLBACK_CHANNELS: Pick<Channel, "id" | "name">[] = [
   { id: "bluray", name: "Blu-ray" },
@@ -27,6 +28,10 @@ export default function UploadModal({ channels, onClose, onUploaded }: Props) {
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const { t } = useLanguage();
+  const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useDialogA11y({ dialogRef, onClose, closeDisabled: uploading });
 
   const canUpload = file != null && title.trim() !== "" && !uploading;
 
@@ -72,8 +77,11 @@ export default function UploadModal({ channels, onClose, onUploaded }: Props) {
       onClick={uploading ? undefined : onClose}
     >
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
         style={{
           width: "100%",
           maxWidth: 560,
@@ -95,10 +103,14 @@ export default function UploadModal({ channels, onClose, onUploaded }: Props) {
             borderBottom: "1px solid var(--line)",
           }}
         >
-          <h2 style={{ margin: 0, fontSize: 16, color: "var(--fg)" }}>{t("uploadModal.title")}</h2>
+          <h2 id={titleId} style={{ margin: 0, fontSize: 16, color: "var(--fg)" }}>
+            {t("uploadModal.title")}
+          </h2>
           <button
+            type="button"
             onClick={onClose}
             disabled={uploading}
+            aria-label={t("settings.close")}
             className="upload-modal-close"
             style={{
               background: "none",

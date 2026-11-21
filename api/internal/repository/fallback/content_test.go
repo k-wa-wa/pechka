@@ -576,3 +576,65 @@ func TestListAdminWithQuerier_PageAssemblyAndBoundaries(t *testing.T) {
 		}
 	})
 }
+
+func TestFallbackContentRepository_AdminBreakerIsolation(t *testing.T) {
+	publicPrimaryCalls := 0
+	primary := &mockPrimaryContentRepo{
+		listFn: func(_ context.Context, _ mongoRepo.ListParams) ([]*domain.MongoContent, error) {
+			publicPrimaryCalls++
+			return []*domain.MongoContent{{ID: "pub-1", Title: "Public"}}, nil
+		},
+		listAdminFn: func(_ context.Context, _ mongoRepo.AdminListParams) (*domain.AdminContentPage, error) {
+			return nil, errors.New("admin count timeout")
+		},
+	}
+	fbStore := &mockFallbackContentStore{
+		listFn: func(_ context.Context, _ mongoRepo.ListParams) ([]*domain.MongoContent, error) {
+			t.Fatal("public List should not fall back when only admin breaker opens")
+			return nil, nil
+		},
+		listAdminFn: func(_ context.Context, _ mongoRepo.AdminListParams) (*domain.AdminContentPage, error) {
+			return &domain.AdminContentPage{Contents: []*domain.Content{{ID: "pg-1", ShortID: "s1"}}, Total: 1}, nil
+		},
+	}
+
+	publicBreaker := fallback.NewCircuitBreaker(fallback.CircuitBreakerSettings{
+		Name:             "mongo",
+		Timeout:          100 * time.Millisecond,
+		FailureThreshold: 2,
+		Cooldown:         30 * time.Second,
+	})
+	adminBreaker := fallback.NewCircuitBreaker(fallback.CircuitBreakerSettings{
+		Name:             "mongo_admin",
+		Timeout:          100 * time.Millisecond,
+		FailureThreshold: 2,
+		Cooldown:         30 * time.Second,
+	})
+	repo := fallback.NewContentRepositoryWithStore(primary, fbStore, publicBreaker).
+		WithAdminBreaker(adminBreaker)
+
+	for i := 0; i < 2; i++ {
+		page, err := repo.ListAdmin(context.Background(), mongoRepo.AdminListParams{})
+		if err != nil {
+			t.Fatalf("ListAdmin fallback %d failed: %v", i, err)
+		}
+		if len(page.Contents) != 1 || page.Contents[0].ShortID != "s1" {
+			t.Fatalf("unexpected fallback page: %+v", page)
+		}
+	}
+
+	if adminBreaker.State() != fallback.StateOpen {
+		t.Fatalf("expected adminBreaker OPEN, got %v", adminBreaker.State())
+	}
+	if publicBreaker.State() != fallback.StateClosed {
+		t.Fatalf("expected publicBreaker to remain CLOSED, got %v", publicBreaker.State())
+	}
+
+	items, err := repo.List(context.Background(), mongoRepo.ListParams{})
+	if err != nil {
+		t.Fatalf("public List failed: %v", err)
+	}
+	if publicPrimaryCalls != 1 || len(items) != 1 || items[0].ID != "pub-1" {
+		t.Errorf("expected public List to stay on MongoDB primary, calls=%d items=%+v", publicPrimaryCalls, items)
+	}
+}

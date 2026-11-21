@@ -38,8 +38,8 @@ func TestMongoRepositorySignatures(t *testing.T) {
 
 func TestAdminIndexModels(t *testing.T) {
 	models := AdminIndexModels()
-	if len(models) != 6 {
-		t.Fatalf("expected 6 index models, got %d", len(models))
+	if len(models) != 7 {
+		t.Fatalf("expected 7 index models, got %d", len(models))
 	}
 
 	expected := []struct {
@@ -61,13 +61,30 @@ func TestAdminIndexModels(t *testing.T) {
 		if !ok {
 			t.Fatalf("model %d keys not bson.D", i)
 		}
-		wantKeys := bson.D{{Key: exp.field, Value: exp.dir}, {Key: "_id", Value: int32(1)}}
+		wantKeys := bson.D{
+			{Key: "deleted_at", Value: int32(1)},
+			{Key: exp.field, Value: exp.dir},
+			{Key: "_id", Value: int32(1)},
+		}
 		if !reflect.DeepEqual(keys, wantKeys) {
 			t.Errorf("index %d keys = %v, want %v", i, keys, wantKeys)
 		}
 		if m.Options == nil {
 			t.Fatalf("index %d options is nil", i)
 		}
+	}
+
+	filterKeys, ok := models[6].Keys.(bson.D)
+	if !ok {
+		t.Fatalf("filter index keys not bson.D")
+	}
+	wantFilterKeys := bson.D{
+		{Key: "deleted_at", Value: int32(1)},
+		{Key: "status", Value: int32(1)},
+		{Key: "channel_id", Value: int32(1)},
+	}
+	if !reflect.DeepEqual(filterKeys, wantFilterKeys) {
+		t.Errorf("filter index keys = %v, want %v", filterKeys, wantFilterKeys)
 	}
 }
 

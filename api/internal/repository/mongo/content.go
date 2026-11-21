@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -224,7 +225,8 @@ func DecodeAdminCursor(token string, expectedSort domain.ContentSort) (*AdminCur
 	return cur, nil
 }
 
-// AdminIndexModels は管理画面一覧の 6 種類のソートに対応する複合インデックス定義を返す。
+// AdminIndexModels は管理画面一覧の 6 種類のソートと未削除件数取得に対応する複合インデックス定義を返す。
+// すべてのインデックス先頭に deleted_at を含め、一覧取得の IXSCAN と CountDocuments の COUNT_SCAN を効かせる。
 func AdminIndexModels() []mongo.IndexModel {
 	specs := []struct {
 		name  string
@@ -238,26 +240,70 @@ func AdminIndexModels() []mongo.IndexModel {
 		{name: "idx_admin_title_asc", field: "title", dir: 1},
 		{name: "idx_admin_title_desc", field: "title", dir: -1},
 	}
-	models := make([]mongo.IndexModel, 0, len(specs))
+	models := make([]mongo.IndexModel, 0, len(specs)+1)
 	for _, s := range specs {
 		models = append(models, mongo.IndexModel{
 			Keys: bson.D{
+				{Key: "deleted_at", Value: int32(1)},
 				{Key: s.field, Value: s.dir},
 				{Key: "_id", Value: int32(1)},
 			},
 			Options: options.Index().SetName(s.name),
 		})
 	}
+	models = append(models, mongo.IndexModel{
+		Keys: bson.D{
+			{Key: "deleted_at", Value: int32(1)},
+			{Key: "status", Value: int32(1)},
+			{Key: "channel_id", Value: int32(1)},
+		},
+		Options: options.Index().SetName("idx_admin_deleted_filter"),
+	})
 	return models
 }
 
+func isIndexConflictError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var cmdErr mongo.CommandError
+	if errors.As(err, &cmdErr) && (cmdErr.Code == 85 || cmdErr.Code == 86) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "IndexKeySpecsConflict") || strings.Contains(msg, "IndexOptionsConflict")
+}
+
 // EnsureIndexes は管理一覧用複合インデックスを冪等に作成する。
+// 既存の同名インデックスが旧キー定義（deleted_at なし等）で衝突する場合は差し替える。
 func (r *ContentRepository) EnsureIndexes(ctx context.Context) error {
 	if r.col == nil {
 		return errors.New("mongo collection is nil")
 	}
-	if _, err := r.col.Indexes().CreateMany(ctx, AdminIndexModels()); err != nil {
-		return err
+	models := AdminIndexModels()
+	if _, err := r.col.Indexes().CreateMany(ctx, models); err != nil {
+		if !isIndexConflictError(err) {
+			return err
+		}
+		for _, name := range []string{
+			"idx_admin_updated_desc",
+			"idx_admin_updated_asc",
+			"idx_admin_created_desc",
+			"idx_admin_created_asc",
+			"idx_admin_title_asc",
+			"idx_admin_title_desc",
+			"idx_admin_deleted_filter",
+		} {
+			if err := r.col.Indexes().DropOne(ctx, name); err != nil {
+				var cmdErr mongo.CommandError
+				if !errors.As(err, &cmdErr) || cmdErr.Code != 27 { // 27: IndexNotFound
+					return err
+				}
+			}
+		}
+		if _, err := r.col.Indexes().CreateMany(ctx, models); err != nil {
+			return err
+		}
 	}
 	r.indexesEnsured.Store(true)
 	return nil

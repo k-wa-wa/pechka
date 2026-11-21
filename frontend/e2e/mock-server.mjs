@@ -1,4 +1,6 @@
+import { realpathSync } from "node:fs";
 import http from "node:http";
+import { pathToFileURL } from "node:url";
 
 // 画面・スナップショットに出る時刻を固定する（VRT の差分を防ぐ）。モックの既存データより後の日時にする
 const MOCK_NOW = "2025-06-01T00:00:00Z";
@@ -445,462 +447,485 @@ function readJsonBody(req) {
   });
 }
 
-const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, "http://localhost");
-  const path = url.pathname;
-  const method = req.method ?? "GET";
+const VALID_CHANNEL_ID_RE = /^[a-z0-9][a-z0-9-]{0,49}$/;
 
-  if (method === "OPTIONS") {
-    res.writeHead(204, CORS_HEADERS);
-    res.end();
-    return;
+function parseStrictLimit(rawParam) {
+  if (rawParam === null || !/^-?\d+$/.test(rawParam)) {
+    return 20;
   }
+  const parsed = Number(rawParam);
+  return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 100 ? parsed : 20;
+}
 
-  // GET /api/v1/channels
-  if (path === "/api/v1/channels") {
-    send(res, 200, CHANNELS);
-    return;
-  }
+export function createMockServer() {
+  return http.createServer(async (req, res) => {
+    const url = new URL(req.url, "http://localhost");
+    const path = url.pathname;
+    const method = req.method ?? "GET";
 
-  // GET /api/v1/channels/:id
-  const channelMatch = path.match(/^\/api\/v1\/channels\/([^/]+)$/);
-  if (channelMatch) {
-    const ch = CHANNELS.find((c) => c.id === channelMatch[1]);
-    if (!ch) {
-      send(res, 404, { error: "not found" });
-      return;
-    }
-    send(res, 200, ch);
-    return;
-  }
-
-  // GET /api/v1/contents
-  if (path === "/api/v1/contents") {
-    const contentType = url.searchParams.get("content_type");
-    const channelId = url.searchParams.get("channel_id");
-    const limit = parseInt(url.searchParams.get("limit") ?? "100");
-    let items = CONTENTS.filter((c) => !c.deleted_at);
-    if (contentType) items = items.filter((c) => c.content_type === contentType);
-    if (channelId) items = items.filter((c) => c.channel_id === channelId);
-    send(res, 200, items.slice(0, limit));
-    return;
-  }
-
-  // GET /api/v1/contents/:shortId
-  const contentMatch = path.match(/^\/api\/v1\/contents\/([^/]+)$/);
-  if (contentMatch) {
-    const item = CONTENTS.find((c) => c.short_id === contentMatch[1] && !c.deleted_at);
-    if (!item) {
-      send(res, 404, { error: "not found" });
-      return;
-    }
-    send(res, 200, item);
-    return;
-  }
-
-  // GET /api/v1/contents/:shortId/variants
-  const variantsMatch = path.match(/^\/api\/v1\/contents\/([^/]+)\/variants$/);
-  if (variantsMatch) {
-    const item = CONTENTS.find((c) => c.short_id === variantsMatch[1] && !c.deleted_at);
-    if (!item) {
-      send(res, 404, { error: "not found" });
-      return;
-    }
-    const variants = VARIANTS[variantsMatch[1]] ?? [];
-    send(res, 200, variants);
-    return;
-  }
-
-  // GET /resources/documents/:shortId/:filename
-  const docResourceMatch = path.match(/^\/resources\/documents\/([^/]+)\/([^/]+)$/);
-  if (docResourceMatch && method === "GET") {
-    const filename = docResourceMatch[2];
-    if (filename.endsWith(".md") || filename.endsWith(".markdown")) {
-      res.writeHead(200, {
-        "Content-Type": "text/markdown; charset=utf-8",
-        "X-Content-Type-Options": "nosniff",
-        ...CORS_HEADERS,
-      });
-      res.end(SAMPLE_MARKDOWN);
-      return;
-    }
-    if (filename.endsWith(".pdf")) {
-      res.writeHead(200, {
-        "Content-Type": "application/pdf",
-        "X-Content-Type-Options": "nosniff",
-        ...CORS_HEADERS,
-      });
-      res.end("%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n");
-      return;
-    }
-    send(res, 404, { error: "not found" });
-    return;
-  }
-
-  // GET /api/v1/admin/contents
-  if (path === "/api/v1/admin/contents" && method === "GET") {
-    const rawLimit = Number.parseInt(url.searchParams.get("limit") ?? "20", 10);
-    const limit = Number.isFinite(rawLimit) && rawLimit >= 1 && rawLimit <= 100 ? rawLimit : 20;
-    const sort = url.searchParams.get("sort") || "updated_desc";
-    if (!VALID_ADMIN_SORTS.has(sort)) {
-      send(res, 400, { message: "invalid sort" });
-      return;
-    }
-    const afterParam = url.searchParams.get("after") ?? "";
-    const beforeParam = url.searchParams.get("before") ?? "";
-    if (afterParam && beforeParam) {
-      send(res, 400, { message: "after and before cannot be specified together" });
-      return;
-    }
-    const afterCur = afterParam ? decodeAdminCursor(afterParam, sort) : null;
-    const beforeCur = beforeParam ? decodeAdminCursor(beforeParam, sort) : null;
-    if ((afterParam && !afterCur) || (beforeParam && !beforeCur)) {
-      send(res, 400, { message: "invalid cursor" });
+    if (method === "OPTIONS") {
+      res.writeHead(204, CORS_HEADERS);
+      res.end();
       return;
     }
 
-    let items = ADMIN_CONTENTS.filter((c) => c.deleted_at == null);
-    const status = url.searchParams.get("status");
-    if (status) items = items.filter((c) => c.status === status);
-    const channelId = url.searchParams.get("channel_id");
-    if (channelId) items = items.filter((c) => c.channel_id === channelId);
+    // GET /api/v1/channels
+    if (path === "/api/v1/channels") {
+      send(res, 200, CHANNELS);
+      return;
+    }
 
-    const sorted = [...items].sort((a, b) => compareAdminItems(a, b, sort));
-    const total = sorted.length;
-
-    let pageItems = [];
-    let hasNext = false;
-    let hasPrev = false;
-
-    if (afterCur) {
-      const afterMatches = sorted.filter((c) => compareItemToCursor(c, afterCur, sort) > 0);
-      pageItems = afterMatches.slice(0, limit);
-      if (pageItems.length > 0) {
-        hasNext = afterMatches.length > limit;
-        const firstCur = {
-          sort,
-          v: sortMeta(sort).isTitle
-            ? pageItems[0].title
-            : Date.parse(pageItems[0][sortMeta(sort).field]),
-          id: pageItems[0].short_id,
-        };
-        hasPrev = sorted.some((c) => compareItemToCursor(c, firstCur, sort) < 0);
+    // GET /api/v1/channels/:id
+    const channelMatch = path.match(/^\/api\/v1\/channels\/([^/]+)$/);
+    if (channelMatch) {
+      const ch = CHANNELS.find((c) => c.id === channelMatch[1]);
+      if (!ch) {
+        send(res, 404, { error: "not found" });
+        return;
       }
-    } else if (beforeCur) {
-      const beforeMatches = sorted.filter((c) => compareItemToCursor(c, beforeCur, sort) < 0);
-      hasPrev = beforeMatches.length > limit;
-      pageItems = beforeMatches.slice(-limit);
-      if (pageItems.length > 0) {
-        const last = pageItems[pageItems.length - 1];
-        const lastCur = {
-          sort,
-          v: sortMeta(sort).isTitle ? last.title : Date.parse(last[sortMeta(sort).field]),
-          id: last.short_id,
-        };
-        hasNext = sorted.some((c) => compareItemToCursor(c, lastCur, sort) > 0);
-      }
-    } else {
-      pageItems = sorted.slice(0, limit);
-      hasNext = sorted.length > limit;
-      hasPrev = false;
+      send(res, 200, ch);
+      return;
     }
 
-    const nextCursor =
-      hasNext && pageItems.length > 0
-        ? encodeAdminCursor(sort, pageItems[pageItems.length - 1])
-        : null;
-    const prevCursor =
-      hasPrev && pageItems.length > 0 ? encodeAdminCursor(sort, pageItems[0]) : null;
+    // GET /api/v1/contents
+    if (path === "/api/v1/contents") {
+      const contentType = url.searchParams.get("content_type");
+      const channelId = url.searchParams.get("channel_id");
+      const limit = parseInt(url.searchParams.get("limit") ?? "100");
+      let items = CONTENTS.filter((c) => !c.deleted_at);
+      if (contentType) items = items.filter((c) => c.content_type === contentType);
+      if (channelId) items = items.filter((c) => c.channel_id === channelId);
+      send(res, 200, items.slice(0, limit));
+      return;
+    }
 
-    send(res, 200, {
-      contents: pageItems.map(stripDeletedField),
-      total,
-      limit,
-      next_cursor: nextCursor,
-      prev_cursor: prevCursor,
-      has_next: hasNext,
-      has_prev: hasPrev,
-    });
-    return;
-  }
+    // GET /api/v1/contents/:shortId
+    const contentMatch = path.match(/^\/api\/v1\/contents\/([^/]+)$/);
+    if (contentMatch) {
+      const item = CONTENTS.find((c) => c.short_id === contentMatch[1] && !c.deleted_at);
+      if (!item) {
+        send(res, 404, { error: "not found" });
+        return;
+      }
+      send(res, 200, item);
+      return;
+    }
 
-  // DELETE /api/v1/admin/contents/:id
-  const deleteContentMatch = path.match(/^\/api\/v1\/admin\/contents\/([^/]+)$/);
-  if (deleteContentMatch && method === "DELETE") {
-    const item = ADMIN_CONTENTS.find((c) => c.id === deleteContentMatch[1]);
-    if (item && !item.deleted_at) {
-      item.deleted_at = MOCK_NOW;
+    // GET /api/v1/contents/:shortId/variants
+    const variantsMatch = path.match(/^\/api\/v1\/contents\/([^/]+)\/variants$/);
+    if (variantsMatch) {
+      const item = CONTENTS.find((c) => c.short_id === variantsMatch[1] && !c.deleted_at);
+      if (!item) {
+        send(res, 404, { error: "not found" });
+        return;
+      }
+      const variants = VARIANTS[variantsMatch[1]] ?? [];
+      send(res, 200, variants);
+      return;
+    }
+
+    // GET /resources/documents/:shortId/:filename
+    const docResourceMatch = path.match(/^\/resources\/documents\/([^/]+)\/([^/]+)$/);
+    if (docResourceMatch && method === "GET") {
+      const filename = docResourceMatch[2];
+      if (filename.endsWith(".md") || filename.endsWith(".markdown")) {
+        res.writeHead(200, {
+          "Content-Type": "text/markdown; charset=utf-8",
+          "X-Content-Type-Options": "nosniff",
+          ...CORS_HEADERS,
+        });
+        res.end(SAMPLE_MARKDOWN);
+        return;
+      }
+      if (filename.endsWith(".pdf")) {
+        res.writeHead(200, {
+          "Content-Type": "application/pdf",
+          "X-Content-Type-Options": "nosniff",
+          ...CORS_HEADERS,
+        });
+        res.end("%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n");
+        return;
+      }
+      send(res, 404, { error: "not found" });
+      return;
+    }
+
+    // GET /api/v1/admin/contents
+    if (path === "/api/v1/admin/contents" && method === "GET") {
+      const limit = parseStrictLimit(url.searchParams.get("limit"));
+      const channelId = url.searchParams.get("channel_id");
+      if (channelId && !VALID_CHANNEL_ID_RE.test(channelId)) {
+        send(res, 400, { message: "invalid channel_id" });
+        return;
+      }
+      const sort = url.searchParams.get("sort") || "updated_desc";
+      if (!VALID_ADMIN_SORTS.has(sort)) {
+        send(res, 400, { message: "invalid sort" });
+        return;
+      }
+      const afterParam = url.searchParams.get("after") ?? "";
+      const beforeParam = url.searchParams.get("before") ?? "";
+      if (afterParam && beforeParam) {
+        send(res, 400, { message: "after and before cannot be specified together" });
+        return;
+      }
+      const afterCur = afterParam ? decodeAdminCursor(afterParam, sort) : null;
+      const beforeCur = beforeParam ? decodeAdminCursor(beforeParam, sort) : null;
+      if ((afterParam && !afterCur) || (beforeParam && !beforeCur)) {
+        send(res, 400, { message: "invalid cursor" });
+        return;
+      }
+
+      let items = ADMIN_CONTENTS.filter((c) => c.deleted_at == null);
+      const status = url.searchParams.get("status");
+      if (status) items = items.filter((c) => c.status === status);
+      if (channelId) items = items.filter((c) => c.channel_id === channelId);
+
+      const sorted = [...items].sort((a, b) => compareAdminItems(a, b, sort));
+      const total = sorted.length;
+
+      let pageItems = [];
+      let hasNext = false;
+      let hasPrev = false;
+
+      if (afterCur) {
+        const afterMatches = sorted.filter((c) => compareItemToCursor(c, afterCur, sort) > 0);
+        pageItems = afterMatches.slice(0, limit);
+        if (pageItems.length > 0) {
+          hasNext = afterMatches.length > limit;
+          const firstCur = {
+            sort,
+            v: sortMeta(sort).isTitle
+              ? pageItems[0].title
+              : Date.parse(pageItems[0][sortMeta(sort).field]),
+            id: pageItems[0].short_id,
+          };
+          hasPrev = sorted.some((c) => compareItemToCursor(c, firstCur, sort) < 0);
+        }
+      } else if (beforeCur) {
+        const beforeMatches = sorted.filter((c) => compareItemToCursor(c, beforeCur, sort) < 0);
+        hasPrev = beforeMatches.length > limit;
+        pageItems = beforeMatches.slice(-limit);
+        if (pageItems.length > 0) {
+          const last = pageItems[pageItems.length - 1];
+          const lastCur = {
+            sort,
+            v: sortMeta(sort).isTitle ? last.title : Date.parse(last[sortMeta(sort).field]),
+            id: last.short_id,
+          };
+          hasNext = sorted.some((c) => compareItemToCursor(c, lastCur, sort) > 0);
+        }
+      } else {
+        pageItems = sorted.slice(0, limit);
+        hasNext = sorted.length > limit;
+        hasPrev = false;
+      }
+
+      const nextCursor =
+        hasNext && pageItems.length > 0
+          ? encodeAdminCursor(sort, pageItems[pageItems.length - 1])
+          : null;
+      const prevCursor =
+        hasPrev && pageItems.length > 0 ? encodeAdminCursor(sort, pageItems[0]) : null;
+
+      send(res, 200, {
+        contents: pageItems.map(stripDeletedField),
+        total,
+        limit,
+        next_cursor: nextCursor,
+        prev_cursor: prevCursor,
+        has_next: hasNext,
+        has_prev: hasPrev,
+      });
+      return;
+    }
+
+    // DELETE /api/v1/admin/contents/:id
+    const deleteContentMatch = path.match(/^\/api\/v1\/admin\/contents\/([^/]+)$/);
+    if (deleteContentMatch && method === "DELETE") {
+      const item = ADMIN_CONTENTS.find((c) => c.id === deleteContentMatch[1]);
+      if (item && !item.deleted_at) {
+        item.deleted_at = MOCK_NOW;
+        item.updated_at = MOCK_NOW;
+        const pubItem = CONTENTS.find((c) => c.short_id === item.short_id);
+        if (pubItem) pubItem.deleted_at = MOCK_NOW;
+      }
+      sendNoContent(res);
+      return;
+    }
+
+    // PUT /api/v1/admin/contents/:id
+    const updateContentMatch = path.match(/^\/api\/v1\/admin\/contents\/([^/]+)$/);
+    if (updateContentMatch && method === "PUT") {
+      const item = ADMIN_CONTENTS.find(
+        (c) => c.id === updateContentMatch[1] && c.deleted_at == null,
+      );
+      if (!item) {
+        send(res, 404, { error: "not found" });
+        return;
+      }
+      const body = await readJsonBody(req);
+      if (body.channel_id != null) item.channel_id = body.channel_id;
+      if (body.title != null) item.title = body.title;
+      if (body.description != null) item.description = body.description;
+      if (body.tags != null) item.tags = body.tags;
+      if (body.status != null) item.status = body.status;
       item.updated_at = MOCK_NOW;
+
+      // Sync to public CONTENTS mock so changes are immediately visible on / and /channels/:id
       const pubItem = CONTENTS.find((c) => c.short_id === item.short_id);
-      if (pubItem) pubItem.deleted_at = MOCK_NOW;
-    }
-    sendNoContent(res);
-    return;
-  }
-
-  // PUT /api/v1/admin/contents/:id
-  const updateContentMatch = path.match(/^\/api\/v1\/admin\/contents\/([^/]+)$/);
-  if (updateContentMatch && method === "PUT") {
-    const item = ADMIN_CONTENTS.find((c) => c.id === updateContentMatch[1] && c.deleted_at == null);
-    if (!item) {
-      send(res, 404, { error: "not found" });
-      return;
-    }
-    const body = await readJsonBody(req);
-    if (body.channel_id != null) item.channel_id = body.channel_id;
-    if (body.title != null) item.title = body.title;
-    if (body.description != null) item.description = body.description;
-    if (body.tags != null) item.tags = body.tags;
-    if (body.status != null) item.status = body.status;
-    item.updated_at = MOCK_NOW;
-
-    // Sync to public CONTENTS mock so changes are immediately visible on / and /channels/:id
-    const pubItem = CONTENTS.find((c) => c.short_id === item.short_id);
-    if (pubItem) {
-      if (body.channel_id != null) {
-        pubItem.channel_id = body.channel_id;
-        const ch = CHANNELS.find((c) => c.id === body.channel_id);
-        pubItem.channel_name = ch ? ch.name : body.channel_id;
+      if (pubItem) {
+        if (body.channel_id != null) {
+          pubItem.channel_id = body.channel_id;
+          const ch = CHANNELS.find((c) => c.id === body.channel_id);
+          pubItem.channel_name = ch ? ch.name : body.channel_id;
+        }
+        if (body.title != null) pubItem.title = body.title;
+        if (body.description != null) pubItem.description = body.description;
+        if (body.tags != null) pubItem.tags = body.tags;
+        if (body.status != null) pubItem.status = body.status;
+        pubItem.updated_at = item.updated_at;
       }
-      if (body.title != null) pubItem.title = body.title;
-      if (body.description != null) pubItem.description = body.description;
-      if (body.tags != null) pubItem.tags = body.tags;
-      if (body.status != null) pubItem.status = body.status;
-      pubItem.updated_at = item.updated_at;
+      send(res, 200, stripDeletedField(item));
+      return;
     }
-    send(res, 200, stripDeletedField(item));
-    return;
-  }
 
-  // POST /api/v1/admin/contents/upload
-  // POST /api/v1/admin/contents/upload
-  if (path === "/api/v1/admin/contents/upload" && method === "POST") {
-    const chunks = [];
-    for await (const chunk of req) chunks.push(chunk);
-    const body = Buffer.concat(chunks).toString("utf8");
-    const titleMatch = body.match(/name="title"\r\n\r\n(.*)\r\n/);
-    const title = titleMatch ? titleMatch[1] : null;
-    if (!title) {
-      send(res, 400, { error: "file and title are required" });
-      return;
-    }
-    const channelId = (req.headers["x-channel-id"] || "").trim();
-    if (!channelId) {
-      send(res, 400, { error: "channel_id is required" });
-      return;
-    }
-    const filenameMatch = body.match(/filename="([^"]+)"/);
-    const uploadedFilename = (filenameMatch ? filenameMatch[1] : "").toLowerCase();
-    const isMarkdown = uploadedFilename.endsWith(".md") || uploadedFilename.endsWith(".markdown");
-    const isPdf = uploadedFilename.endsWith(".pdf");
-    const isDoc = isMarkdown || isPdf;
-    const now = MOCK_NOW;
-    const shortId = `up${Date.now()}`;
-    const docKey = isMarkdown
-      ? `resources/documents/${shortId}/document.md`
-      : isPdf
-        ? `resources/documents/${shortId}/document.pdf`
-        : null;
-    const docMime = isMarkdown ? "text/markdown" : isPdf ? "application/pdf" : null;
-    const content = {
-      id: `upload-${Date.now()}`,
-      short_id: shortId,
-      content_type: isDoc ? "document" : "video",
-      channel_id: channelId,
-      disc_id: null,
-      title,
-      description: "",
-      duration_seconds: null,
-      is_360: false,
-      tags: [],
-      status: isDoc ? "ready" : "pending",
-      document_key: docKey,
-      document_mime_type: docMime,
-      published_at: isDoc ? now : null,
-      archived_at: null,
-      created_at: now,
-      updated_at: now,
-    };
-    ADMIN_CONTENTS.unshift(content);
-    if (isDoc) {
-      const ch = CHANNELS.find((c) => c.id === channelId);
-      CONTENTS.unshift({
+    // POST /api/v1/admin/contents/upload
+    // POST /api/v1/admin/contents/upload
+    if (path === "/api/v1/admin/contents/upload" && method === "POST") {
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const body = Buffer.concat(chunks).toString("utf8");
+      const titleMatch = body.match(/name="title"\r\n\r\n(.*)\r\n/);
+      const title = titleMatch ? titleMatch[1] : null;
+      if (!title) {
+        send(res, 400, { error: "file and title are required" });
+        return;
+      }
+      const channelId = (req.headers["x-channel-id"] || "").trim();
+      if (!channelId) {
+        send(res, 400, { error: "channel_id is required" });
+        return;
+      }
+      const filenameMatch = body.match(/filename="([^"]+)"/);
+      const uploadedFilename = (filenameMatch ? filenameMatch[1] : "").toLowerCase();
+      const isMarkdown = uploadedFilename.endsWith(".md") || uploadedFilename.endsWith(".markdown");
+      const isPdf = uploadedFilename.endsWith(".pdf");
+      const isDoc = isMarkdown || isPdf;
+      const now = MOCK_NOW;
+      const shortId = `up${Date.now()}`;
+      const docKey = isMarkdown
+        ? `resources/documents/${shortId}/document.md`
+        : isPdf
+          ? `resources/documents/${shortId}/document.pdf`
+          : null;
+      const docMime = isMarkdown ? "text/markdown" : isPdf ? "application/pdf" : null;
+      const content = {
+        id: `upload-${Date.now()}`,
         short_id: shortId,
-        content_type: "document",
+        content_type: isDoc ? "document" : "video",
         channel_id: channelId,
-        channel_name: ch ? ch.name : channelId,
+        disc_id: null,
         title,
         description: "",
         duration_seconds: null,
         is_360: false,
         tags: [],
-        status: "ready",
-        disc_label: null,
-        thumbnail_key: null,
+        status: isDoc ? "ready" : "pending",
         document_key: docKey,
         document_mime_type: docMime,
-        published_at: now,
+        published_at: isDoc ? now : null,
+        archived_at: null,
+        created_at: now,
         updated_at: now,
-        has_subtitles: false,
-      });
-    }
-    send(res, 201, { content, workflow_name: isDoc ? "" : "video-upload-mock" });
-    return;
-  }
-
-  // POST /api/v1/admin/contents/:id/archive
-  const archiveMatch = path.match(/^\/api\/v1\/admin\/contents\/([^/]+)\/archive$/);
-  if (archiveMatch && method === "POST") {
-    const item = ADMIN_CONTENTS.find((c) => c.id === archiveMatch[1] && c.deleted_at == null);
-    if (!item) {
-      send(res, 404, { error: "not found" });
-      return;
-    }
-    item.archived_at = MOCK_NOW;
-    send(res, 200, stripDeletedField(item));
-    return;
-  }
-
-  // POST /api/v1/admin/contents/:id/unarchive
-  const unarchiveMatch = path.match(/^\/api\/v1\/admin\/contents\/([^/]+)\/unarchive$/);
-  if (unarchiveMatch && method === "POST") {
-    const item = ADMIN_CONTENTS.find((c) => c.id === unarchiveMatch[1] && c.deleted_at == null);
-    if (!item) {
-      send(res, 404, { error: "not found" });
-      return;
-    }
-    item.archived_at = null;
-    send(res, 200, stripDeletedField(item));
-    return;
-  }
-
-  // GET /api/v1/admin/contents/:contentId/subtitles
-  const subtitleTracksMatch = path.match(/^\/api\/v1\/admin\/contents\/([^/]+)\/subtitles$/);
-  if (subtitleTracksMatch && method === "GET") {
-    if (isContentDeleted(subtitleTracksMatch[1])) {
-      send(res, 200, []);
-      return;
-    }
-    send(res, 200, SUBTITLE_TRACKS[subtitleTracksMatch[1]] ?? []);
-    return;
-  }
-
-  // PUT /api/v1/admin/subtitles/:trackId/status
-  const trackStatusMatch = path.match(/^\/api\/v1\/admin\/subtitles\/([^/]+)\/status$/);
-  if (trackStatusMatch && method === "PUT") {
-    const track = findActiveTrack(trackStatusMatch[1]);
-    if (!track) {
-      send(res, 404, { error: "not found" });
-      return;
-    }
-    const body = await readJsonBody(req);
-    track.status = body.status;
-    track.updated_at = MOCK_NOW;
-    send(res, 200, track);
-    return;
-  }
-
-  // GET /api/v1/admin/subtitles/:trackId/cues
-  const cuesMatch = path.match(/^\/api\/v1\/admin\/subtitles\/([^/]+)\/cues$/);
-  if (cuesMatch && method === "GET") {
-    const track = findActiveTrack(cuesMatch[1]);
-    if (!track) {
-      send(res, 200, []);
-      return;
-    }
-    send(res, 200, SUBTITLE_CUES[track.id] ?? []);
-    return;
-  }
-
-  // POST /api/v1/admin/subtitles/:trackId/cues
-  if (cuesMatch && method === "POST") {
-    const track = findActiveTrack(cuesMatch[1]);
-    if (!track) {
-      send(res, 404, { error: "not found" });
-      return;
-    }
-    const body = await readJsonBody(req);
-    const cue = {
-      id: `cue-${Date.now()}`,
-      track_id: track.id,
-      seq: body.seq,
-      start_ms: body.start_ms,
-      end_ms: body.end_ms,
-      text: body.text,
-      original_text: body.text,
-      flagged: false,
-      updated_at: MOCK_NOW,
-    };
-    SUBTITLE_CUES[track.id] = [...(SUBTITLE_CUES[track.id] ?? []), cue];
-    send(res, 201, cue);
-    return;
-  }
-
-  // PUT /api/v1/admin/subtitles/cues/:cueId
-  const cueUpdateMatch = path.match(/^\/api\/v1\/admin\/subtitles\/cues\/([^/]+)$/);
-  if (cueUpdateMatch && method === "PUT") {
-    const cue = Object.values(SUBTITLE_CUES)
-      .flat()
-      .find((c) => c.id === cueUpdateMatch[1]);
-    if (!cue || !findActiveTrack(cue.track_id)) {
-      send(res, 404, { error: "not found" });
-      return;
-    }
-    const body = await readJsonBody(req);
-    Object.assign(cue, body, { updated_at: MOCK_NOW });
-    send(res, 200, cue);
-    return;
-  }
-
-  // DELETE /api/v1/admin/subtitles/cues/:cueId
-  if (cueUpdateMatch && method === "DELETE") {
-    const cueId = cueUpdateMatch[1];
-    let found = false;
-    for (const trackId of Object.keys(SUBTITLE_CUES)) {
-      const idx = SUBTITLE_CUES[trackId].findIndex((c) => c.id === cueId);
-      if (idx !== -1) {
-        if (!findActiveTrack(trackId)) {
-          send(res, 404, { error: "not found" });
-          return;
-        }
-        SUBTITLE_CUES[trackId] = SUBTITLE_CUES[trackId].filter((c) => c.id !== cueId);
-        found = true;
+      };
+      ADMIN_CONTENTS.unshift(content);
+      if (isDoc) {
+        const ch = CHANNELS.find((c) => c.id === channelId);
+        CONTENTS.unshift({
+          short_id: shortId,
+          content_type: "document",
+          channel_id: channelId,
+          channel_name: ch ? ch.name : channelId,
+          title,
+          description: "",
+          duration_seconds: null,
+          is_360: false,
+          tags: [],
+          status: "ready",
+          disc_label: null,
+          thumbnail_key: null,
+          document_key: docKey,
+          document_mime_type: docMime,
+          published_at: now,
+          updated_at: now,
+          has_subtitles: false,
+        });
       }
-    }
-    if (!found) {
-      send(res, 404, { error: "not found" });
+      send(res, 201, { content, workflow_name: isDoc ? "" : "video-upload-mock" });
       return;
     }
-    sendNoContent(res);
-    return;
-  }
 
-  // GET /api/v1/search
-  if (path === "/api/v1/search") {
-    const q = (url.searchParams.get("q") ?? "").toLowerCase();
-    const results = CONTENTS.filter(
-      (c) =>
-        !c.deleted_at &&
-        (c.title.toLowerCase().includes(q) ||
-          c.description.toLowerCase().includes(q) ||
-          c.tags.some((t) => t.toLowerCase().includes(q))),
-    ).map((c) => ({
-      short_id: c.short_id,
-      title: c.title,
-      description: c.description,
-      content_type: c.content_type,
-      tags: c.tags,
-      status: c.status,
-    }));
-    send(res, 200, results);
-    return;
-  }
+    // POST /api/v1/admin/contents/:id/archive
+    const archiveMatch = path.match(/^\/api\/v1\/admin\/contents\/([^/]+)\/archive$/);
+    if (archiveMatch && method === "POST") {
+      const item = ADMIN_CONTENTS.find((c) => c.id === archiveMatch[1] && c.deleted_at == null);
+      if (!item) {
+        send(res, 404, { error: "not found" });
+        return;
+      }
+      item.archived_at = MOCK_NOW;
+      send(res, 200, stripDeletedField(item));
+      return;
+    }
 
-  send(res, 404, { error: "not found" });
-});
+    // POST /api/v1/admin/contents/:id/unarchive
+    const unarchiveMatch = path.match(/^\/api\/v1\/admin\/contents\/([^/]+)\/unarchive$/);
+    if (unarchiveMatch && method === "POST") {
+      const item = ADMIN_CONTENTS.find((c) => c.id === unarchiveMatch[1] && c.deleted_at == null);
+      if (!item) {
+        send(res, 404, { error: "not found" });
+        return;
+      }
+      item.archived_at = null;
+      send(res, 200, stripDeletedField(item));
+      return;
+    }
 
-const PORT = process.env.MOCK_PORT ?? 3001;
-const HOST = process.env.MOCK_HOST ?? "127.0.0.1";
-server.listen(PORT, HOST, () => {
-  console.log(`Mock API server running on http://${HOST}:${PORT}`);
-});
+    // GET /api/v1/admin/contents/:contentId/subtitles
+    const subtitleTracksMatch = path.match(/^\/api\/v1\/admin\/contents\/([^/]+)\/subtitles$/);
+    if (subtitleTracksMatch && method === "GET") {
+      if (isContentDeleted(subtitleTracksMatch[1])) {
+        send(res, 200, []);
+        return;
+      }
+      send(res, 200, SUBTITLE_TRACKS[subtitleTracksMatch[1]] ?? []);
+      return;
+    }
+
+    // PUT /api/v1/admin/subtitles/:trackId/status
+    const trackStatusMatch = path.match(/^\/api\/v1\/admin\/subtitles\/([^/]+)\/status$/);
+    if (trackStatusMatch && method === "PUT") {
+      const track = findActiveTrack(trackStatusMatch[1]);
+      if (!track) {
+        send(res, 404, { error: "not found" });
+        return;
+      }
+      const body = await readJsonBody(req);
+      track.status = body.status;
+      track.updated_at = MOCK_NOW;
+      send(res, 200, track);
+      return;
+    }
+
+    // GET /api/v1/admin/subtitles/:trackId/cues
+    const cuesMatch = path.match(/^\/api\/v1\/admin\/subtitles\/([^/]+)\/cues$/);
+    if (cuesMatch && method === "GET") {
+      const track = findActiveTrack(cuesMatch[1]);
+      if (!track) {
+        send(res, 200, []);
+        return;
+      }
+      send(res, 200, SUBTITLE_CUES[track.id] ?? []);
+      return;
+    }
+
+    // POST /api/v1/admin/subtitles/:trackId/cues
+    if (cuesMatch && method === "POST") {
+      const track = findActiveTrack(cuesMatch[1]);
+      if (!track) {
+        send(res, 404, { error: "not found" });
+        return;
+      }
+      const body = await readJsonBody(req);
+      const cue = {
+        id: `cue-${Date.now()}`,
+        track_id: track.id,
+        seq: body.seq,
+        start_ms: body.start_ms,
+        end_ms: body.end_ms,
+        text: body.text,
+        original_text: body.text,
+        flagged: false,
+        updated_at: MOCK_NOW,
+      };
+      SUBTITLE_CUES[track.id] = [...(SUBTITLE_CUES[track.id] ?? []), cue];
+      send(res, 201, cue);
+      return;
+    }
+
+    // PUT /api/v1/admin/subtitles/cues/:cueId
+    const cueUpdateMatch = path.match(/^\/api\/v1\/admin\/subtitles\/cues\/([^/]+)$/);
+    if (cueUpdateMatch && method === "PUT") {
+      const cue = Object.values(SUBTITLE_CUES)
+        .flat()
+        .find((c) => c.id === cueUpdateMatch[1]);
+      if (!cue || !findActiveTrack(cue.track_id)) {
+        send(res, 404, { error: "not found" });
+        return;
+      }
+      const body = await readJsonBody(req);
+      Object.assign(cue, body, { updated_at: MOCK_NOW });
+      send(res, 200, cue);
+      return;
+    }
+
+    // DELETE /api/v1/admin/subtitles/cues/:cueId
+    if (cueUpdateMatch && method === "DELETE") {
+      const cueId = cueUpdateMatch[1];
+      let found = false;
+      for (const trackId of Object.keys(SUBTITLE_CUES)) {
+        const idx = SUBTITLE_CUES[trackId].findIndex((c) => c.id === cueId);
+        if (idx !== -1) {
+          if (!findActiveTrack(trackId)) {
+            send(res, 404, { error: "not found" });
+            return;
+          }
+          SUBTITLE_CUES[trackId] = SUBTITLE_CUES[trackId].filter((c) => c.id !== cueId);
+          found = true;
+        }
+      }
+      if (!found) {
+        send(res, 404, { error: "not found" });
+        return;
+      }
+      sendNoContent(res);
+      return;
+    }
+
+    // GET /api/v1/search
+    if (path === "/api/v1/search") {
+      const q = (url.searchParams.get("q") ?? "").toLowerCase();
+      const results = CONTENTS.filter(
+        (c) =>
+          !c.deleted_at &&
+          (c.title.toLowerCase().includes(q) ||
+            c.description.toLowerCase().includes(q) ||
+            c.tags.some((t) => t.toLowerCase().includes(q))),
+      ).map((c) => ({
+        short_id: c.short_id,
+        title: c.title,
+        description: c.description,
+        content_type: c.content_type,
+        tags: c.tags,
+        status: c.status,
+      }));
+      send(res, 200, results);
+      return;
+    }
+
+    send(res, 404, { error: "not found" });
+  });
+}
+
+const isMainModule =
+  process.argv[1] != null && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+
+if (isMainModule) {
+  const server = createMockServer();
+  const PORT = process.env.MOCK_PORT ?? 3001;
+  const HOST = process.env.MOCK_HOST ?? "127.0.0.1";
+  server.listen(PORT, HOST, () => {
+    console.log(`Mock API server running on http://${HOST}:${PORT}`);
+  });
+}

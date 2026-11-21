@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { archiveContent, getAdminContents, unarchiveContent } from "@/lib/api";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import type { AdminContentSort, Channel, Content, ContentStatus } from "@/lib/types";
@@ -55,26 +55,55 @@ export default function AdminTable({
   const [archivingId, setArchivingId] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const { t, language } = useLanguage();
+  // 編集・アーカイブ成功直後の行が、CQRS 同期前のポーリング応答で古い値に巻き戻るのを防ぐため
+  // 保存済み行の updated_at（ms）を記録し、それより新しい応答が返るまで上書きしない。
+  const protectedUpdatedAtRef = useRef<Map<string, number>>(new Map());
 
   // Poll while any row is still converting so pending/processing rows flip to
   // ready (or error) without requiring a manual page reload.
   useEffect(() => {
     if (!contents.some((c) => IN_PROGRESS_STATUSES.includes(c.status))) return;
 
+    let cancelled = false;
     const timer = setTimeout(async () => {
       try {
         const res = await getAdminContents({ limit: 100 });
+        if (cancelled) return;
         const byId = new Map(res.contents.map((c) => [c.id, c]));
-        setContents((prev) => prev.map((c) => byId.get(c.id) ?? c));
+        setContents((prev) =>
+          prev.map((c) => {
+            const polled = byId.get(c.id);
+            if (!polled) return c;
+
+            const polledMs = Date.parse(polled.updated_at);
+            const savedMs = protectedUpdatedAtRef.current.get(c.id);
+            if (savedMs !== undefined) {
+              if (!Number.isFinite(polledMs) || !Number.isFinite(savedMs) || polledMs <= savedMs) {
+                return c;
+              }
+              protectedUpdatedAtRef.current.delete(c.id);
+            }
+
+            const currentMs = Date.parse(c.updated_at);
+            if (Number.isFinite(polledMs) && Number.isFinite(currentMs) && polledMs < currentMs) {
+              return c;
+            }
+            return polled;
+          }),
+        );
       } catch {
         // Ignore transient poll failures; the next tick will retry.
       }
     }, POLL_INTERVAL_MS);
 
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [contents]);
 
   function handleSave(updated: Content) {
+    protectedUpdatedAtRef.current.set(updated.id, Date.parse(updated.updated_at));
     setContents((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
     setEditingContent(null);
   }
@@ -97,6 +126,7 @@ export default function AdminTable({
       const updated = archiving
         ? await archiveContent(content.id)
         : await unarchiveContent(content.id);
+      protectedUpdatedAtRef.current.set(updated.id, Date.parse(updated.updated_at));
       setContents((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
     } catch (e) {
       window.alert(e instanceof Error ? e.message : t("admin.table.archiveError"));

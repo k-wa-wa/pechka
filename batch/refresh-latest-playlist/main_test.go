@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -32,8 +33,16 @@ func TestBuildPlaylist(t *testing.T) {
 		if expected := "#EXTINF:-1,Video 1\n"; !contains(pl, expected) {
 			t.Errorf("expected playlist to contain %s, got: %s", expected, pl)
 		}
-		if expected := "resources/hls/abc1/master.m3u8\n"; !contains(pl, expected) {
+		if expected := "abc1/master.m3u8\n"; !contains(pl, expected) {
 			t.Errorf("expected playlist to contain %s, got: %s", expected, pl)
+		}
+		baseURL, _ := url.Parse("https://pechka.example/resources/hls/latest.m3u8")
+		ref, err := url.Parse("abc1/master.m3u8")
+		if err != nil {
+			t.Fatalf("parse ref: %v", err)
+		}
+		if gotPath := baseURL.ResolveReference(ref).Path; gotPath != "/resources/hls/abc1/master.m3u8" {
+			t.Errorf("resolved path = %q, want /resources/hls/abc1/master.m3u8", gotPath)
 		}
 	})
 
@@ -65,26 +74,25 @@ func TestBuildPlaylist(t *testing.T) {
 		if !strings.HasPrefix(pl, expectedStart) {
 			t.Errorf("expected playlist to start with %q, got: %s", expectedStart, pl)
 		}
-		if !contains(pl, "#EXTINF:-1,タイトル: 日本語 / 特殊文字 & < > \" '\nresources/hls/id-001/master.m3u8\n") {
+		if !contains(pl, "#EXTINF:-1,タイトル: 日本語 / 特殊文字 & < > \" '\nid-001/master.m3u8\n") {
 			t.Errorf("playlist missing first item, got: %s", pl)
 		}
-		if !contains(pl, "#EXTINF:-1,Commas, and quotes \"here\"\nresources/hls/id-002/master.m3u8\n") {
+		if !contains(pl, "#EXTINF:-1,Commas, and quotes \"here\"\nid-002/master.m3u8\n") {
 			t.Errorf("playlist missing second item, got: %s", pl)
 		}
 	})
 
-	t.Run("title with embedded newlines", func(t *testing.T) {
+	t.Run("title with embedded newlines is sanitized to single line", func(t *testing.T) {
 		t1 := time.Now()
 		rows := []contentRow{
 			{
 				shortID:     "id-newline",
-				title:       "Line 1\nLine 2",
+				title:       "Line 1\n#EXT-X-KEY:METHOD=AES-128\r\nLine 2\rLine 3",
 				publishedAt: &t1,
 			},
 		}
 		pl := buildPlaylist(rows)
-		// Currently buildPlaylist formats title directly with %s, so newlines are preserved across lines
-		expected := "#EXTM3U\n#EXTINF:-1,Line 1\nLine 2\nresources/hls/id-newline/master.m3u8\n"
+		expected := "#EXTM3U\n#EXTINF:-1,Line 1 #EXT-X-KEY:METHOD=AES-128 Line 2 Line 3\nid-newline/master.m3u8\n"
 		if pl != expected {
 			t.Errorf("expected %q, got %q", expected, pl)
 		}
@@ -265,10 +273,15 @@ func TestRefreshPlaylist_LockOrderAndNullPublishedAt(t *testing.T) {
 	if latestPlaylistLockKey != 0x706563686b610001 {
 		t.Fatalf("unexpected lock key: %x", latestPlaylistLockKey)
 	}
-	if !strings.Contains(latestPlaylistQuery, "deleted_at IS NULL") ||
-		!strings.Contains(latestPlaylistQuery, "archived_at IS NULL") ||
-		!strings.Contains(latestPlaylistQuery, "ORDER BY published_at DESC NULLS LAST, updated_at DESC, short_id ASC") {
+	if !strings.Contains(latestPlaylistQuery, "c.deleted_at IS NULL") ||
+		!strings.Contains(latestPlaylistQuery, "c.archived_at IS NULL") ||
+		!strings.Contains(latestPlaylistQuery, "video_variants v") ||
+		!strings.Contains(latestPlaylistQuery, "v.variant_type = 'master'") ||
+		!strings.Contains(latestPlaylistQuery, "ORDER BY c.published_at DESC NULLS LAST, c.updated_at DESC, c.short_id ASC") {
 		t.Fatalf("unexpected latestPlaylistQuery: %s", latestPlaylistQuery)
+	}
+	if strings.Index(latestPlaylistQuery, "v.variant_type = 'master'") > strings.Index(latestPlaylistQuery, "LIMIT $1") {
+		t.Fatalf("latestPlaylistQuery must filter master variant before LIMIT: %s", latestPlaylistQuery)
 	}
 
 	now := time.Now().UTC()
@@ -299,7 +312,7 @@ func TestRefreshPlaylist_LockOrderAndNullPublishedAt(t *testing.T) {
 	if got := strings.Join(events, ","); got != wantOrder {
 		t.Errorf("execution order = %q, want %q", got, wantOrder)
 	}
-	wantBody := "#EXTM3U\n#EXTINF:-1,With PublishedAt\nresources/hls/s1/master.m3u8\n#EXTINF:-1,Null PublishedAt\nresources/hls/s2/master.m3u8\n"
+	wantBody := "#EXTM3U\n#EXTINF:-1,With PublishedAt\ns1/master.m3u8\n#EXTINF:-1,Null PublishedAt\ns2/master.m3u8\n"
 	if uploader.uploaded != wantBody {
 		t.Errorf("uploaded playlist = %q, want %q", uploader.uploaded, wantBody)
 	}

@@ -127,6 +127,12 @@ func main() {
 		FailureThreshold: 3,
 		Cooldown:         30 * time.Second,
 	})
+	adminMongoBreaker := fallback.NewCircuitBreaker(fallback.CircuitBreakerSettings{
+		Name:             "mongo_admin",
+		Timeout:          300 * time.Millisecond,
+		FailureThreshold: 3,
+		Cooldown:         30 * time.Second,
+	})
 	elasticBreaker := fallback.NewCircuitBreaker(fallback.CircuitBreakerSettings{
 		Name:             "elastic",
 		Timeout:          300 * time.Millisecond,
@@ -134,7 +140,8 @@ func main() {
 		Cooldown:         30 * time.Second,
 	})
 
-	fbContent := fallback.NewContentRepository(mgContent, pgPool, mongoBreaker)
+	fbContent := fallback.NewContentRepository(mgContent, pgPool, mongoBreaker).
+		WithAdminBreaker(adminMongoBreaker)
 	fbSubtitle := fallback.NewSubtitleRepository(mgSubtitle, pgPool, mongoBreaker)
 	fbSearch := fallback.NewSearchRepository(esContent, pgPool, elasticBreaker)
 

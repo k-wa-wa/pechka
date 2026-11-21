@@ -509,6 +509,7 @@ func TestAdminHandler_ListContents_CursorAndSortValidation(t *testing.T) {
 
 	badURLs := []string{
 		"/v1/admin/contents?sort=invalid_sort",
+		"/v1/admin/contents?channel_id=BAD",
 		"/v1/admin/contents?sort=title_asc&after=" + validCursor + "&before=" + validCursor,
 		"/v1/admin/contents?sort=title_asc&after=not-valid-base64!",
 		"/v1/admin/contents?sort=updated_desc&after=" + validCursor,
@@ -535,6 +536,37 @@ func TestAdminHandler_ListContents_CursorAndSortValidation(t *testing.T) {
 		}
 		if called {
 			t.Errorf("%s: readRepo should not be called on 400", u)
+		}
+	}
+
+	// Non-integer or out-of-range limit falls back to default 20
+	for _, limitParam := range []string{"1.5", "0", "-5", "101", "abc", "10abc"} {
+		var gotLimit int
+		readRepo := &mockReadContentRepo{
+			listAdminFn: func(_ context.Context, params mongoRepo.AdminListParams) (*domain.AdminContentPage, error) {
+				gotLimit = params.Limit
+				return &domain.AdminContentPage{Contents: []*domain.Content{}}, nil
+			},
+		}
+		h := handler.NewAdminHandler(&mockPgContentRepo{}, &mockPgDiscRepo{}, &mockPgSubtitleRepo{}, newSnowflakeNode(t)).
+			WithReadContentRepository(readRepo)
+		e := echo.New()
+		req := httptest.NewRequest(http.MethodGet, "/v1/admin/contents?limit="+limitParam, nil)
+		rec := httptest.NewRecorder()
+		if err := h.ListContents(e.NewContext(req, rec)); err != nil {
+			t.Fatalf("limit=%s: unexpected error: %v", limitParam, err)
+		}
+		if gotLimit != 20 {
+			t.Errorf("limit=%s: got limit %d, want 20", limitParam, gotLimit)
+		}
+		var resp struct {
+			Limit int `json:"limit"`
+		}
+		if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if resp.Limit != 20 {
+			t.Errorf("limit=%s: response limit=%d, want 20", limitParam, resp.Limit)
 		}
 	}
 }

@@ -64,7 +64,7 @@ const (
 		"WHERE st.id = $1 AND c.deleted_at IS NULL"
 
 	lockParentByTrackQuery = "SELECT 1 FROM subtitle_tracks st JOIN contents c ON c.id = st.content_id " +
-		"WHERE st.id = $1 AND c.deleted_at IS NULL FOR SHARE"
+		"WHERE st.id = $1 AND c.deleted_at IS NULL FOR SHARE OF c"
 
 	setTrackStatusQuery = "UPDATE subtitle_tracks SET status = $1 WHERE id = $2 RETURNING " + trackColumns
 
@@ -77,7 +77,7 @@ const (
 	lockParentByCueQuery = "SELECT 1 FROM subtitle_cues cu " +
 		"JOIN subtitle_tracks st ON st.id = cu.track_id " +
 		"JOIN contents c ON c.id = st.content_id " +
-		"WHERE cu.id = $1 AND c.deleted_at IS NULL FOR SHARE"
+		"WHERE cu.id = $1 AND c.deleted_at IS NULL FOR SHARE OF c"
 
 	insertCueCheckParentQuery = lockParentByTrackQuery
 

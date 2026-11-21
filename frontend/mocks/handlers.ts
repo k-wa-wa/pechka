@@ -35,6 +35,16 @@ const VALID_ADMIN_SORTS = new Set<AdminContentSort>([
   "title_desc",
 ]);
 
+const VALID_CHANNEL_ID_RE = /^[a-z0-9][a-z0-9-]{0,49}$/;
+
+function parseStrictLimit(rawParam: string | null): number {
+  if (rawParam === null || !/^-?\d+$/.test(rawParam)) {
+    return 20;
+  }
+  const parsed = Number(rawParam);
+  return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 100 ? parsed : 20;
+}
+
 function compareCodePoints(a: string, b: string): number {
   if (a === b) return 0;
   const iterA = a[Symbol.iterator]();
@@ -260,8 +270,10 @@ export const handlers = [
     const url = new URL(request.url);
     const status = url.searchParams.get("status");
     const channelId = url.searchParams.get("channel_id");
-    const rawLimit = Number(url.searchParams.get("limit") ?? "20");
-    const limit = Number.isFinite(rawLimit) && rawLimit >= 1 && rawLimit <= 100 ? rawLimit : 20;
+    if (channelId && !VALID_CHANNEL_ID_RE.test(channelId)) {
+      return HttpResponse.json({ message: "invalid channel_id" }, { status: 400 });
+    }
+    const limit = parseStrictLimit(url.searchParams.get("limit"));
     const sortParam = (url.searchParams.get("sort") || "updated_desc") as AdminContentSort;
     if (!VALID_ADMIN_SORTS.has(sortParam)) {
       return HttpResponse.json({ message: "invalid sort" }, { status: 400 });

@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -78,11 +79,16 @@ func TestContentQueriesExcludeDeletedAt(t *testing.T) {
 	if !strings.Contains(getContentByIDQuery, "deleted_at IS NULL") {
 		t.Errorf("GetByID query must require deleted_at IS NULL, got %q", getContentByIDQuery)
 	}
-	if !strings.Contains(LatestPlaylistQuery, "status = 'ready'") ||
-		!strings.Contains(LatestPlaylistQuery, "archived_at IS NULL") ||
-		!strings.Contains(LatestPlaylistQuery, "deleted_at IS NULL") ||
-		!strings.Contains(LatestPlaylistQuery, "ORDER BY published_at DESC NULLS LAST, updated_at DESC, short_id ASC") {
+	if !strings.Contains(LatestPlaylistQuery, "c.status = 'ready'") ||
+		!strings.Contains(LatestPlaylistQuery, "c.archived_at IS NULL") ||
+		!strings.Contains(LatestPlaylistQuery, "c.deleted_at IS NULL") ||
+		!strings.Contains(LatestPlaylistQuery, "video_variants v") ||
+		!strings.Contains(LatestPlaylistQuery, "v.variant_type = 'master'") ||
+		!strings.Contains(LatestPlaylistQuery, "ORDER BY c.published_at DESC NULLS LAST, c.updated_at DESC, c.short_id ASC") {
 		t.Errorf("LatestPlaylistQuery unexpected: %q", LatestPlaylistQuery)
+	}
+	if strings.Index(LatestPlaylistQuery, "v.variant_type = 'master'") > strings.Index(LatestPlaylistQuery, "LIMIT $1") {
+		t.Errorf("LatestPlaylistQuery must filter master variant before LIMIT: %q", LatestPlaylistQuery)
 	}
 }
 
@@ -228,9 +234,43 @@ func TestRefreshLatestPlaylistWithBeginner_OrderAndNullPublishedAt(t *testing.T)
 	if got := strings.Join(events, ","); got != wantOrder {
 		t.Errorf("execution order = %q, want %q", got, wantOrder)
 	}
-	wantPlaylist := "#EXTM3U\n#EXTINF:-1,Published Video\nresources/hls/s1/master.m3u8\n#EXTINF:-1,Ready Without PublishedAt\nresources/hls/s2/master.m3u8\n"
+	wantPlaylist := "#EXTM3U\n#EXTINF:-1,Published Video\ns1/master.m3u8\n#EXTINF:-1,Ready Without PublishedAt\ns2/master.m3u8\n"
 	if uploaded != wantPlaylist {
 		t.Errorf("uploaded playlist = %q, want %q", uploaded, wantPlaylist)
+	}
+}
+
+func TestBuildLatestPlaylist_RelativeURIResolutionAndSanitization(t *testing.T) {
+	pl := BuildLatestPlaylist([]PlaylistItem{
+		{ShortID: "abc123", Title: "Normal Title"},
+		{ShortID: "inj1", Title: "Line 1\n#EXT-X-KEY:METHOD=AES-128\r\nLine 2\rLine 3"},
+	})
+	want := "#EXTM3U\n#EXTINF:-1,Normal Title\nabc123/master.m3u8\n#EXTINF:-1,Line 1 #EXT-X-KEY:METHOD=AES-128 Line 2 Line 3\ninj1/master.m3u8\n"
+	if pl != want {
+		t.Fatalf("got playlist:\n%q\nwant:\n%q", pl, want)
+	}
+
+	baseURL, err := url.Parse("https://pechka.example/resources/hls/latest.m3u8")
+	if err != nil {
+		t.Fatalf("parse base url: %v", err)
+	}
+	var resolved []string
+	for _, line := range strings.Split(strings.TrimSpace(pl), "\n") {
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		ref, err := url.Parse(line)
+		if err != nil {
+			t.Fatalf("parse entry %q: %v", line, err)
+		}
+		resolved = append(resolved, baseURL.ResolveReference(ref).Path)
+	}
+	wantPaths := []string{
+		"/resources/hls/abc123/master.m3u8",
+		"/resources/hls/inj1/master.m3u8",
+	}
+	if strings.Join(resolved, ",") != strings.Join(wantPaths, ",") {
+		t.Errorf("resolved paths = %v, want %v", resolved, wantPaths)
 	}
 }
 
