@@ -21,3 +21,12 @@ metadata:
   namespace: pechka
 spec:
   replicas: 1
+---
+# AivisSpeech は展開後 4GB 超と重いため、preview では既定で 0 台に保つ。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aivisspeech
+  namespace: pechka
+spec:
+  replicas: 0
