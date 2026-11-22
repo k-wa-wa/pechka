@@ -34,7 +34,7 @@ else
 fi
 echo ""
 
-echo "=== 4. Testing PostgreSQL migrations (001-011) ==="
+echo "=== 4. Testing PostgreSQL migrations (001-009) ==="
 if python3 scripts/test-postgres-migrations.py; then
   echo "PostgreSQL migration tests passed!"
 else

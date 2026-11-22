@@ -22,9 +22,9 @@ class FakeSubtitleCursor:
         elif norm.startswith("SELECT 1 FROM contents WHERE id = %s AND deleted_at IS NULL FOR UPDATE"):
             c = self.db["contents"].get(params[0])
             self._result = (1,) if c is not None and c["deleted_at"] is None else None
-        elif norm.startswith("SELECT id, status, manually_edited FROM subtitle_tracks WHERE content_id = %s AND language = %s"):
+        elif norm.startswith("SELECT id, status FROM subtitle_tracks WHERE content_id = %s AND language = %s"):
             t = self.db["tracks"].get((params[0], params[1]))
-            self._result = None if t is None else (t["id"], t["status"], t["manually_edited"])
+            self._result = None if t is None else (t["id"], t["status"])
         elif norm.startswith("SELECT COUNT(*) FROM subtitle_cues WHERE track_id = %s AND text != original_text"):
             track_id = params[0]
             cnt = sum(1 for cu in self.db["cues"] if cu["track_id"] == track_id and cu["text"] != cu["original_text"])
@@ -40,7 +40,6 @@ class FakeSubtitleCursor:
             self.db["tracks"][(content_id, language)] = {
                 "id": track_id,
                 "status": "draft",
-                "manually_edited": False,
                 "model": model,
             }
             self._result = (track_id,)
@@ -67,14 +66,13 @@ class FakeSubtitleConn:
         self.rolled_back = True
 
 
-def make_fake_db(*, status="draft", manually_edited=False, cues=None):
+def make_fake_db(*, status="draft", cues=None):
     return {
         "contents": {"c1": {"deleted_at": None}},
         "tracks": {
             ("c1", "ja"): {
                 "id": "track-1",
                 "status": status,
-                "manually_edited": manually_edited,
                 "model": "large-v3",
             }
         },
@@ -121,17 +119,12 @@ class TestGenerate(unittest.TestCase):
         self.assertIsNone(reason)
 
         # Case 4: existing track is published
-        mock_cur.fetchone.side_effect = [(None,), ("track-1", "published", False)]
+        mock_cur.fetchone.side_effect = [(None,), ("track-1", "published")]
         reason = generate.find_unsafe_overwrite_reason(mock_conn, "c1", "ja")
         self.assertIn("published", reason)
 
-        # Case 5: existing track marked manually_edited (insert/delete/timing-only edit)
-        mock_cur.fetchone.side_effect = [(None,), ("track-1", "draft", True)]
-        reason = generate.find_unsafe_overwrite_reason(mock_conn, "c1", "ja")
-        self.assertIn("manually edited", reason)
-
-        # Case 6: existing track has text != original_text cues
-        mock_cur.fetchone.side_effect = [(None,), ("track-1", "draft", False), (3,)]
+        # Case 5: existing track has text != original_text cues
+        mock_cur.fetchone.side_effect = [(None,), ("track-1", "draft"), (3,)]
         reason = generate.find_unsafe_overwrite_reason(mock_conn, "c1", "ja")
         self.assertIn("3 manually edited cue(s)", reason)
 
@@ -163,53 +156,17 @@ class TestGenerate(unittest.TestCase):
         self.assertIn(("c1", "ja"), db_pub["tracks"])
         self.assertEqual(len(db_pub["cues"]), 1)
 
-        # Case B: Cue manually inserted during transcription (text == original_text, manually_edited=True)
-        db_insert = make_fake_db(
-            manually_edited=True,
-            cues=[
-                {"id": "cu-1", "track_id": "track-1", "text": "Hello", "original_text": "Hello", "start_ms": 0, "end_ms": 1000},
-                {"id": "cu-2", "track_id": "track-1", "text": "Inserted", "original_text": "Inserted", "start_ms": 1000, "end_ms": 2000},
-            ],
-        )
-        conn_insert = FakeSubtitleConn(db_insert)
-        with self.assertRaisesRegex(RuntimeError, "manually edited"):
-            generate.register_track(conn_insert, "c1", "ja", segments)
-        self.assertTrue(conn_insert.rolled_back)
-        self.assertEqual(len(db_insert["cues"]), 2)
-
-        # Case C: Cue timing-only update during transcription (text == original_text, manually_edited=True)
-        db_timing = make_fake_db(
-            manually_edited=True,
-            cues=[
-                {"id": "cu-1", "track_id": "track-1", "text": "Hello", "original_text": "Hello", "start_ms": 250, "end_ms": 1500},
-            ],
-        )
-        conn_timing = FakeSubtitleConn(db_timing)
-        with self.assertRaisesRegex(RuntimeError, "manually edited"):
-            generate.register_track(conn_timing, "c1", "ja", segments)
-        self.assertTrue(conn_timing.rolled_back)
-        self.assertEqual(db_timing["cues"][0]["start_ms"], 250)
-
-        # Case D: Cue deleted during transcription (remaining cues unmodified, manually_edited=True)
-        db_delete = make_fake_db(manually_edited=True, cues=[])
-        conn_delete = FakeSubtitleConn(db_delete)
-        with self.assertRaisesRegex(RuntimeError, "manually edited"):
-            generate.register_track(conn_delete, "c1", "ja", segments)
-        self.assertTrue(conn_delete.rolled_back)
-        self.assertEqual(db_delete["tracks"][("c1", "ja")]["id"], "track-1")
-
-        # Case E: Legacy text != original_text even if manually_edited=False
-        db_legacy = make_fake_db(
-            manually_edited=False,
+        # Case B: Cue text edited during transcription (text != original_text)
+        db_edited = make_fake_db(
             cues=[
                 {"id": "cu-1", "track_id": "track-1", "text": "Fixed", "original_text": "Hello", "start_ms": 0, "end_ms": 1000},
             ],
         )
-        conn_legacy = FakeSubtitleConn(db_legacy)
+        conn_edited = FakeSubtitleConn(db_edited)
         with self.assertRaisesRegex(RuntimeError, "1 manually edited cue"):
-            generate.register_track(conn_legacy, "c1", "ja", segments)
-        self.assertTrue(conn_legacy.rolled_back)
-        self.assertEqual(db_legacy["cues"][0]["text"], "Fixed")
+            generate.register_track(conn_edited, "c1", "ja", segments)
+        self.assertTrue(conn_edited.rolled_back)
+        self.assertEqual(db_edited["cues"][0]["text"], "Fixed")
 
     def test_register_track_success(self):
         mock_conn = MagicMock()
@@ -226,7 +183,7 @@ class TestGenerate(unittest.TestCase):
         mock_conn.rollback.assert_not_called()
 
     def test_register_track_replaces_unedited_draft_success(self):
-        db = make_fake_db(status="draft", manually_edited=False)
+        db = make_fake_db(status="draft")
         conn = FakeSubtitleConn(db)
         segments = [{"start_ms": 0, "end_ms": 1000, "text": "Hello", "flagged": False}]
         with patch("generate.psycopg2") as mock_pg:

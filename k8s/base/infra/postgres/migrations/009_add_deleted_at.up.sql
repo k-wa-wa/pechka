@@ -1,7 +1,5 @@
 ALTER TABLE contents ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITH TIME ZONE;
 
-CREATE INDEX IF NOT EXISTS idx_contents_deleted_at ON contents(deleted_at);
-
 -- 論理削除済みレコードと同一 disc_id の再取り込みを可能にするため、
 -- idx_contents_disc_id を WHERE disc_id IS NOT NULL AND deleted_at IS NULL の部分一意インデックスへ再定義する。
 -- 毎回再実行される migrate Job で不要なインデックス再構築を避けるため、未更新時のみ再作成する。

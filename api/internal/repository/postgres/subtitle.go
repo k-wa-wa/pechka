@@ -81,8 +81,6 @@ const (
 
 	insertCueCheckParentQuery = lockParentByTrackQuery
 
-	markTrackManuallyEditedQuery = "UPDATE subtitle_tracks SET manually_edited = TRUE WHERE id = $1 AND manually_edited = FALSE"
-
 	deleteCueQuery = "DELETE FROM subtitle_cues WHERE id = $1 RETURNING track_id"
 )
 
@@ -239,10 +237,6 @@ func updateCueWithBeginner(ctx context.Context, beginner subtitleTxBeginner, par
 		return nil, err
 	}
 
-	if _, err := tx.Exec(ctx, markTrackManuallyEditedQuery, cue.TrackID); err != nil {
-		return nil, err
-	}
-
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
@@ -299,10 +293,6 @@ func insertCueWithBeginner(ctx context.Context, beginner subtitleTxBeginner, par
 		return nil, err
 	}
 
-	if _, err := tx.Exec(ctx, markTrackManuallyEditedQuery, params.TrackID); err != nil {
-		return nil, err
-	}
-
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
@@ -331,10 +321,6 @@ func deleteCueWithBeginner(ctx context.Context, beginner subtitleTxBeginner, id 
 
 	var trackID string
 	if err := tx.QueryRow(ctx, deleteCueQuery, id).Scan(&trackID); err != nil {
-		return err
-	}
-
-	if _, err := tx.Exec(ctx, markTrackManuallyEditedQuery, trackID); err != nil {
 		return err
 	}
 

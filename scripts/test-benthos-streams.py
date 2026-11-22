@@ -278,66 +278,101 @@ def test_contents_stream() -> None:
     assert m1_set["deleted_at"] == {"$date": {"$numberLong": "1738544523456"}}
 
 
-def query_subtitles_with_postgres(sql_query: str) -> list[dict]:
+def verify_contents_sql_with_postgres(pg: TempPostgres, sql_query: str) -> None:
+    """
+    contents.yaml の実 SQL 全文を PostgreSQL 16（001〜009 適用済み）で実行し、
+    created_at / updated_at が NULL の行でも COALESCE により非 NULL 日時が返ることを検証する。
+    """
+    db = "contents_stream_test"
+    pg.create_db(db)
+    for mig in sorted(MIGRATIONS_DIR.glob("*.up.sql")):
+        pg.psql_file(db, mig)
+
+    pg.psql_query(
+        db,
+        """
+        INSERT INTO contents (id, short_id, content_type, channel_id, title, status, published_at, created_at, updated_at)
+        VALUES
+            ('11111111-1111-1111-1111-111111111111', 'c-null-ts', 'video', 'bluray', 'Null TS', 'ready', '2024-02-01 00:00:00+00', NULL, NULL),
+            ('22222222-2222-2222-2222-222222222222', 'c-half-ts', 'video', 'bluray', 'Half TS', 'ready', NULL, NULL, '2024-03-01 00:00:00+00');
+        """,
+    )
+    raw_select = sql_query.strip().rstrip(";")
+    wrapper_sql = (
+        "SELECT json_agg(json_build_object("
+        "'short_id', q.short_id, "
+        "'created_at', q.created_at, "
+        "'updated_at', q.updated_at"
+        ") ORDER BY q.short_id) "
+        f"FROM ({raw_select}) q;"
+    )
+    rows = json.loads(pg.psql_query(db, wrapper_sql))
+    assert len(rows) == 2, f"expected 2 rows from contents.yaml SQL, got {rows}"
+    assert rows[0]["short_id"] == "c-half-ts"
+    assert rows[0]["created_at"] is not None and rows[0]["updated_at"] is not None
+    assert rows[0]["created_at"] == rows[0]["updated_at"]
+    assert rows[1]["short_id"] == "c-null-ts"
+    assert rows[1]["created_at"] is not None and rows[1]["updated_at"] is not None
+
+
+def query_subtitles_with_postgres(pg: TempPostgres, sql_query: str) -> list[dict]:
     """
     subtitles.yaml の実 SQL 全文（CASE WHEN ... json_agg / FROM / JOIN / WHERE）を
     実際の PostgreSQL 16 インスタンスでそのまま実行し、抽出行とキュー本文・順序を検証する。
     """
     raw_select = sql_query.strip().rstrip(";")
-    with tempfile.TemporaryDirectory() as tmp:
-        with TempPostgres(Path(tmp)) as pg:
-            db = "subtitles_stream_test"
-            pg.create_db(db)
-            for mig in sorted(MIGRATIONS_DIR.glob("*.up.sql")):
-                pg.psql_file(db, mig)
+    db = "subtitles_stream_test"
+    pg.create_db(db)
+    for mig in sorted(MIGRATIONS_DIR.glob("*.up.sql")):
+        pg.psql_file(db, mig)
 
-            pg.psql_query(
-                db,
-                """
-                INSERT INTO contents (id, short_id, content_type, channel_id, title, status, deleted_at)
-                VALUES
-                    ('11111111-1111-1111-1111-111111111111', 's-active', 'video', 'bluray', 'Active', 'ready', NULL),
-                    ('22222222-2222-2222-2222-222222222222', 's-deleted', 'video', 'bluray', 'Deleted', 'ready', NOW() - INTERVAL '1 hour');
+    pg.psql_query(
+        db,
+        """
+        INSERT INTO contents (id, short_id, content_type, channel_id, title, status, deleted_at)
+        VALUES
+            ('11111111-1111-1111-1111-111111111111', 's-active', 'video', 'bluray', 'Active', 'ready', NULL),
+            ('22222222-2222-2222-2222-222222222222', 's-deleted', 'video', 'bluray', 'Deleted', 'ready', NOW() - INTERVAL '1 hour');
 
-                INSERT INTO subtitle_tracks (id, content_id, language, status, updated_at)
-                VALUES
-                    ('aaaa1111-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 'ja', 'published', NOW() - INTERVAL '1 hour'),
-                    ('aaaa2222-2222-2222-2222-222222222222', '11111111-1111-1111-1111-111111111111', 'en', 'draft', NOW() - INTERVAL '1 hour'),
-                    ('aaaa3333-3333-3333-3333-333333333333', '11111111-1111-1111-1111-111111111111', 'fr', 'draft', NOW() - INTERVAL '1 second'),
-                    ('bbbb1111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', 'ja', 'published', NOW() - INTERVAL '1 hour'),
-                    ('bbbb2222-2222-2222-2222-222222222222', '22222222-2222-2222-2222-222222222222', 'en', 'draft', NOW() - INTERVAL '1 hour');
+        INSERT INTO subtitle_tracks (id, content_id, language, status, updated_at)
+        VALUES
+            ('aaaa1111-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 'ja', 'published', NOW() - INTERVAL '1 hour'),
+            ('aaaa2222-2222-2222-2222-222222222222', '11111111-1111-1111-1111-111111111111', 'en', 'draft', NOW() - INTERVAL '1 hour'),
+            ('aaaa3333-3333-3333-3333-333333333333', '11111111-1111-1111-1111-111111111111', 'fr', 'draft', NOW() - INTERVAL '1 second'),
+            ('bbbb1111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', 'ja', 'published', NOW() - INTERVAL '1 hour'),
+            ('bbbb2222-2222-2222-2222-222222222222', '22222222-2222-2222-2222-222222222222', 'en', 'draft', NOW() - INTERVAL '1 hour');
 
-                INSERT INTO subtitle_cues (id, track_id, seq, start_ms, end_ms, text, original_text)
-                VALUES
-                    ('00000000-0000-0000-0000-000000000002', 'aaaa1111-1111-1111-1111-111111111111', 2, 2000, 3000, 'third', 'third'),
-                    ('00000000-0000-0000-0000-000000000001', 'aaaa1111-1111-1111-1111-111111111111', 1, 1000, 1500, 'second', 'second'),
-                    ('00000000-0000-0000-0000-000000000003', 'aaaa1111-1111-1111-1111-111111111111', 0, 0, 900, 'first', 'first'),
-                    ('00000000-0000-0000-0000-000000000004', 'aaaa2222-2222-2222-2222-222222222222', 0, 0, 1000, 'old-draft-hidden', 'old-draft-hidden'),
-                    ('00000000-0000-0000-0000-000000000005', 'aaaa3333-3333-3333-3333-333333333333', 0, 0, 1000, 'recent-draft-must-clear', 'recent-draft-must-clear'),
-                    ('00000000-0000-0000-0000-000000000006', 'bbbb1111-1111-1111-1111-111111111111', 0, 0, 1000, 'deleted-pub-must-clear', 'deleted-pub-must-clear'),
-                    ('00000000-0000-0000-0000-000000000007', 'bbbb2222-2222-2222-2222-222222222222', 0, 0, 1000, 'deleted-draft-must-clear', 'deleted-draft-must-clear');
-                """,
-            )
+        INSERT INTO subtitle_cues (id, track_id, seq, start_ms, end_ms, text, original_text)
+        VALUES
+            ('00000000-0000-0000-0000-000000000002', 'aaaa1111-1111-1111-1111-111111111111', 2, 2000, 3000, 'third', 'third'),
+            ('00000000-0000-0000-0000-000000000001', 'aaaa1111-1111-1111-1111-111111111111', 1, 1000, 1500, 'second', 'second'),
+            ('00000000-0000-0000-0000-000000000003', 'aaaa1111-1111-1111-1111-111111111111', 0, 0, 900, 'first', 'first'),
+            ('00000000-0000-0000-0000-000000000004', 'aaaa2222-2222-2222-2222-222222222222', 0, 0, 1000, 'old-draft-hidden', 'old-draft-hidden'),
+            ('00000000-0000-0000-0000-000000000005', 'aaaa3333-3333-3333-3333-333333333333', 0, 0, 1000, 'recent-draft-must-clear', 'recent-draft-must-clear'),
+            ('00000000-0000-0000-0000-000000000006', 'bbbb1111-1111-1111-1111-111111111111', 0, 0, 1000, 'deleted-pub-must-clear', 'deleted-pub-must-clear'),
+            ('00000000-0000-0000-0000-000000000007', 'bbbb2222-2222-2222-2222-222222222222', 0, 0, 1000, 'deleted-draft-must-clear', 'deleted-draft-must-clear');
+        """,
+    )
 
-            wrapper_sql = (
-                "SELECT COALESCE("
-                "json_agg(json_build_object("
-                "'short_id', q.short_id, "
-                "'language', q.language, "
-                "'status', q.status, "
-                "'deleted_at', q.deleted_at, "
-                "'cues', q.cues::text"
-                ")), '[]'::json) "
-                f"FROM ({raw_select}) q;"
-            )
-            raw_json = pg.psql_query(db, wrapper_sql)
-            return json.loads(raw_json)
+    wrapper_sql = (
+        "SELECT COALESCE("
+        "json_agg(json_build_object("
+        "'short_id', q.short_id, "
+        "'language', q.language, "
+        "'status', q.status, "
+        "'deleted_at', q.deleted_at, "
+        "'cues', q.cues::text"
+        ")), '[]'::json) "
+        f"FROM ({raw_select}) q;"
+    )
+    raw_json = pg.psql_query(db, wrapper_sql)
+    return json.loads(raw_json)
 
 
-def test_subtitles_stream() -> None:
+def test_subtitles_stream(pg: TempPostgres) -> None:
     cfg = yaml.safe_load((STREAMS_DIR / "subtitles.yaml").read_text(encoding="utf-8"))
     sql_query = cfg["pipeline"]["processors"][0]["sql_raw"]["query"]
-    extracted_rows = query_subtitles_with_postgres(sql_query)
+    extracted_rows = query_subtitles_with_postgres(pg, sql_query)
     extracted_ids = {f"{r['short_id']}:{r['language']}" for r in extracted_rows}
     assert extracted_ids == {
         "s-active:ja",
@@ -423,8 +458,12 @@ def main() -> int:
             raise RuntimeError(f"{cmd} is required in PATH (run inside k8s/lint.sh nix-shell)")
     if os.geteuid() == 0:
         raise RuntimeError("PostgreSQL initdb cannot run as root")
-    test_contents_stream()
-    test_subtitles_stream()
+    with tempfile.TemporaryDirectory() as tmp:
+        with TempPostgres(Path(tmp)) as pg:
+            contents_cfg = yaml.safe_load((STREAMS_DIR / "contents.yaml").read_text(encoding="utf-8"))
+            verify_contents_sql_with_postgres(pg, contents_cfg["pipeline"]["processors"][0]["sql_raw"]["query"])
+            test_contents_stream()
+            test_subtitles_stream(pg)
     print("OK: Benthos contents.yaml and subtitles.yaml Bloblang mappings & switch routing verified.")
     return 0
 

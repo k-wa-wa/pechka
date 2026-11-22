@@ -27,8 +27,8 @@ pipeline:
               c.document_mime_type,
               c.published_at,
               c.archived_at,
-              c.created_at,
-              c.updated_at,
+              COALESCE(c.created_at, c.updated_at, c.published_at, CURRENT_TIMESTAMP) AS created_at,
+              COALESCE(c.updated_at, c.created_at, c.published_at, CURRENT_TIMESTAMP) AS updated_at,
               c.deleted_at,
               d.label AS disc_label,
               COALESCE(

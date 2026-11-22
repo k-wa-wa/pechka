@@ -157,22 +157,19 @@ def flag_hallucinations(segments: list[dict]) -> list[dict]:
 
 
 def _check_existing_track_unsafe(cur, content_id: str, language: str, *, lock_track: bool = False) -> str | None:
-    """既存トラックが公開済み、または手動編集済み（トラックフラグまたは本文差分）の場合は上書き禁止理由を返す。"""
+    """既存トラックが公開済み、または本文が手動編集済みの場合は上書き禁止理由を返す。"""
     lock_clause = " FOR UPDATE" if lock_track else ""
     cur.execute(
-        f"SELECT id, status, manually_edited FROM subtitle_tracks WHERE content_id = %s AND language = %s{lock_clause}",
+        f"SELECT id, status FROM subtitle_tracks WHERE content_id = %s AND language = %s{lock_clause}",
         (content_id, language),
     )
     row = cur.fetchone()
     if row is None:
         return None
-    track_id, status, manually_edited = row
+    track_id, status = row
 
     if status == "published":
         return f"existing track {track_id} is published"
-
-    if manually_edited:
-        return f"existing track {track_id} is manually edited"
 
     cur.execute(
         "SELECT COUNT(*) FROM subtitle_cues WHERE track_id = %s AND text != original_text",
