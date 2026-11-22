@@ -8,8 +8,6 @@ permissions:
 on:
   push:
     branches: [master]
-    tags:
-      - 'v*.*.*'
     paths:
       - 'batch-tech-feed/**'
       - 'k8s/base/tech-feed/**'
@@ -96,7 +94,7 @@ jobs:
           npm ci
 
   # 本番は :latest のイメージを使う。PR から push するとマージ前に本番のイメージが
-  # PR の内容に置き換わるため、master への push 時のみ動かす（共通 docker-build-push.yml の条件によりタグ push 時はスキップされる）。
+  # PR の内容に置き換わるため、master への push 時のみ動かす。
   push-image:
     name: Push Image
     if: github.event_name == 'push'
