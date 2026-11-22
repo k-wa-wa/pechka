@@ -9,6 +9,38 @@ const FOCUSABLE_SELECTOR = [
   "[tabindex]:not([tabindex='-1'])",
 ].join(", ");
 
+function getEffectiveZIndex(el: HTMLElement): number {
+  let maxZ = 0;
+  let cur: HTMLElement | null = el;
+  while (cur && cur !== document.body) {
+    const raw = cur.style.zIndex || getComputedStyle(cur).zIndex;
+    const parsed = Number.parseInt(raw, 10);
+    if (Number.isFinite(parsed) && parsed > maxZ) {
+      maxZ = parsed;
+    }
+    cur = cur.parentElement;
+  }
+  return maxZ;
+}
+
+function getTopmostModalDialog(): HTMLElement | null {
+  const modalDialogs = Array.from(
+    document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]'),
+  );
+  if (modalDialogs.length === 0) return null;
+  let topmost = modalDialogs[0];
+  let highestZ = getEffectiveZIndex(topmost);
+  for (let i = 1; i < modalDialogs.length; i++) {
+    const candidate = modalDialogs[i];
+    const z = getEffectiveZIndex(candidate);
+    if (z >= highestZ) {
+      highestZ = z;
+      topmost = candidate;
+    }
+  }
+  return topmost;
+}
+
 function getFocusableElements(container: HTMLElement): HTMLElement[] {
   return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
     (el) => el.getAttribute("aria-hidden") !== "true",
@@ -50,9 +82,9 @@ export function useDialogA11y({
       const currentDialog = dialogRef.current;
       if (!currentDialog) return;
 
-      // 複数ダイアログが重なった場合は最前面のモーダルのみがキー操作を処理する
-      const modalDialogs = document.querySelectorAll('[role="dialog"][aria-modal="true"]');
-      if (modalDialogs.length > 0 && modalDialogs[modalDialogs.length - 1] !== currentDialog) {
+      // 複数ダイアログが重なった場合は z-index（同値時は DOM 後順）で最前面のモーダルのみがキー操作を処理する
+      const topmost = getTopmostModalDialog();
+      if (topmost !== null && topmost !== currentDialog) {
         return;
       }
 
@@ -94,9 +126,9 @@ export function useDialogA11y({
       }
     }
 
-    document.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keydown", handleKeyDown);
       if (previousActive?.isConnected) {
         previousActive.focus();
       }

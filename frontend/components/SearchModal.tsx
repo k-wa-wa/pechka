@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import type { ContentType, SearchResult } from "@/lib/types";
+import { useDialogA11y } from "@/lib/useDialogA11y";
 
 const CONTENT_TYPE_LABEL: Record<ContentType, string> = {
   video: "Video",
@@ -18,20 +19,20 @@ interface Props {
 }
 
 export default function SearchModal({ isOpen, onClose }: Props) {
+  if (!isOpen) return null;
+  return <SearchModalDialog onClose={onClose} />;
+}
+
+function SearchModalDialog({ onClose }: { onClose: () => void }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { t } = useLanguage();
 
-  useEffect(() => {
-    if (isOpen) {
-      setQuery("");
-      setResults([]);
-      setTimeout(() => inputRef.current?.focus(), 50);
-    }
-  }, [isOpen]);
+  useDialogA11y({ dialogRef, onClose });
 
   const doSearch = useCallback(async (q: string) => {
     if (!q.trim()) {
@@ -68,20 +69,6 @@ export default function SearchModal({ isOpen, onClose }: Props) {
     };
   }, [query, doSearch]);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [isOpen, onClose]);
-
-  if (!isOpen) return null;
-
   return (
     <div
       style={{
@@ -97,9 +84,11 @@ export default function SearchModal({ isOpen, onClose }: Props) {
       onClick={onClose}
     >
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={t("header.search")}
+        tabIndex={-1}
         style={{
           width: "100%",
           maxWidth: 600,

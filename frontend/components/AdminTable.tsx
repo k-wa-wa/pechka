@@ -58,14 +58,27 @@ export default function AdminTable({
   // 編集・アーカイブ成功直後の行が、CQRS 同期前のポーリング応答で古い値に巻き戻るのを防ぐため
   // 保存済み行の updated_at（ms）を記録し、それより新しい応答が返るまで上書きしない。
   const protectedUpdatedAtRef = useRef<Map<string, number>>(new Map());
+  const prevInitialContentsRef = useRef(initialContents);
+
+  // ページ送り・並び替え応答が届いてもモーダル状態を保つため、AdminTable を再マウントせず一覧だけ同期する。
+  useEffect(() => {
+    if (prevInitialContentsRef.current !== initialContents) {
+      prevInitialContentsRef.current = initialContents;
+      setContents(initialContents);
+    }
+  }, [initialContents]);
+
+  const hasInProgress = contents.some((c) => IN_PROGRESS_STATUSES.includes(c.status));
 
   // Poll while any row is still converting so pending/processing rows flip to
   // ready (or error) without requiring a manual page reload.
   useEffect(() => {
-    if (!contents.some((c) => IN_PROGRESS_STATUSES.includes(c.status))) return;
+    if (!hasInProgress) return;
 
     let cancelled = false;
-    const timer = setTimeout(async () => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const poll = async () => {
       try {
         const res = await getAdminContents({ limit: 100 });
         if (cancelled) return;
@@ -92,15 +105,21 @@ export default function AdminTable({
           }),
         );
       } catch {
-        // Ignore transient poll failures; the next tick will retry.
+        // Ignore transient poll failures; finally schedules the next retry.
+      } finally {
+        if (!cancelled) {
+          timer = setTimeout(poll, POLL_INTERVAL_MS);
+        }
       }
-    }, POLL_INTERVAL_MS);
+    };
+
+    timer = setTimeout(poll, POLL_INTERVAL_MS);
 
     return () => {
       cancelled = true;
-      clearTimeout(timer);
+      if (timer !== undefined) clearTimeout(timer);
     };
-  }, [contents]);
+  }, [hasInProgress]);
 
   function handleSave(updated: Content) {
     protectedUpdatedAtRef.current.set(updated.id, Date.parse(updated.updated_at));

@@ -46,6 +46,24 @@ async function runContractSuite(get: (pathAndQuery: string) => Promise<QueryResu
   expect(limitOne.status).toBe(200);
   expect(limitOne.body.limit).toBe(1);
   expect((limitOne.body.contents as unknown[]).length).toBe(1);
+
+  // Plus-prefixed integer limit=%2B1 -> matches Go strconv.Atoi("+1") == 1
+  const limitPlusOne = await get("/api/v1/admin/contents?limit=%2B1");
+  expect(limitPlusOne.status).toBe(200);
+  expect(limitPlusOne.body.limit).toBe(1);
+  expect((limitPlusOne.body.contents as unknown[]).length).toBe(1);
+
+  // Valid cursor with trailing non-base64url character '!' or standard base64 '+' -> 400
+  const validCursor = limitOne.body.next_cursor;
+  expect(typeof validCursor).toBe("string");
+  const bangCursor = await get(
+    `/api/v1/admin/contents?after=${encodeURIComponent(`${String(validCursor)}!`)}`,
+  );
+  expect(bangCursor.status).toBe(400);
+  const plusCursor = await get(
+    `/api/v1/admin/contents?after=${encodeURIComponent(`${String(validCursor)}+`)}`,
+  );
+  expect(plusCursor.status).toBe(400);
 }
 
 describe("admin contents API contract parity (MSW & E2E mock-server)", () => {

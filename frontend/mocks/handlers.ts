@@ -38,7 +38,7 @@ const VALID_ADMIN_SORTS = new Set<AdminContentSort>([
 const VALID_CHANNEL_ID_RE = /^[a-z0-9][a-z0-9-]{0,49}$/;
 
 function parseStrictLimit(rawParam: string | null): number {
-  if (rawParam === null || !/^-?\d+$/.test(rawParam)) {
+  if (rawParam === null || !/^[+-]?\d+$/.test(rawParam)) {
     return 20;
   }
   const parsed = Number(rawParam);
@@ -90,7 +90,7 @@ function toBase64Url(str: string): string {
 }
 
 function fromBase64Url(token: string): string | null {
-  if (!token || token.includes("=")) return null;
+  if (!token || !/^[A-Za-z0-9_-]+$/.test(token) || token.length % 4 === 1) return null;
   try {
     const base64 = token.replace(/-/g, "+").replace(/_/g, "/");
     const pad = base64.length % 4 === 0 ? "" : "=".repeat(4 - (base64.length % 4));

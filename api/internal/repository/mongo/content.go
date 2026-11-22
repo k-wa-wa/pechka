@@ -14,6 +14,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 
 	"github.com/k-wa-wa/pechka/api/internal/domain"
 )
@@ -24,13 +25,20 @@ var (
 )
 
 type ContentRepository struct {
-	col            *mongo.Collection
-	indexesEnsured atomic.Bool
-	migrated       atomic.Bool
+	col                   *mongo.Collection
+	indexesEnsured        atomic.Bool
+	migrated              atomic.Bool
+	migrationCheckTimeout time.Duration
 }
 
 func NewContentRepository(db *mongo.Database) *ContentRepository {
 	return &ContentRepository{col: db.Collection("contents")}
+}
+
+// WithMigrationCheckTimeout は未移行データ初回検査に独立したタイムアウトを設定する。
+func (r *ContentRepository) WithMigrationCheckTimeout(d time.Duration) *ContentRepository {
+	r.migrationCheckTimeout = d
+	return r
 }
 
 type ListParams struct {
@@ -277,10 +285,51 @@ type existingIndexSpec struct {
 	Key                     bson.D `bson:"key"`
 	Unique                  bool   `bson:"unique"`
 	Sparse                  bool   `bson:"sparse"`
+	Hidden                  bool   `bson:"hidden"`
 	PartialFilterExpression bson.M `bson:"partialFilterExpression"`
 	Collation               bson.M `bson:"collation"`
 	ExpireAfterSeconds      *int32 `bson:"expireAfterSeconds"`
 	BuildUUID               any    `bson:"buildUUID,omitempty"`
+}
+
+// rawListIndexEntry は listIndexes (includeBuildUUIDs: true) の応答をデコードする。
+// MongoDB 7 では完成済みインデックスはトップレベルに定義が置かれ、
+// 構築中インデックスは { "spec": { ... }, "buildUUID": ... } の形式になる。
+type rawListIndexEntry struct {
+	Name                    string             `bson:"name"`
+	Key                     bson.D             `bson:"key"`
+	Unique                  bool               `bson:"unique"`
+	Sparse                  bool               `bson:"sparse"`
+	Hidden                  bool               `bson:"hidden"`
+	PartialFilterExpression bson.M             `bson:"partialFilterExpression"`
+	Collation               bson.M             `bson:"collation"`
+	ExpireAfterSeconds      *int32             `bson:"expireAfterSeconds"`
+	BuildUUID               any                `bson:"buildUUID,omitempty"`
+	Spec                    *existingIndexSpec `bson:"spec,omitempty"`
+}
+
+func (e rawListIndexEntry) normalize() existingIndexSpec {
+	if e.Spec != nil {
+		spec := *e.Spec
+		if spec.BuildUUID == nil {
+			spec.BuildUUID = e.BuildUUID
+		}
+		if spec.BuildUUID == nil {
+			spec.BuildUUID = true
+		}
+		return spec
+	}
+	return existingIndexSpec{
+		Name:                    e.Name,
+		Key:                     e.Key,
+		Unique:                  e.Unique,
+		Sparse:                  e.Sparse,
+		Hidden:                  e.Hidden,
+		PartialFilterExpression: e.PartialFilterExpression,
+		Collation:               e.Collation,
+		ExpireAfterSeconds:      e.ExpireAfterSeconds,
+		BuildUUID:               e.BuildUUID,
+	}
 }
 
 type adminIndexManager interface {
@@ -290,29 +339,44 @@ type adminIndexManager interface {
 }
 
 type mongoAdminIndexManager struct {
-	view mongo.IndexView
+	col *mongo.Collection
 }
 
 func (m mongoAdminIndexManager) List(ctx context.Context) ([]existingIndexSpec, error) {
-	cursor, err := m.view.List(ctx)
+	cursor, err := m.col.Database().RunCommandCursor(
+		ctx,
+		bson.D{
+			{Key: "listIndexes", Value: m.col.Name()},
+			{Key: "includeBuildUUIDs", Value: true},
+		},
+		options.RunCmd().SetReadPreference(readpref.Primary()),
+	)
 	if err != nil {
+		var cmdErr mongo.CommandError
+		if errors.As(err, &cmdErr) && cmdErr.Code == 26 { // 26: NamespaceNotFound
+			return nil, nil
+		}
 		return nil, err
 	}
 	defer cursor.Close(ctx)
 
-	var specs []existingIndexSpec
-	if err := cursor.All(ctx, &specs); err != nil {
+	var rawEntries []rawListIndexEntry
+	if err := cursor.All(ctx, &rawEntries); err != nil {
 		return nil, err
+	}
+	specs := make([]existingIndexSpec, 0, len(rawEntries))
+	for _, entry := range rawEntries {
+		specs = append(specs, entry.normalize())
 	}
 	return specs, nil
 }
 
 func (m mongoAdminIndexManager) CreateMany(ctx context.Context, models []mongo.IndexModel) ([]string, error) {
-	return m.view.CreateMany(ctx, models)
+	return m.col.Indexes().CreateMany(ctx, models)
 }
 
 func (m mongoAdminIndexManager) DropOne(ctx context.Context, name string) error {
-	return m.view.DropOne(ctx, name)
+	return m.col.Indexes().DropOne(ctx, name)
 }
 
 func isIndexNotFoundError(err error) bool {
@@ -359,7 +423,7 @@ func indexKeysEqual(a, b bson.D) bool {
 }
 
 func hasSameKeysAndPlainOptions(existing existingIndexSpec, desiredKeys bson.D) bool {
-	if existing.Unique || existing.Sparse || len(existing.PartialFilterExpression) > 0 || len(existing.Collation) > 0 || existing.ExpireAfterSeconds != nil {
+	if existing.Unique || existing.Sparse || existing.Hidden || len(existing.PartialFilterExpression) > 0 || len(existing.Collation) > 0 || existing.ExpireAfterSeconds != nil {
 		return false
 	}
 	return indexKeysEqual(existing.Key, desiredKeys)
@@ -411,7 +475,7 @@ func (r *ContentRepository) EnsureIndexes(ctx context.Context) error {
 	if r.col == nil {
 		return errors.New("mongo collection is nil")
 	}
-	return r.ensureIndexesWithManager(ctx, mongoAdminIndexManager{view: r.col.Indexes()})
+	return r.ensureIndexesWithManager(ctx, mongoAdminIndexManager{col: r.col})
 }
 
 func (r *ContentRepository) ensureIndexesWithManager(ctx context.Context, mgr adminIndexManager) error {
@@ -435,7 +499,8 @@ func (r *ContentRepository) ensureIndexesWithManager(ctx context.Context, mgr ad
 		}
 	}
 
-	// 1. まず名前が衝突してキー・オプションが不一致の v2 定義を特定し、撤去して残存集合（surviving）を確定する。
+	// 1. まず名前が衝突してキー・オプションが不一致の v2 定義、および再利用不可な非表示の旧定義を特定し、
+	// 撤去して残存集合（surviving）を確定する。
 	// 撤去後に残る定義だけを基準に作成対象を決めることで、別ソートで再利用予定だった定義を後から消す欠落を防ぐ。
 	dropSet := make(map[string]bool)
 	for i, model := range models {
@@ -443,6 +508,9 @@ func (r *ContentRepository) ensureIndexesWithManager(ctx context.Context, mgr ad
 		desiredName := names[i]
 		for _, ex := range existing {
 			if ex.Name == desiredName && !hasSameKeysAndPlainOptions(ex, desiredKeys) {
+				dropSet[ex.Name] = true
+			}
+			if ex.Hidden && slices.Contains(legacyAdminIndexNames, ex.Name) {
 				dropSet[ex.Name] = true
 			}
 		}
@@ -781,6 +849,30 @@ func (s *mongoCollectionAdminStore) ExistsAdminDoc(ctx context.Context, filter b
 	return false, err
 }
 
+// CheckMigrated は MongoDB contents コレクションに未移行ドキュメントが残っていないことを検査する。
+func (r *ContentRepository) CheckMigrated(ctx context.Context) error {
+	if r.col == nil {
+		return errors.New("mongo collection is nil")
+	}
+	return r.checkMigratedWithStore(ctx, &mongoCollectionAdminStore{col: r.col})
+}
+
+func (r *ContentRepository) checkMigratedWithStore(ctx context.Context, store adminDocStore) error {
+	if r.migrated.Load() {
+		return nil
+	}
+	foundUnmigrated, err := store.FindUnmigrated(ctx, unmigratedAdminDocFilter())
+	if err != nil {
+		return err
+	}
+	if foundUnmigrated {
+		slog.WarnContext(ctx, "unmigrated document detected in mongodb contents collection; falling back to postgres")
+		return ErrUnmigratedReadModel
+	}
+	r.migrated.Store(true)
+	return nil
+}
+
 func (r *ContentRepository) ListAdmin(ctx context.Context, params AdminListParams) (*domain.AdminContentPage, error) {
 	if r.col == nil {
 		return nil, errors.New("mongo collection is nil")
@@ -794,6 +886,10 @@ func (r *ContentRepository) ListAdmin(ctx context.Context, params AdminListParam
 }
 
 func (r *ContentRepository) listAdminWithStore(ctx context.Context, store adminDocStore, params AdminListParams) (*domain.AdminContentPage, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	sort := params.Sort
 	if sort == "" {
 		sort = domain.ContentSortUpdatedDesc
@@ -811,15 +907,18 @@ func (r *ContentRepository) listAdminWithStore(ctx context.Context, store adminD
 	}
 
 	if !r.migrated.Load() {
-		foundUnmigrated, err := store.FindUnmigrated(ctx, unmigratedAdminDocFilter())
+		checkCtx := ctx
+		var cancelCheck context.CancelFunc
+		if r.migrationCheckTimeout > 0 {
+			checkCtx, cancelCheck = context.WithTimeout(context.WithoutCancel(ctx), r.migrationCheckTimeout)
+		}
+		err := r.checkMigratedWithStore(checkCtx, store)
+		if cancelCheck != nil {
+			cancelCheck()
+		}
 		if err != nil {
 			return nil, err
 		}
-		if foundUnmigrated {
-			slog.WarnContext(ctx, "unmigrated document detected in mongodb contents collection; falling back to postgres")
-			return nil, ErrUnmigratedReadModel
-		}
-		r.migrated.Store(true)
 	}
 
 	total64, err := store.CountDocuments(ctx, plan.BaseFilter)

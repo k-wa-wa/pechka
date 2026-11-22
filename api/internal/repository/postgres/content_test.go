@@ -74,8 +74,12 @@ func TestContentQueriesExcludeDeletedAt(t *testing.T) {
 		t.Errorf("Delete query must be soft-delete, got %q", deleteContentQuery)
 	}
 	if !strings.Contains(setArchivedTrueQuery, "deleted_at IS NULL") ||
-		!strings.Contains(setArchivedFalseQuery, "deleted_at IS NULL") {
-		t.Errorf("SetArchived queries must require deleted_at IS NULL")
+		!strings.Contains(setArchivedTrueQuery, "archived_at IS NULL") ||
+		!strings.Contains(setArchivedTrueQuery, "NOT EXISTS (SELECT 1 FROM updated)") ||
+		!strings.Contains(setArchivedFalseQuery, "deleted_at IS NULL") ||
+		!strings.Contains(setArchivedFalseQuery, "archived_at IS NOT NULL") ||
+		!strings.Contains(setArchivedFalseQuery, "NOT EXISTS (SELECT 1 FROM updated)") {
+		t.Errorf("SetArchived queries must be idempotent CTEs preserving timestamps when already in target state")
 	}
 	if !strings.Contains(getContentByIDQuery, "deleted_at IS NULL") {
 		t.Errorf("GetByID query must require deleted_at IS NULL, got %q", getContentByIDQuery)

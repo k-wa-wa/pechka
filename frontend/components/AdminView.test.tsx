@@ -208,4 +208,60 @@ describe("AdminView", () => {
     expect(screen.getByText(ADMIN_CONTENTS[0].title)).toBeDefined();
     expect((screen.getByLabelText("Sort by") as HTMLSelectElement).disabled).toBe(false);
   });
+
+  it("preserves open EditModal and unsaved input when slow sort response arrives", async () => {
+    let resolveSort:
+      | ((value: Awaited<ReturnType<typeof api.getAdminContents>>) => void)
+      | undefined;
+    vi.spyOn(api, "getAdminContents").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSort = resolve;
+        }),
+    );
+
+    const row1 = ADMIN_CONTENTS[0];
+    const row2 = ADMIN_CONTENTS[1];
+
+    render(
+      <LanguageProvider>
+        <AdminView
+          contents={[row1]}
+          total={2}
+          limit={1}
+          nextCursor="cur-1"
+          prevCursor={null}
+          hasNext={true}
+          hasPrev={false}
+          channels={CHANNELS}
+        />
+      </LanguageProvider>,
+    );
+
+    // 並び替え要求を開始し、応答待ちの間に編集モーダルを開いて入力する
+    fireEvent.change(screen.getByLabelText("Sort by"), { target: { value: "title_asc" } });
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const titleInput = screen.getByDisplayValue(row1.title) as HTMLInputElement;
+    fireEvent.change(titleInput, { target: { value: "In-Progress Draft Title" } });
+
+    // 遅れて並び替え応答が到着しても、編集モーダルが閉じず入力内容が保持される
+    resolveSort?.({
+      contents: [row2],
+      total: 2,
+      limit: 1,
+      next_cursor: "cur-sorted",
+      prev_cursor: null,
+      has_next: true,
+      has_prev: false,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(row2.title)).toBeDefined();
+    });
+    expect(screen.getByRole("dialog", { name: "Edit Content" })).toBeDefined();
+    expect((screen.getByDisplayValue("In-Progress Draft Title") as HTMLInputElement).value).toBe(
+      "In-Progress Draft Title",
+    );
+  });
 });

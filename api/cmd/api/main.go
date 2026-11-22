@@ -111,13 +111,16 @@ func main() {
 	pgChannel := pgRepo.NewChannelRepository(pgPool)
 	pgDisc := pgRepo.NewDiscRepository(pgPool)
 	pgSubtitle := pgRepo.NewSubtitleRepository(pgPool)
-	mgContent := mongoRepo.NewContentRepository(mongoDB)
+	mgContent := mongoRepo.NewContentRepository(mongoDB).WithMigrationCheckTimeout(5 * time.Second)
 	mgSubtitle := mongoRepo.NewSubtitleRepository(mongoDB)
 	esContent := elasticRepo.NewContentRepository(esClient)
 
 	indexCtx, indexCancel := context.WithTimeout(ctx, 5*time.Second)
 	if err := mgContent.EnsureIndexes(indexCtx); err != nil {
 		slog.Warn("failed to ensure mongodb admin indexes on startup", "error", err)
+	}
+	if err := mgContent.CheckMigrated(indexCtx); err != nil {
+		slog.Warn("failed to verify mongodb read model migration on startup", "error", err)
 	}
 	indexCancel()
 

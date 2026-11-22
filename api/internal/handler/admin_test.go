@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bwmarrin/snowflake"
 	"github.com/jackc/pgx/v5"
@@ -834,5 +835,79 @@ func TestAdminHandler_ListSubtitleCues_EmptyReturnsArray(t *testing.T) {
 	}
 	if result == nil {
 		t.Error("expected empty array, got null")
+	}
+}
+
+func TestAdminHandler_ArchiveRetryPreservesTimestampsAndRetriesRefresh(t *testing.T) {
+	firstArchivedAt := time.Date(2025, 4, 1, 10, 0, 0, 0, time.UTC)
+	firstUpdatedAt := time.Date(2025, 4, 1, 10, 0, 0, 0, time.UTC)
+	archivedOnce := false
+
+	contentRepo := &mockPgContentRepo{
+		setArchivedFn: func(_ context.Context, id string, archived bool) (*domain.Content, error) {
+			if !archived || id != "c-1" {
+				t.Fatalf("unexpected SetArchived args: id=%s archived=%v", id, archived)
+			}
+			// 初回で DB が更新され、2回目は既に archived のため同じ日時を返す契約を模倣
+			archivedOnce = true
+			return &domain.Content{
+				ID:         id,
+				ShortID:    "short-1",
+				Title:      "Test",
+				ArchivedAt: &firstArchivedAt,
+				UpdatedAt:  firstUpdatedAt,
+			}, nil
+		},
+	}
+
+	attempts := 0
+	refresher := &mockPlaylistRefresher{
+		refreshFn: func(_ context.Context) error {
+			attempts++
+			if attempts == 1 {
+				return errors.New("temporary minio error")
+			}
+			return nil
+		},
+	}
+
+	h := handler.NewAdminHandler(contentRepo, &mockPgDiscRepo{}, &mockPgSubtitleRepo{}, newSnowflakeNode(t)).
+		WithPlaylistRefresher(refresher)
+	e := echo.New()
+
+	// 1回目: DB 更新成功後にプレイリスト再生成失敗 -> 500
+	req1 := httptest.NewRequest(http.MethodPost, "/v1/admin/contents/c-1/archive", nil)
+	c1 := e.NewContext(req1, httptest.NewRecorder())
+	c1.SetParamNames("id")
+	c1.SetParamValues("c-1")
+	err1 := h.ArchiveContent(c1)
+	if err1 == nil || err1.(*echo.HTTPError).Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 on first attempt, got %v", err1)
+	}
+	if !archivedOnce {
+		t.Fatal("expected SetArchived to have been called on first attempt")
+	}
+
+	// 2回目: 同じ操作を再試行 -> 元の日時を保ったまま 200 OK でプレイリスト再生成が成功する
+	req2 := httptest.NewRequest(http.MethodPost, "/v1/admin/contents/c-1/archive", nil)
+	rec2 := httptest.NewRecorder()
+	c2 := e.NewContext(req2, rec2)
+	c2.SetParamNames("id")
+	c2.SetParamValues("c-1")
+	if err := h.ArchiveContent(c2); err != nil {
+		t.Fatalf("expected retry to succeed, got %v", err)
+	}
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("expected 200 on retry, got %d", rec2.Code)
+	}
+	if attempts != 2 {
+		t.Errorf("expected playlist refresher called twice, got %d", attempts)
+	}
+	var got domain.Content
+	if err := json.NewDecoder(rec2.Body).Decode(&got); err != nil {
+		t.Fatalf("decode retry response failed: %v", err)
+	}
+	if got.ArchivedAt == nil || !got.ArchivedAt.Equal(firstArchivedAt) || !got.UpdatedAt.Equal(firstUpdatedAt) {
+		t.Errorf("expected timestamps preserved (%v / %v), got (%v / %v)", firstArchivedAt, firstUpdatedAt, got.ArchivedAt, got.UpdatedAt)
 	}
 }

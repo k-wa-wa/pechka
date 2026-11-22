@@ -219,7 +219,7 @@ function encodeAdminCursor(sort, item) {
 }
 
 function decodeAdminCursor(token, expectedSort) {
-  if (!token || token.includes("=")) return null;
+  if (!token || !/^[A-Za-z0-9_-]+$/.test(token) || token.length % 4 === 1) return null;
   try {
     const decoded = Buffer.from(token, "base64url").toString("utf8");
     const parsed = JSON.parse(decoded);
@@ -450,7 +450,7 @@ function readJsonBody(req) {
 const VALID_CHANNEL_ID_RE = /^[a-z0-9][a-z0-9-]{0,49}$/;
 
 function parseStrictLimit(rawParam) {
-  if (rawParam === null || !/^-?\d+$/.test(rawParam)) {
+  if (rawParam === null || !/^[+-]?\d+$/.test(rawParam)) {
     return 20;
   }
   const parsed = Number(rawParam);

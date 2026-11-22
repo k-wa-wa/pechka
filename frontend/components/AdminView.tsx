@@ -36,7 +36,6 @@ export default function AdminView({
   const [currentHasNext, setCurrentHasNext] = useState(hasNext);
   const [currentHasPrev, setCurrentHasPrev] = useState(hasPrev);
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageEpoch, setPageEpoch] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
 
@@ -55,7 +54,6 @@ export default function AdminView({
     setCurrentHasNext(res.has_next);
     setCurrentHasPrev(res.has_prev);
     setCurrentPage(nextPage);
-    setPageEpoch((e) => e + 1);
   }
 
   async function handleNext() {
@@ -145,7 +143,6 @@ export default function AdminView({
       </div>
 
       <AdminTable
-        key={`${pageEpoch}-${currentSort}`}
         initialContents={items}
         channels={channels}
         sort={currentSort}

@@ -21,16 +21,20 @@ pipeline:
               t.language,
               t.status,
               c.deleted_at,
-              COALESCE(
-                  (SELECT json_agg(json_build_object(
-                      'start_ms', cu.start_ms,
-                      'end_ms', cu.end_ms,
-                      'text', cu.text
-                   ) ORDER BY cu.seq, cu.start_ms, cu.id)
-                   FROM subtitle_cues cu
-                   WHERE cu.track_id = t.id
-                  ), '[]'::json
-              ) AS cues
+              CASE
+                  WHEN t.status = 'published' AND c.deleted_at IS NULL THEN
+                      COALESCE(
+                          (SELECT json_agg(json_build_object(
+                              'start_ms', cu.start_ms,
+                              'end_ms', cu.end_ms,
+                              'text', cu.text
+                           ) ORDER BY cu.seq, cu.start_ms, cu.id)
+                           FROM subtitle_cues cu
+                           WHERE cu.track_id = t.id
+                          ), '[]'::json
+                      )
+                  ELSE '[]'::json
+              END AS cues
           FROM subtitle_tracks t
           JOIN contents c ON c.id = t.content_id
           -- published および親が論理削除済み（c.deleted_at IS NOT NULL）のトラックは常に対象、

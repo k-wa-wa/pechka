@@ -133,14 +133,28 @@ func (r *ContentRepository) Delete(ctx context.Context, id string) error {
 }
 
 const (
+	// SetArchived は対象が既に目的のアーカイブ状態にある場合 UPDATE を実行せず（archived_at とトリガーによる updated_at を維持し）、
+	// 既存行を返すことでプレイリスト再生成のみの再試行を安全に行えるようにする。
 	setArchivedTrueQuery = `
-		UPDATE contents SET archived_at = CURRENT_TIMESTAMP
-		WHERE id = $1 AND deleted_at IS NULL
-		RETURNING ` + contentColumns
+		WITH updated AS (
+			UPDATE contents SET archived_at = CURRENT_TIMESTAMP
+			WHERE id = $1 AND deleted_at IS NULL AND archived_at IS NULL
+			RETURNING *
+		)
+		SELECT ` + contentColumns + ` FROM updated
+		UNION ALL
+		SELECT ` + contentColumns + ` FROM contents
+		WHERE id = $1 AND deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM updated)`
 	setArchivedFalseQuery = `
-		UPDATE contents SET archived_at = NULL
-		WHERE id = $1 AND deleted_at IS NULL
-		RETURNING ` + contentColumns
+		WITH updated AS (
+			UPDATE contents SET archived_at = NULL
+			WHERE id = $1 AND deleted_at IS NULL AND archived_at IS NOT NULL
+			RETURNING *
+		)
+		SELECT ` + contentColumns + ` FROM updated
+		UNION ALL
+		SELECT ` + contentColumns + ` FROM contents
+		WHERE id = $1 AND deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM updated)`
 	getContentByIDQuery = `
 		SELECT ` + contentColumns + `
 		FROM contents WHERE id = $1 AND deleted_at IS NULL`

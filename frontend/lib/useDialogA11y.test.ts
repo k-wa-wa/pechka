@@ -23,6 +23,34 @@ function TestDialog({
   );
 }
 
+function ZIndexDialog({
+  zIndex,
+  label,
+  onClose,
+}: {
+  zIndex: number;
+  label: string;
+  onClose: () => void;
+}) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogA11y({ dialogRef, onClose });
+  return createElement(
+    "div",
+    { style: { position: "fixed", zIndex } },
+    createElement(
+      "div",
+      {
+        ref: dialogRef,
+        role: "dialog",
+        "aria-modal": "true",
+        "aria-label": label,
+        tabIndex: -1,
+      },
+      createElement("input", { "aria-label": `${label} Input` }),
+    ),
+  );
+}
+
 describe("useDialogA11y", () => {
   it("moves focus inside dialog, traps Tab/Shift+Tab, handles Escape, and restores focus", () => {
     const onClose = vi.fn();
@@ -83,5 +111,23 @@ describe("useDialogA11y", () => {
 
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onUnderlyingClose).not.toHaveBeenCalled();
+  });
+
+  it("treats an earlier-in-DOM dialog with higher zIndex as topmost", () => {
+    const onHigherClose = vi.fn();
+    const onLowerClose = vi.fn();
+
+    render(
+      createElement(
+        "div",
+        null,
+        createElement(ZIndexDialog, { zIndex: 1000, label: "Higher", onClose: onHigherClose }),
+        createElement(ZIndexDialog, { zIndex: 200, label: "Lower", onClose: onLowerClose }),
+      ),
+    );
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onHigherClose).toHaveBeenCalledTimes(1);
+    expect(onLowerClose).not.toHaveBeenCalled();
   });
 });

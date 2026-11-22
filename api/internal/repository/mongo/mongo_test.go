@@ -106,8 +106,55 @@ func newMockMongo7IndexCatalog(initial []existingIndexSpec) *mockMongo7IndexCata
 
 func (m *mockMongo7IndexCatalog) List(_ context.Context) ([]existingIndexSpec, error) {
 	m.events = append(m.events, "list")
-	out := make([]existingIndexSpec, len(m.indexes))
-	copy(out, m.indexes)
+	out := make([]existingIndexSpec, 0, len(m.indexes))
+	for _, ex := range m.indexes {
+		// MongoDB 7 の listIndexes (includeBuildUUIDs: true) 応答形式を BSON ラウンドトリップで再現する
+		var rawDoc bson.M
+		if ex.BuildUUID != nil {
+			specDoc := bson.M{
+				"v":    int32(2),
+				"key":  ex.Key,
+				"name": ex.Name,
+			}
+			if ex.Unique {
+				specDoc["unique"] = true
+			}
+			if ex.Sparse {
+				specDoc["sparse"] = true
+			}
+			if ex.Hidden {
+				specDoc["hidden"] = true
+			}
+			rawDoc = bson.M{
+				"spec":      specDoc,
+				"buildUUID": ex.BuildUUID,
+			}
+		} else {
+			rawDoc = bson.M{
+				"v":    int32(2),
+				"key":  ex.Key,
+				"name": ex.Name,
+			}
+			if ex.Unique {
+				rawDoc["unique"] = true
+			}
+			if ex.Sparse {
+				rawDoc["sparse"] = true
+			}
+			if ex.Hidden {
+				rawDoc["hidden"] = true
+			}
+		}
+		b, err := bson.Marshal(rawDoc)
+		if err != nil {
+			return nil, err
+		}
+		var entry rawListIndexEntry
+		if err := bson.Unmarshal(b, &entry); err != nil {
+			return nil, err
+		}
+		out = append(out, entry.normalize())
+	}
 	return out, nil
 }
 
@@ -142,6 +189,10 @@ func (m *mockMongo7IndexCatalog) CreateMany(ctx context.Context, models []mongo.
 			if ex.Name != name && hasSameKeysAndPlainOptions(ex, keys) {
 				// MongoDB 7 は同一キー・同一オプションで名前だけ異なる作成を IndexOptionsConflict (85) で拒否する
 				return nil, mongo.CommandError{Code: 85, Name: "IndexOptionsConflict", Message: "index already exists with a different name: " + ex.Name}
+			}
+			if ex.Name != name && indexKeysEqual(ex.Key, keys) && ex.Hidden {
+				// 非表示インデックスが残存したまま別名で同一キーを作ろうとすると MongoDB 7 は IndexOptionsConflict (85) を返す
+				return nil, mongo.CommandError{Code: 85, Name: "IndexOptionsConflict", Message: "hidden index exists with a different name: " + ex.Name}
 			}
 			if ex.Name == name && hasSameKeysAndPlainOptions(ex, keys) && ex.BuildUUID != nil {
 				// 先行する構築中インデックスの完了を模倣して BuildUUID をクリアする
@@ -360,6 +411,67 @@ func TestEnsureIndexesWithManager_Mongo7CompatibilityAndReentrancy(t *testing.T)
 			t.Errorf("expected 1 obsolete legacy index dropped after build succeeds, got %d", cat.dropCalls)
 		}
 	})
+
+	t.Run("does not reuse hidden legacy or v2 indexes and replaces them with visible indexes", func(t *testing.T) {
+		models := AdminIndexModels()
+		cat := newMockMongo7IndexCatalog([]existingIndexSpec{
+			{Name: "_id_", Key: bson.D{{Key: "_id", Value: int32(1)}}},
+			// 同一キーだが hidden: true の旧名インデックスと v2 名インデックス
+			{Name: "idx_admin_updated_desc", Key: models[0].Keys.(bson.D), Hidden: true},
+			{Name: "idx_admin_v2_created_desc", Key: models[2].Keys.(bson.D), Hidden: true},
+		})
+		repo := &ContentRepository{}
+		if err := repo.ensureIndexesWithManager(context.Background(), cat); err != nil {
+			t.Fatalf("ensureIndexesWithManager failed with hidden indexes: %v", err)
+		}
+		assertAll7AdminIndexesReady(t, cat.indexes)
+		for _, ex := range cat.indexes {
+			if ex.Hidden {
+				t.Errorf("expected no hidden index remaining, found %+v", ex)
+			}
+		}
+		if len(cat.indexes) != 8 {
+			t.Errorf("expected 8 visible indexes (_id_ + 7 admin), got %d", len(cat.indexes))
+		}
+	})
+}
+
+func TestRawListIndexEntry_NormalizeMongo7SpecWrapper(t *testing.T) {
+	// MongoDB 7 の listIndexes (includeBuildUUIDs: true) が返す実際の BSON 形式を検証
+	rawDoc := bson.M{
+		"spec": bson.M{
+			"v":      int32(2),
+			"key":    bson.D{{Key: "deleted_at", Value: int32(1)}, {Key: "updated_at", Value: int32(-1)}, {Key: "_id", Value: int32(1)}},
+			"name":   "idx_admin_v2_updated_desc",
+			"hidden": true,
+		},
+		"buildUUID": bson.Binary{Subtype: 4, Data: []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}},
+	}
+	b, err := bson.Marshal(rawDoc)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+	var entry rawListIndexEntry
+	if err := bson.Unmarshal(b, &entry); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	norm := entry.normalize()
+	if norm.Name != "idx_admin_v2_updated_desc" {
+		t.Errorf("expected spec.name extracted, got %q", norm.Name)
+	}
+	if !norm.Hidden {
+		t.Errorf("expected spec.hidden=true extracted")
+	}
+	if norm.BuildUUID == nil {
+		t.Errorf("expected top-level buildUUID preserved")
+	}
+	wantKeys := AdminIndexModels()[0].Keys.(bson.D)
+	if !indexKeysEqual(norm.Key, wantKeys) {
+		t.Errorf("expected spec.key extracted, got %v", norm.Key)
+	}
+	if isReadyEquivalentPlainIndex(norm, wantKeys) {
+		t.Errorf("in-progress/hidden spec must not be treated as ready equivalent index")
+	}
 }
 
 func TestEncodeAndDecodeAdminCursor(t *testing.T) {
@@ -822,6 +934,62 @@ func TestListAdminWithStore_PageAssemblyAndBoundaries(t *testing.T) {
 		_, err := repo.listAdminWithStore(ctx, store, AdminListParams{Sort: domain.ContentSortUpdatedDesc, After: afterCur, Limit: 2})
 		if err == nil || !containsStr(err.Error(), "mongo read timeout") {
 			t.Fatalf("expected exists error to propagate, got %v", err)
+		}
+	})
+}
+
+func TestContentRepository_MigrationCheckTimeoutAndStartupCheck(t *testing.T) {
+	t.Run("independent migration check timeout completes slow scan despite short request deadline", func(t *testing.T) {
+		repo := (&ContentRepository{}).WithMigrationCheckTimeout(500 * time.Millisecond)
+		var checkCalls int
+		store := &mockAdminDocStore{
+			findUnmigratedFn: func(ctx context.Context, _ bson.M) (bool, error) {
+				checkCalls++
+				select {
+				case <-time.After(80 * time.Millisecond):
+					return false, nil
+				case <-ctx.Done():
+					return false, ctx.Err()
+				}
+			},
+			countFn: func(_ context.Context, _ bson.M) (int64, error) { return 0, nil },
+			findDocsFn: func(_ context.Context, _ bson.M, _ bson.D, _ int64) ([]mongoAdminDoc, error) {
+				return nil, nil
+			},
+		}
+
+		// ブレーカー風の短い期限（20ms）でも未移行検査は独立期限（500ms）で完了し migrated=true になる
+		reqCtx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		defer cancel()
+		page, err := repo.listAdminWithStore(reqCtx, store, AdminListParams{Limit: 10})
+		if err != nil {
+			t.Fatalf("expected migration check and list to succeed, got %v", err)
+		}
+		if len(page.Contents) != 0 || checkCalls != 1 || !repo.migrated.Load() {
+			t.Fatalf("unexpected state: page=%+v checkCalls=%d migrated=%v", page, checkCalls, repo.migrated.Load())
+		}
+
+		// 2回目は FindUnmigrated を再実行しない
+		_, err = repo.listAdminWithStore(context.Background(), store, AdminListParams{Limit: 10})
+		if err != nil {
+			t.Fatalf("second call failed: %v", err)
+		}
+		if checkCalls != 1 {
+			t.Errorf("expected FindUnmigrated to run once, ran %d times", checkCalls)
+		}
+	})
+
+	t.Run("checkMigratedWithStore keeps migrated=false when unmigrated document exists", func(t *testing.T) {
+		repo := &ContentRepository{}
+		store := &mockAdminDocStore{
+			findUnmigratedFn: func(_ context.Context, _ bson.M) (bool, error) { return true, nil },
+		}
+		err := repo.checkMigratedWithStore(context.Background(), store)
+		if !errors.Is(err, ErrUnmigratedReadModel) {
+			t.Fatalf("expected ErrUnmigratedReadModel, got %v", err)
+		}
+		if repo.migrated.Load() {
+			t.Fatal("migrated must stay false when unmigrated doc exists")
 		}
 	})
 }

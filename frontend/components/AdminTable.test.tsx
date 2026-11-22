@@ -313,4 +313,97 @@ describe("AdminTable", () => {
     expect(screen.getByText("Archived")).toBeDefined();
     expect(screen.getByRole("button", { name: "Unarchive" })).toBeDefined();
   });
+
+  it("retries polling after a transient failure and updates the row on the next successful poll", async () => {
+    vi.useFakeTimers();
+    const pendingItem = {
+      ...ADMIN_CONTENTS[0],
+      id: "p-retry",
+      status: "processing" as const,
+      title: "Converting Video",
+      updated_at: "2025-01-01T00:00:00Z",
+    };
+
+    const getSpy = vi
+      .spyOn(api, "getAdminContents")
+      .mockRejectedValueOnce(new Error("temporary network error"))
+      .mockResolvedValueOnce({
+        contents: [
+          {
+            ...pendingItem,
+            status: "ready",
+            title: "Converted Video",
+            updated_at: "2025-01-01T00:01:00Z",
+          },
+        ],
+        total: 1,
+        limit: 100,
+        next_cursor: null,
+        prev_cursor: null,
+        has_next: false,
+        has_prev: false,
+      });
+
+    render(
+      <LanguageProvider>
+        <AdminTable initialContents={[pendingItem]} channels={CHANNELS} />
+      </LanguageProvider>,
+    );
+
+    // 1回目: 通信失敗してもポーリングは停止しない
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+      await Promise.resolve();
+    });
+    expect(getSpy).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Processing")).toBeDefined();
+
+    // 2回目: 再試行が成功し表示中の行が更新される
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+      await Promise.resolve();
+    });
+    expect(getSpy).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("Converted Video")).toBeDefined();
+    expect(screen.getByText("Ready")).toBeDefined();
+  });
+
+  it("handles archive response with null tags without crashing and opens EditModal cleanly", async () => {
+    const nullTagsItem = {
+      ...ADMIN_CONTENTS[1],
+      id: "r-null-tags",
+      status: "ready" as const,
+      title: "Null Tags Content",
+      tags: null as unknown as string[],
+      archived_at: null,
+    };
+
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.spyOn(api, "archiveContent").mockResolvedValue({
+      ...nullTagsItem,
+      tags: null as unknown as string[],
+      archived_at: "2025-01-01T00:01:00Z",
+      updated_at: "2025-01-01T00:01:00Z",
+    });
+
+    render(
+      <LanguageProvider>
+        <AdminTable initialContents={[nullTagsItem]} channels={CHANNELS} />
+      </LanguageProvider>,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Archive" }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("Null Tags Content")).toBeDefined();
+    expect(screen.getByText("Archived")).toBeDefined();
+
+    // 再描画された行の編集画面を開いてもクラッシュせず、tags 入力が空文字になる
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.getByRole("dialog", { name: "Edit Content" })).toBeDefined();
+    expect(screen.getByDisplayValue("Null Tags Content")).toBeDefined();
+  });
 });
