@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/minio/minio-go/v7"
 )
@@ -78,19 +79,39 @@ func BuildVariantInfo(variantType string) VariantInfo {
 	return VariantInfo{VariantType: variantType}
 }
 
+const registerVariantQuery = `
+	WITH parent AS (
+		SELECT id FROM contents WHERE id = $1 AND deleted_at IS NULL FOR SHARE
+	)
+	INSERT INTO video_variants (content_id, variant_type, hls_key, bandwidth, resolution, codecs)
+	SELECT parent.id, $2, $3, $4, $5, $6 FROM parent
+	ON CONFLICT (content_id, variant_type)
+	DO UPDATE SET hls_key = EXCLUDED.hls_key, bandwidth = EXCLUDED.bandwidth, resolution = EXCLUDED.resolution, codecs = EXCLUDED.codecs`
+
+type variantExecer interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+}
+
 func RegisterVariant(ctx context.Context, db *pgxpool.Pool, contentID, shortID, variantType string, vSpec VariantInfo) error {
+	return registerVariantWithExec(ctx, db, contentID, shortID, variantType, vSpec)
+}
+
+func registerVariantWithExec(ctx context.Context, db variantExecer, contentID, shortID, variantType string, vSpec VariantInfo) error {
 	hlsKey := fmt.Sprintf("resources/hls/%s/%s.m3u8", shortID, variantType)
 	if variantType == "master" {
 		hlsKey = fmt.Sprintf("resources/hls/%s/master.m3u8", shortID)
 	}
-	_, err := db.Exec(ctx,
-		`INSERT INTO video_variants (content_id, variant_type, hls_key, bandwidth, resolution, codecs)
-		 VALUES ($1, $2, $3, $4, $5, $6)
-		 ON CONFLICT (content_id, variant_type) 
-		 DO UPDATE SET hls_key = EXCLUDED.hls_key, bandwidth = EXCLUDED.bandwidth, resolution = EXCLUDED.resolution, codecs = EXCLUDED.codecs`,
+	tag, err := db.Exec(ctx,
+		registerVariantQuery,
 		contentID, variantType, hlsKey, vSpec.Bandwidth, vSpec.Resolution, vSpec.Codecs,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("cannot register variant %s: content %s not found or deleted", variantType, contentID)
+	}
+	return nil
 }
 
 func GetMinioVariants(ctx context.Context, client *minio.Client, bucket, shortID string) ([]VariantInfo, error) {

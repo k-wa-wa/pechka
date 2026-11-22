@@ -12,11 +12,14 @@ const PAGE_SIZE = 20;
 
 export default async function AdminPage() {
   const [data, channels] = await Promise.all([
-    getAdminContents({ limit: PAGE_SIZE, offset: 0 }).catch(() => ({
+    getAdminContents({ limit: PAGE_SIZE, sort: "updated_desc" }).catch(() => ({
       contents: [],
       total: 0,
       limit: PAGE_SIZE,
-      offset: 0,
+      next_cursor: null,
+      prev_cursor: null,
+      has_next: false,
+      has_prev: false,
     })),
     getChannels().catch(() => []),
   ]);
@@ -26,7 +29,10 @@ export default async function AdminPage() {
       contents={data.contents}
       total={data.total}
       limit={data.limit}
-      offset={data.offset}
+      nextCursor={data.next_cursor}
+      prevCursor={data.prev_cursor}
+      hasNext={data.has_next}
+      hasPrev={data.has_prev}
       channels={channels}
     />
   );

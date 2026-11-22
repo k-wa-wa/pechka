@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { archiveContent, getAdminContents, unarchiveContent } from "@/lib/api";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
-import type { Channel, Content, ContentStatus } from "@/lib/types";
+import type { AdminContentSort, Channel, Content, ContentStatus } from "@/lib/types";
 import EditModal from "./EditModal";
 import SubtitleEditorModal from "./SubtitleEditorModal";
 import UploadModal from "./UploadModal";
@@ -11,6 +11,9 @@ import UploadModal from "./UploadModal";
 interface Props {
   initialContents: Content[];
   channels?: Channel[];
+  sort?: AdminContentSort;
+  onSortChange?: (sort: AdminContentSort) => void;
+  sortDisabled?: boolean;
   onUploaded?: () => void;
 }
 
@@ -38,33 +41,103 @@ const CONTENT_TYPE_LABEL: Record<string, string> = {
   document: "Document",
 };
 
-export default function AdminTable({ initialContents, channels, onUploaded }: Props) {
+export default function AdminTable({
+  initialContents,
+  channels,
+  sort,
+  onSortChange,
+  sortDisabled,
+  onUploaded,
+}: Props) {
   const [contents, setContents] = useState<Content[]>(initialContents);
   const [editingContent, setEditingContent] = useState<Content | null>(null);
   const [subtitleContent, setSubtitleContent] = useState<Content | null>(null);
   const [archivingId, setArchivingId] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const { t, language } = useLanguage();
+  // 編集・アーカイブ成功直後の行が、CQRS 同期前の並び替え/ページ応答やポーリング応答で古い値に巻き戻るのを防ぐため
+  // 保存済み行を保持し、応答側の updated_at が保存値より新しい（ポーリングでは同等以上）ときにのみ反映する。
+  const protectedSavedRef = useRef<Map<string, Content>>(new Map());
+  const prevInitialContentsRef = useRef(initialContents);
+
+  // ページ送り・並び替え応答が届いてもモーダル状態を保つため、AdminTable を再マウントせず一覧だけ同期する。
+  // 保存後に遅延到着したページ応答が保存済みの同一 ID 行を古い値で上書きしないよう保護する。
+  useEffect(() => {
+    if (prevInitialContentsRef.current !== initialContents) {
+      prevInitialContentsRef.current = initialContents;
+      setContents(
+        initialContents.map((incoming) => {
+          const saved = protectedSavedRef.current.get(incoming.id);
+          if (!saved) return incoming;
+
+          const incomingMs = Date.parse(incoming.updated_at);
+          const savedMs = Date.parse(saved.updated_at);
+          if (!Number.isFinite(incomingMs) || !Number.isFinite(savedMs) || incomingMs <= savedMs) {
+            return saved;
+          }
+          protectedSavedRef.current.delete(incoming.id);
+          return incoming;
+        }),
+      );
+    }
+  }, [initialContents]);
+
+  const hasInProgress = contents.some((c) => IN_PROGRESS_STATUSES.includes(c.status));
 
   // Poll while any row is still converting so pending/processing rows flip to
   // ready (or error) without requiring a manual page reload.
   useEffect(() => {
-    if (!contents.some((c) => IN_PROGRESS_STATUSES.includes(c.status))) return;
+    if (!hasInProgress) return;
 
-    const timer = setTimeout(async () => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const poll = async () => {
       try {
-        const res = await getAdminContents({ limit: 100, offset: 0 });
+        const res = await getAdminContents({ limit: 100 });
+        if (cancelled) return;
         const byId = new Map(res.contents.map((c) => [c.id, c]));
-        setContents((prev) => prev.map((c) => byId.get(c.id) ?? c));
-      } catch {
-        // Ignore transient poll failures; the next tick will retry.
-      }
-    }, POLL_INTERVAL_MS);
+        setContents((prev) =>
+          prev.map((c) => {
+            const polled = byId.get(c.id);
+            if (!polled) return c;
 
-    return () => clearTimeout(timer);
-  }, [contents]);
+            const polledMs = Date.parse(polled.updated_at);
+            const saved = protectedSavedRef.current.get(c.id);
+            if (saved) {
+              const savedMs = Date.parse(saved.updated_at);
+              if (!Number.isFinite(polledMs) || !Number.isFinite(savedMs) || polledMs < savedMs) {
+                return saved;
+              }
+              protectedSavedRef.current.delete(c.id);
+            }
+
+            const currentMs = Date.parse(c.updated_at);
+            if (Number.isFinite(polledMs) && Number.isFinite(currentMs) && polledMs < currentMs) {
+              return c;
+            }
+            return polled;
+          }),
+        );
+      } catch {
+        // Ignore transient poll failures; finally schedules the next retry.
+      } finally {
+        if (!cancelled) {
+          timer = setTimeout(poll, POLL_INTERVAL_MS);
+        }
+      }
+    };
+
+    timer = setTimeout(poll, POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) clearTimeout(timer);
+    };
+  }, [hasInProgress]);
 
   function handleSave(updated: Content) {
+    protectedSavedRef.current.set(updated.id, updated);
     setContents((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
     setEditingContent(null);
   }
@@ -87,6 +160,7 @@ export default function AdminTable({ initialContents, channels, onUploaded }: Pr
       const updated = archiving
         ? await archiveContent(content.id)
         : await unarchiveContent(content.id);
+      protectedSavedRef.current.set(updated.id, updated);
       setContents((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
     } catch (e) {
       window.alert(e instanceof Error ? e.message : t("admin.table.archiveError"));
@@ -110,10 +184,39 @@ export default function AdminTable({ initialContents, channels, onUploaded }: Pr
       <div
         style={{
           display: "flex",
-          justifyContent: "flex-end",
+          justifyContent: onSortChange ? "space-between" : "flex-end",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 12,
           marginBottom: 12,
         }}
       >
+        {onSortChange && (
+          <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 13, color: "var(--muted)" }}>{t("admin.sort.label")}</span>
+            <select
+              value={sort ?? "updated_desc"}
+              disabled={sortDisabled}
+              onChange={(e) => onSortChange(e.target.value as AdminContentSort)}
+              style={{
+                padding: "6px 10px",
+                borderRadius: "var(--radius-md)",
+                border: "1px solid var(--line)",
+                backgroundColor: "var(--bg)",
+                color: "var(--fg)",
+                fontSize: 13,
+                cursor: sortDisabled ? "not-allowed" : "pointer",
+              }}
+            >
+              <option value="updated_desc">{t("admin.sort.updatedDesc")}</option>
+              <option value="updated_asc">{t("admin.sort.updatedAsc")}</option>
+              <option value="created_desc">{t("admin.sort.createdDesc")}</option>
+              <option value="created_asc">{t("admin.sort.createdAsc")}</option>
+              <option value="title_asc">{t("admin.sort.titleAsc")}</option>
+              <option value="title_desc">{t("admin.sort.titleDesc")}</option>
+            </select>
+          </label>
+        )}
         <button
           onClick={() => setUploadOpen(true)}
           className="admin-btn-primary"
@@ -269,7 +372,7 @@ export default function AdminTable({ initialContents, channels, onUploaded }: Pr
                 {/* Tags */}
                 <td style={{ padding: "10px 14px" }}>
                   <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                    {content.tags.slice(0, 3).map((tag) => (
+                    {(content.tags ?? []).slice(0, 3).map((tag) => (
                       <span
                         key={tag}
                         style={{
@@ -285,9 +388,9 @@ export default function AdminTable({ initialContents, channels, onUploaded }: Pr
                         {tag}
                       </span>
                     ))}
-                    {content.tags.length > 3 && (
+                    {(content.tags ?? []).length > 3 && (
                       <span style={{ fontSize: 11, color: "var(--muted)" }}>
-                        +{content.tags.length - 3}
+                        +{(content.tags ?? []).length - 3}
                       </span>
                     )}
                   </div>

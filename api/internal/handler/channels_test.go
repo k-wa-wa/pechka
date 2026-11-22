@@ -13,6 +13,7 @@ import (
 
 	"github.com/k-wa-wa/pechka/api/internal/domain"
 	"github.com/k-wa-wa/pechka/api/internal/handler"
+	mongoRepo "github.com/k-wa-wa/pechka/api/internal/repository/mongo"
 	pgRepo "github.com/k-wa-wa/pechka/api/internal/repository/postgres"
 )
 
@@ -261,14 +262,15 @@ func TestAdminHandler_CreateContent_MissingChannelId(t *testing.T) {
 
 func TestAdminHandler_ListContents_ChannelFilter(t *testing.T) {
 	var gotChannelID *string
-	contentRepo := &mockPgContentRepo{
-		listFn: func(_ context.Context, params pgRepo.ListContentsParams) ([]*domain.Content, error) {
+	readRepo := &mockReadContentRepo{
+		listAdminFn: func(_ context.Context, params mongoRepo.AdminListParams) (*domain.AdminContentPage, error) {
 			gotChannelID = params.ChannelID
-			return []*domain.Content{}, nil
+			return &domain.AdminContentPage{Contents: []*domain.Content{}}, nil
 		},
 	}
 
-	h := handler.NewAdminHandler(contentRepo, &mockPgDiscRepo{}, &mockPgSubtitleRepo{}, newSnowflakeNode(t))
+	h := handler.NewAdminHandler(&mockPgContentRepo{}, &mockPgDiscRepo{}, &mockPgSubtitleRepo{}, newSnowflakeNode(t)).
+		WithReadContentRepository(readRepo)
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodGet, "/v1/admin/contents?channel_id=tech-feed", nil)
 	rec := httptest.NewRecorder()
@@ -283,7 +285,8 @@ func TestAdminHandler_ListContents_ChannelFilter(t *testing.T) {
 }
 
 func TestAdminHandler_ListContents_InvalidChannelFilter(t *testing.T) {
-	h := handler.NewAdminHandler(&mockPgContentRepo{}, &mockPgDiscRepo{}, &mockPgSubtitleRepo{}, newSnowflakeNode(t))
+	h := handler.NewAdminHandler(&mockPgContentRepo{}, &mockPgDiscRepo{}, &mockPgSubtitleRepo{}, newSnowflakeNode(t)).
+		WithReadContentRepository(&mockReadContentRepo{})
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodGet, "/v1/admin/contents?channel_id=INVALID!", nil)
 	rec := httptest.NewRecorder()

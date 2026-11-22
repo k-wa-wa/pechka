@@ -111,12 +111,29 @@ func main() {
 	pgChannel := pgRepo.NewChannelRepository(pgPool)
 	pgDisc := pgRepo.NewDiscRepository(pgPool)
 	pgSubtitle := pgRepo.NewSubtitleRepository(pgPool)
-	mgContent := mongoRepo.NewContentRepository(mongoDB)
+	mgContent := mongoRepo.NewContentRepository(mongoDB).
+		WithIndexEnsureTimeout(30 * time.Second).
+		WithMigrationCheckTimeout(5 * time.Second)
 	mgSubtitle := mongoRepo.NewSubtitleRepository(mongoDB)
 	esContent := elasticRepo.NewContentRepository(esClient)
 
+	indexCtx, indexCancel := context.WithTimeout(ctx, 5*time.Second)
+	if err := mgContent.EnsureIndexes(indexCtx); err != nil {
+		slog.Warn("failed to ensure mongodb admin indexes on startup", "error", err)
+	}
+	if err := mgContent.CheckMigrated(indexCtx); err != nil {
+		slog.Warn("failed to verify mongodb read model migration on startup", "error", err)
+	}
+	indexCancel()
+
 	mongoBreaker := fallback.NewCircuitBreaker(fallback.CircuitBreakerSettings{
 		Name:             "mongo",
+		Timeout:          300 * time.Millisecond,
+		FailureThreshold: 3,
+		Cooldown:         30 * time.Second,
+	})
+	adminMongoBreaker := fallback.NewCircuitBreaker(fallback.CircuitBreakerSettings{
+		Name:             "mongo_admin",
 		Timeout:          300 * time.Millisecond,
 		FailureThreshold: 3,
 		Cooldown:         30 * time.Second,
@@ -128,15 +145,25 @@ func main() {
 		Cooldown:         30 * time.Second,
 	})
 
-	fbContent := fallback.NewContentRepository(mgContent, pgPool, mongoBreaker)
+	fbContent := fallback.NewContentRepository(mgContent, pgPool, mongoBreaker).
+		WithAdminBreaker(adminMongoBreaker)
 	fbSubtitle := fallback.NewSubtitleRepository(mgSubtitle, pgPool, mongoBreaker)
 	fbSearch := fallback.NewSearchRepository(esContent, pgPool, elasticBreaker)
+
+	playlistRefresher := &minioPlaylistRefresher{
+		contentRepo: pgContent,
+		minioClient: minioClient,
+		bucket:      cfg.MinioBucket,
+	}
 
 	contentsH := handler.NewContentsHandler(fbContent)
 	channelsH := handler.NewChannelsHandler(pgChannel)
 	subtitlesH := handler.NewSubtitlesHandler(fbSubtitle)
 	searchH := handler.NewSearchHandler(fbSearch)
-	adminH := handler.NewAdminHandler(pgContent, pgDisc, pgSubtitle, sfNode).WithChannelRepository(pgChannel)
+	adminH := handler.NewAdminHandler(pgContent, pgDisc, pgSubtitle, sfNode).
+		WithChannelRepository(pgChannel).
+		WithReadContentRepository(fbContent).
+		WithPlaylistRefresher(playlistRefresher)
 	k8sNamespace := currentNamespace()
 	slog.Info("resolved k8s namespace for workflow triggers", "namespace", k8sNamespace)
 	ingestH := handler.NewIngestHandler(dynClient, k8sNamespace).WithChannelRepository(pgChannel)
@@ -174,6 +201,26 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("server shutdown complete")
+}
+
+type minioPlaylistRefresher struct {
+	contentRepo *pgRepo.ContentRepository
+	minioClient *minio.Client
+	bucket      string
+}
+
+func (r *minioPlaylistRefresher) Refresh(ctx context.Context) error {
+	return r.contentRepo.RefreshLatestPlaylist(ctx, func(ctx context.Context, playlist string) error {
+		_, err := r.minioClient.PutObject(
+			ctx,
+			r.bucket,
+			pgRepo.LatestPlaylistKey,
+			strings.NewReader(playlist),
+			int64(len(playlist)),
+			minio.PutObjectOptions{ContentType: "application/vnd.apple.mpegurl"},
+		)
+		return err
+	})
 }
 
 // RouterParams holds dependencies and configuration for setting up the Echo router.

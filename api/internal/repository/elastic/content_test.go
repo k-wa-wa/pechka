@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/elastic/go-elasticsearch/v8"
@@ -12,7 +13,11 @@ import (
 
 func TestContentRepository_Search(t *testing.T) {
 	t.Run("successful search", func(t *testing.T) {
+		var capturedBody string
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			buf := make([]byte, 4096)
+			n, _ := r.Body.Read(buf)
+			capturedBody = string(buf[:n])
 			w.Header().Set("X-Elastic-Product", "Elasticsearch")
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
@@ -54,6 +59,9 @@ func TestContentRepository_Search(t *testing.T) {
 		}
 		if results[0].ShortID != "c1" || results[0].Title != "Title 1" || results[0].ContentType != domain.ContentTypeVideo {
 			t.Errorf("unexpected content source: %+v", results[0])
+		}
+		if !strings.Contains(capturedBody, `"field":"archived_at"`) || !strings.Contains(capturedBody, `"field":"deleted_at"`) {
+			t.Errorf("expected must_not exists archived_at and deleted_at in ES query, got %s", capturedBody)
 		}
 	})
 

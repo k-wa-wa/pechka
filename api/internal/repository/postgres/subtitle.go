@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/k-wa-wa/pechka/api/internal/domain"
 )
@@ -17,6 +19,29 @@ func NewSubtitleRepository(pool *pgxpool.Pool) *SubtitleRepository {
 	return &SubtitleRepository{pool: pool}
 }
 
+type subtitleTx interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	Commit(ctx context.Context) error
+	Rollback(ctx context.Context) error
+}
+
+type subtitleTxBeginner interface {
+	Begin(ctx context.Context) (subtitleTx, error)
+}
+
+type pgxPoolSubtitleBeginner struct {
+	pool *pgxpool.Pool
+}
+
+func (b pgxPoolSubtitleBeginner) Begin(ctx context.Context) (subtitleTx, error) {
+	tx, err := b.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return tx, nil
+}
+
 func scanTrack(row scanner) (*domain.SubtitleTrack, error) {
 	var t domain.SubtitleTrack
 	err := row.Scan(&t.ID, &t.ContentID, &t.Language, &t.Status, &t.Model, &t.CreatedAt, &t.UpdatedAt)
@@ -26,14 +51,42 @@ func scanTrack(row scanner) (*domain.SubtitleTrack, error) {
 	return &t, nil
 }
 
-const trackColumns = "id, content_id, language, status, model, created_at, updated_at"
+const (
+	trackColumns = "id, content_id, language, status, model, created_at, updated_at"
+	cueColumns   = "id, track_id, seq, start_ms, end_ms, text, original_text, flagged, updated_at"
+
+	listTracksQuery = "SELECT st.id, st.content_id, st.language, st.status, st.model, st.created_at, st.updated_at " +
+		"FROM subtitle_tracks st JOIN contents c ON c.id = st.content_id " +
+		"WHERE st.content_id = $1 AND c.deleted_at IS NULL ORDER BY st.language"
+
+	getTrackQuery = "SELECT st.id, st.content_id, st.language, st.status, st.model, st.created_at, st.updated_at " +
+		"FROM subtitle_tracks st JOIN contents c ON c.id = st.content_id " +
+		"WHERE st.id = $1 AND c.deleted_at IS NULL"
+
+	lockParentByTrackQuery = "SELECT 1 FROM subtitle_tracks st JOIN contents c ON c.id = st.content_id " +
+		"WHERE st.id = $1 AND c.deleted_at IS NULL FOR SHARE OF c"
+
+	setTrackStatusQuery = "UPDATE subtitle_tracks SET status = $1 WHERE id = $2 RETURNING " + trackColumns
+
+	listCuesQuery = "SELECT cu.id, cu.track_id, cu.seq, cu.start_ms, cu.end_ms, cu.text, cu.original_text, cu.flagged, cu.updated_at " +
+		"FROM subtitle_cues cu " +
+		"JOIN subtitle_tracks st ON st.id = cu.track_id " +
+		"JOIN contents c ON c.id = st.content_id " +
+		"WHERE cu.track_id = $1 AND c.deleted_at IS NULL ORDER BY cu.seq, cu.start_ms, cu.id"
+
+	lockParentByCueQuery = "SELECT 1 FROM subtitle_cues cu " +
+		"JOIN subtitle_tracks st ON st.id = cu.track_id " +
+		"JOIN contents c ON c.id = st.content_id " +
+		"WHERE cu.id = $1 AND c.deleted_at IS NULL FOR SHARE OF c"
+
+	insertCueCheckParentQuery = lockParentByTrackQuery
+
+	deleteCueQuery = "DELETE FROM subtitle_cues WHERE id = $1 RETURNING track_id"
+)
 
 func (r *SubtitleRepository) ListTracksByContentID(ctx context.Context, contentID string) ([]*domain.SubtitleTrack, error) {
 	return WithRetry(ctx, r.pool, func() ([]*domain.SubtitleTrack, error) {
-		rows, err := r.pool.Query(ctx,
-			"SELECT "+trackColumns+" FROM subtitle_tracks WHERE content_id = $1 ORDER BY language",
-			contentID,
-		)
+		rows, err := r.pool.Query(ctx, listTracksQuery, contentID)
 		if err != nil {
 			return nil, err
 		}
@@ -53,19 +106,40 @@ func (r *SubtitleRepository) ListTracksByContentID(ctx context.Context, contentI
 
 func (r *SubtitleRepository) GetTrack(ctx context.Context, trackID string) (*domain.SubtitleTrack, error) {
 	return WithRetry(ctx, r.pool, func() (*domain.SubtitleTrack, error) {
-		row := r.pool.QueryRow(ctx, "SELECT "+trackColumns+" FROM subtitle_tracks WHERE id = $1", trackID)
+		row := r.pool.QueryRow(ctx, getTrackQuery, trackID)
 		return scanTrack(row)
 	})
 }
 
 func (r *SubtitleRepository) SetTrackStatus(ctx context.Context, trackID string, status domain.SubtitleTrackStatus) (*domain.SubtitleTrack, error) {
 	return WithRetry(ctx, r.pool, func() (*domain.SubtitleTrack, error) {
-		row := r.pool.QueryRow(ctx,
-			"UPDATE subtitle_tracks SET status = $1 WHERE id = $2 RETURNING "+trackColumns,
-			status, trackID,
-		)
-		return scanTrack(row)
+		return setTrackStatusWithBeginner(ctx, pgxPoolSubtitleBeginner{pool: r.pool}, trackID, status)
 	})
+}
+
+func setTrackStatusWithBeginner(ctx context.Context, beginner subtitleTxBeginner, trackID string, status domain.SubtitleTrackStatus) (*domain.SubtitleTrack, error) {
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	var ok int
+	if err := tx.QueryRow(ctx, lockParentByTrackQuery, trackID).Scan(&ok); err != nil {
+		return nil, err
+	}
+
+	track, err := scanTrack(tx.QueryRow(ctx, setTrackStatusQuery, status, trackID))
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return track, nil
 }
 
 func scanCue(row scanner) (*domain.SubtitleCue, error) {
@@ -77,16 +151,11 @@ func scanCue(row scanner) (*domain.SubtitleCue, error) {
 	return &c, nil
 }
 
-const cueColumns = "id, track_id, seq, start_ms, end_ms, text, original_text, flagged, updated_at"
-
 func (r *SubtitleRepository) ListCuesByTrackID(ctx context.Context, trackID string) ([]*domain.SubtitleCue, error) {
 	return WithRetry(ctx, r.pool, func() ([]*domain.SubtitleCue, error) {
 		// seq は (track_id, seq) の一意制約があるため通常重複しないが、
 		// 制約が DEFERRABLE で移行期間中の重複がありうるため念のためタイブレークしておく。
-		rows, err := r.pool.Query(ctx,
-			"SELECT "+cueColumns+" FROM subtitle_cues WHERE track_id = $1 ORDER BY seq, start_ms, id",
-			trackID,
-		)
+		rows, err := r.pool.Query(ctx, listCuesQuery, trackID)
 		if err != nil {
 			return nil, err
 		}
@@ -111,39 +180,67 @@ type UpdateCueParams struct {
 	EndMs   *int
 }
 
+func buildUpdateCueQuery(params UpdateCueParams) (string, []any) {
+	setClauses := []string{}
+	args := []any{}
+	argIdx := 1
+
+	if params.Text != nil {
+		setClauses = append(setClauses, fmt.Sprintf("text = $%d", argIdx))
+		args = append(args, *params.Text)
+		argIdx++
+	}
+	if params.StartMs != nil {
+		setClauses = append(setClauses, fmt.Sprintf("start_ms = $%d", argIdx))
+		args = append(args, *params.StartMs)
+		argIdx++
+	}
+	if params.EndMs != nil {
+		setClauses = append(setClauses, fmt.Sprintf("end_ms = $%d", argIdx))
+		args = append(args, *params.EndMs)
+		argIdx++
+	}
+	// 人手で内容を確定させた行なので、以後はハルシネーション疑いのフラグを外す
+	setClauses = append(setClauses, "flagged = false")
+
+	args = append(args, params.ID)
+	query := fmt.Sprintf(
+		"UPDATE subtitle_cues SET %s WHERE id = $%d RETURNING "+cueColumns,
+		strings.Join(setClauses, ", "), argIdx,
+	)
+	return query, args
+}
+
 func (r *SubtitleRepository) UpdateCue(ctx context.Context, params UpdateCueParams) (*domain.SubtitleCue, error) {
 	return WithRetry(ctx, r.pool, func() (*domain.SubtitleCue, error) {
-		setClauses := []string{}
-		args := []any{}
-		argIdx := 1
-
-		if params.Text != nil {
-			setClauses = append(setClauses, fmt.Sprintf("text = $%d", argIdx))
-			args = append(args, *params.Text)
-			argIdx++
-		}
-		if params.StartMs != nil {
-			setClauses = append(setClauses, fmt.Sprintf("start_ms = $%d", argIdx))
-			args = append(args, *params.StartMs)
-			argIdx++
-		}
-		if params.EndMs != nil {
-			setClauses = append(setClauses, fmt.Sprintf("end_ms = $%d", argIdx))
-			args = append(args, *params.EndMs)
-			argIdx++
-		}
-		// 人手で内容を確定させた行なので、以後はハルシネーション疑いのフラグを外す
-		setClauses = append(setClauses, "flagged = false")
-
-		args = append(args, params.ID)
-		query := fmt.Sprintf(
-			"UPDATE subtitle_cues SET %s WHERE id = $%d RETURNING "+cueColumns,
-			strings.Join(setClauses, ", "), argIdx,
-		)
-
-		row := r.pool.QueryRow(ctx, query, args...)
-		return scanCue(row)
+		return updateCueWithBeginner(ctx, pgxPoolSubtitleBeginner{pool: r.pool}, params)
 	})
+}
+
+func updateCueWithBeginner(ctx context.Context, beginner subtitleTxBeginner, params UpdateCueParams) (*domain.SubtitleCue, error) {
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	var ok int
+	if err := tx.QueryRow(ctx, lockParentByCueQuery, params.ID).Scan(&ok); err != nil {
+		return nil, err
+	}
+
+	query, args := buildUpdateCueQuery(params)
+	cue, err := scanCue(tx.QueryRow(ctx, query, args...))
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return cue, nil
 }
 
 type InsertCueParams struct {
@@ -160,40 +257,72 @@ type InsertCueParams struct {
 // 一時的にseqが重複しうるため、DEFERRABLE UNIQUE制約でコミット時にまとめて検査させる。
 func (r *SubtitleRepository) InsertCue(ctx context.Context, params InsertCueParams) (*domain.SubtitleCue, error) {
 	return WithRetryWrite(ctx, r.pool, func() (*domain.SubtitleCue, error) {
-		tx, err := r.pool.Begin(ctx)
-		if err != nil {
-			return nil, err
-		}
-		defer tx.Rollback(ctx)
-
-		if _, err := tx.Exec(ctx,
-			"UPDATE subtitle_cues SET seq = seq + 1 WHERE track_id = $1 AND seq >= $2",
-			params.TrackID, params.Seq,
-		); err != nil {
-			return nil, err
-		}
-
-		row := tx.QueryRow(ctx, `
-			INSERT INTO subtitle_cues (track_id, seq, start_ms, end_ms, text, original_text, flagged)
-			VALUES ($1, $2, $3, $4, $5, $5, false)
-			RETURNING `+cueColumns,
-			params.TrackID, params.Seq, params.StartMs, params.EndMs, params.Text,
-		)
-		cue, err := scanCue(row)
-		if err != nil {
-			return nil, err
-		}
-
-		if err := tx.Commit(ctx); err != nil {
-			return nil, err
-		}
-		return cue, nil
+		return insertCueWithBeginner(ctx, pgxPoolSubtitleBeginner{pool: r.pool}, params)
 	})
+}
+
+func insertCueWithBeginner(ctx context.Context, beginner subtitleTxBeginner, params InsertCueParams) (*domain.SubtitleCue, error) {
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	var ok int
+	if err := tx.QueryRow(ctx, insertCueCheckParentQuery, params.TrackID).Scan(&ok); err != nil {
+		return nil, err
+	}
+
+	if _, err := tx.Exec(ctx,
+		"UPDATE subtitle_cues SET seq = seq + 1 WHERE track_id = $1 AND seq >= $2",
+		params.TrackID, params.Seq,
+	); err != nil {
+		return nil, err
+	}
+
+	row := tx.QueryRow(ctx, `
+		INSERT INTO subtitle_cues (track_id, seq, start_ms, end_ms, text, original_text, flagged)
+		VALUES ($1, $2, $3, $4, $5, $5, false)
+		RETURNING `+cueColumns,
+		params.TrackID, params.Seq, params.StartMs, params.EndMs, params.Text,
+	)
+	cue, err := scanCue(row)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return cue, nil
 }
 
 func (r *SubtitleRepository) DeleteCue(ctx context.Context, id string) error {
 	return WithRetryVoid(ctx, r.pool, func() error {
-		_, err := r.pool.Exec(ctx, "DELETE FROM subtitle_cues WHERE id = $1", id)
-		return err
+		return deleteCueWithBeginner(ctx, pgxPoolSubtitleBeginner{pool: r.pool}, id)
 	})
+}
+
+func deleteCueWithBeginner(ctx context.Context, beginner subtitleTxBeginner, id string) error {
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	var ok int
+	if err := tx.QueryRow(ctx, lockParentByCueQuery, id).Scan(&ok); err != nil {
+		return err
+	}
+
+	var trackID string
+	if err := tx.QueryRow(ctx, deleteCueQuery, id).Scan(&trackID); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
 }

@@ -1,11 +1,15 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/k-wa-wa/pechka/api/internal/domain"
 )
@@ -18,7 +22,7 @@ func NewContentRepository(pool *pgxpool.Pool) *ContentRepository {
 	return &ContentRepository{pool: pool}
 }
 
-const contentColumns = `id, short_id, content_type, channel_id, disc_id, title, description, duration_seconds, is_360, tags, status, document_key, document_mime_type, published_at, archived_at, created_at, updated_at`
+const contentColumns = `id, short_id, content_type, channel_id, disc_id, COALESCE(title, ''), COALESCE(description, ''), duration_seconds, COALESCE(is_360, false), COALESCE(tags, '{}'), status, document_key, document_mime_type, published_at, archived_at, created_at, updated_at`
 
 type CreateContentParams struct {
 	ShortID          string
@@ -63,7 +67,7 @@ type UpdateContentParams struct {
 	Status      *domain.ContentStatus
 }
 
-func (r *ContentRepository) Update(ctx context.Context, params UpdateContentParams) (*domain.Content, error) {
+func buildUpdateContentQuery(params UpdateContentParams) (string, []any, bool) {
 	setClauses := []string{}
 	args := []any{}
 	argIdx := 1
@@ -95,15 +99,23 @@ func (r *ContentRepository) Update(ctx context.Context, params UpdateContentPara
 	}
 
 	if len(setClauses) == 0 {
-		return r.GetByID(ctx, params.ID)
+		return "", nil, false
 	}
 
 	args = append(args, params.ID)
 	query := fmt.Sprintf(`
 		UPDATE contents SET %s
-		WHERE id = $%d
+		WHERE id = $%d AND deleted_at IS NULL
 		RETURNING `+contentColumns+`
 	`, strings.Join(setClauses, ", "), argIdx)
+	return query, args, true
+}
+
+func (r *ContentRepository) Update(ctx context.Context, params UpdateContentParams) (*domain.Content, error) {
+	query, args, hasUpdates := buildUpdateContentQuery(params)
+	if !hasUpdates {
+		return r.GetByID(ctx, params.ID)
+	}
 
 	return WithRetry(ctx, r.pool, func() (*domain.Content, error) {
 		row := r.pool.QueryRow(ctx, query, args...)
@@ -111,41 +123,122 @@ func (r *ContentRepository) Update(ctx context.Context, params UpdateContentPara
 	})
 }
 
+const deleteContentQuery = "UPDATE contents SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1 AND deleted_at IS NULL"
+
 func (r *ContentRepository) Delete(ctx context.Context, id string) error {
 	return WithRetryVoid(ctx, r.pool, func() error {
-		_, err := r.pool.Exec(ctx, "DELETE FROM contents WHERE id = $1", id)
+		_, err := r.pool.Exec(ctx, deleteContentQuery, id)
 		return err
 	})
 }
 
+const (
+	// SetArchived は FOR UPDATE で対象行の最新確定状態を取得してから状態遷移要否を判定する。
+	// 1文の CTE + UNION ALL では Read Committed 下で競合更新後に文開始時スナップショットを読んで
+	// 更新前の archived_at や削除前の行を返し得るため、トランザクション内で明示的に行ロックを取得する。
+	lockContentForUpdateQuery = `
+		SELECT ` + contentColumns + `
+		FROM contents WHERE id = $1 AND deleted_at IS NULL
+		FOR UPDATE`
+	updateArchivedTrueQuery = `
+		UPDATE contents SET archived_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND deleted_at IS NULL
+		RETURNING ` + contentColumns
+	updateArchivedFalseQuery = `
+		UPDATE contents SET archived_at = NULL
+		WHERE id = $1 AND deleted_at IS NULL
+		RETURNING ` + contentColumns
+	getContentByIDQuery = `
+		SELECT ` + contentColumns + `
+		FROM contents WHERE id = $1 AND deleted_at IS NULL`
+)
+
+type archiveTx interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Commit(ctx context.Context) error
+	Rollback(ctx context.Context) error
+}
+
+type archiveBeginner interface {
+	BeginTx(ctx context.Context, txOptions pgx.TxOptions) (archiveTx, error)
+}
+
+type pgxArchiveTx struct {
+	tx pgx.Tx
+}
+
+func (t pgxArchiveTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	return t.tx.QueryRow(ctx, sql, args...)
+}
+
+func (t pgxArchiveTx) Commit(ctx context.Context) error {
+	return t.tx.Commit(ctx)
+}
+
+func (t pgxArchiveTx) Rollback(ctx context.Context) error {
+	return t.tx.Rollback(ctx)
+}
+
+type pgxArchiveBeginner struct {
+	pool *pgxpool.Pool
+}
+
+func (b pgxArchiveBeginner) BeginTx(ctx context.Context, txOptions pgx.TxOptions) (archiveTx, error) {
+	tx, err := b.pool.BeginTx(ctx, txOptions)
+	if err != nil {
+		return nil, err
+	}
+	return pgxArchiveTx{tx: tx}, nil
+}
+
 // SetArchived はコンテンツのアーカイブ状態を切り替える。
-// 実データは削除せず archived_at にタイムスタンプを立てる/クリアするだけの論理削除。
+// 実データは削除せず archived_at にタイムスタンプを立てる/クリアするだけのアーカイブ。
+// deleted_at IS NULL を条件とし、論理削除済みレコードへの誤操作・誤復元を防ぐ。
 func (r *ContentRepository) SetArchived(ctx context.Context, id string, archived bool) (*domain.Content, error) {
 	return WithRetry(ctx, r.pool, func() (*domain.Content, error) {
-		var row scanner
-		if archived {
-			row = r.pool.QueryRow(ctx, `
-				UPDATE contents SET archived_at = CURRENT_TIMESTAMP
-				WHERE id = $1
-				RETURNING `+contentColumns+`
-			`, id)
-		} else {
-			row = r.pool.QueryRow(ctx, `
-				UPDATE contents SET archived_at = NULL
-				WHERE id = $1
-				RETURNING `+contentColumns+`
-			`, id)
-		}
-		return scanContent(row)
+		return setArchivedWithBeginner(ctx, pgxArchiveBeginner{pool: r.pool}, id, archived)
 	})
+}
+
+func setArchivedWithBeginner(ctx context.Context, beginner archiveBeginner, id string, archived bool) (*domain.Content, error) {
+	tx, err := beginner.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	current, err := scanContent(tx.QueryRow(ctx, lockContentForUpdateQuery, id))
+	if err != nil {
+		return nil, err
+	}
+
+	alreadyInTargetState := (archived && current.ArchivedAt != nil) || (!archived && current.ArchivedAt == nil)
+	if alreadyInTargetState {
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
+		}
+		return current, nil
+	}
+
+	updateQuery := updateArchivedFalseQuery
+	if archived {
+		updateQuery = updateArchivedTrueQuery
+	}
+	updated, err := scanContent(tx.QueryRow(ctx, updateQuery, id))
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return updated, nil
 }
 
 func (r *ContentRepository) GetByID(ctx context.Context, id string) (*domain.Content, error) {
 	return WithRetry(ctx, r.pool, func() (*domain.Content, error) {
-		row := r.pool.QueryRow(ctx, `
-			SELECT `+contentColumns+`
-			FROM contents WHERE id = $1
-		`, id)
+		row := r.pool.QueryRow(ctx, getContentByIDQuery, id)
 		return scanContent(row)
 	})
 }
@@ -202,7 +295,7 @@ func (r *ContentRepository) Count(ctx context.Context, params ListContentsParams
 }
 
 func buildListContentsWhere(params ListContentsParams) (string, []any, int) {
-	conditions := []string{}
+	conditions := []string{"deleted_at IS NULL"}
 	args := []any{}
 	argIdx := 1
 
@@ -220,10 +313,177 @@ func buildListContentsWhere(params ListContentsParams) (string, []any, int) {
 		conditions = append(conditions, "archived_at IS NULL")
 	}
 
-	if len(conditions) == 0 {
-		return "", args, argIdx
-	}
 	return " WHERE " + strings.Join(conditions, " AND "), args, argIdx
+}
+
+const (
+	// LatestPlaylistLockKey は api（複数レプリカ）と batch/refresh-latest-playlist で共有する 64-bit アドバイザリロックキー。
+	LatestPlaylistLockKey int64 = 0x706563686b610001
+	LatestPlaylistLimit         = 50
+	LatestPlaylistTimeout       = 10 * time.Second
+	LatestPlaylistKey           = "resources/hls/latest.m3u8"
+	LatestPlaylistQuery         = `SELECT c.short_id, c.title, c.published_at
+		 FROM contents c
+		 WHERE c.status = 'ready'
+		   AND c.archived_at IS NULL
+		   AND c.deleted_at IS NULL
+		   AND EXISTS (
+		     SELECT 1 FROM video_variants v
+		     WHERE v.content_id = c.id AND v.variant_type = 'master'
+		   )
+		 ORDER BY c.published_at DESC NULLS LAST, c.updated_at DESC, c.short_id ASC
+		 LIMIT $1`
+)
+
+type PlaylistItem struct {
+	ShortID     string
+	Title       string
+	PublishedAt *time.Time
+}
+
+type playlistRows interface {
+	Next() bool
+	Scan(dest ...any) error
+	Err() error
+	Close()
+}
+
+type playlistTx interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (playlistRows, error)
+	Commit(ctx context.Context) error
+	Rollback(ctx context.Context) error
+}
+
+type playlistTxBeginner interface {
+	BeginTx(ctx context.Context, txOptions pgx.TxOptions) (playlistTx, error)
+}
+
+type pgxPoolPlaylistBeginner struct {
+	pool *pgxpool.Pool
+}
+
+func (b pgxPoolPlaylistBeginner) BeginTx(ctx context.Context, txOptions pgx.TxOptions) (playlistTx, error) {
+	tx, err := b.pool.BeginTx(ctx, txOptions)
+	if err != nil {
+		return nil, err
+	}
+	return pgxPlaylistTx{tx: tx}, nil
+}
+
+type pgxPlaylistTx struct {
+	tx pgx.Tx
+}
+
+func (t pgxPlaylistTx) Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error) {
+	return t.tx.Exec(ctx, sql, arguments...)
+}
+
+func (t pgxPlaylistTx) Query(ctx context.Context, sql string, args ...any) (playlistRows, error) {
+	return t.tx.Query(ctx, sql, args...)
+}
+
+func (t pgxPlaylistTx) Commit(ctx context.Context) error {
+	return t.tx.Commit(ctx)
+}
+
+func (t pgxPlaylistTx) Rollback(ctx context.Context) error {
+	return t.tx.Rollback(ctx)
+}
+
+func scanPlaylistItem(row scanner) (PlaylistItem, error) {
+	var item PlaylistItem
+	if err := row.Scan(&item.ShortID, &item.Title, &item.PublishedAt); err != nil {
+		return PlaylistItem{}, err
+	}
+	return item, nil
+}
+
+var playlistTitleReplacer = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ")
+
+func sanitizePlaylistTitle(title string) string {
+	return playlistTitleReplacer.Replace(title)
+}
+
+// BuildLatestPlaylist は batch/refresh-latest-playlist と同一の #EXTM3U 形式でプレイリスト文字列を生成する。
+// 配信先が /resources/hls/latest.m3u8 であるため、各エントリは相対 URI（<short_id>/master.m3u8）を出力する。
+func BuildLatestPlaylist(items []PlaylistItem) string {
+	var buf bytes.Buffer
+	buf.WriteString("#EXTM3U\n")
+	for _, item := range items {
+		buf.WriteString(fmt.Sprintf("#EXTINF:-1,%s\n", sanitizePlaylistTitle(item.Title)))
+		buf.WriteString(fmt.Sprintf("%s/master.m3u8\n", item.ShortID))
+	}
+	return buf.String()
+}
+
+// RefreshLatestPlaylist は READ COMMITTED トランザクション内でアドバイザリロックを取得し、
+// 最新の未削除・未アーカイブかつ ready なコンテンツ一覧を取得して uploadFn（MinIO PutObject）を完了させた後にコミット（ロック解放）する。
+// S3 停滞によるロック長期保持や接続プール枯渇を防ぐため、全体処理に LatestPlaylistTimeout の期限を設ける。
+func (r *ContentRepository) RefreshLatestPlaylist(ctx context.Context, uploadFn func(ctx context.Context, playlist string) error) error {
+	if r.pool == nil {
+		return fmt.Errorf("postgres connection pool is nil")
+	}
+	if uploadFn == nil {
+		return fmt.Errorf("uploadFn is required")
+	}
+	return WithRetryVoid(ctx, r.pool, func() error {
+		return refreshLatestPlaylistWithTimeout(ctx, pgxPoolPlaylistBeginner{pool: r.pool}, LatestPlaylistTimeout, uploadFn)
+	})
+}
+
+func refreshLatestPlaylistWithBeginner(ctx context.Context, beginner playlistTxBeginner, uploadFn func(ctx context.Context, playlist string) error) error {
+	return refreshLatestPlaylistWithTimeout(ctx, beginner, LatestPlaylistTimeout, uploadFn)
+}
+
+func refreshLatestPlaylistWithTimeout(ctx context.Context, beginner playlistTxBeginner, timeout time.Duration, uploadFn func(ctx context.Context, playlist string) error) error {
+	opCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	tx, err := beginner.BeginTx(opCtx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		// opCtx が期限切れでも接続とアドバイザリロックを確実に解放するため独立したコンテキストでロールバックする
+		rollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer rollbackCancel()
+		_ = tx.Rollback(rollbackCtx)
+	}()
+
+	if _, err := tx.Exec(opCtx, "SELECT pg_advisory_xact_lock($1)", LatestPlaylistLockKey); err != nil {
+		return fmt.Errorf("acquire playlist advisory lock: %w", err)
+	}
+
+	rows, err := tx.Query(opCtx, LatestPlaylistQuery, LatestPlaylistLimit)
+	if err != nil {
+		return fmt.Errorf("query latest playlist contents: %w", err)
+	}
+
+	var items []PlaylistItem
+	for rows.Next() {
+		item, scanErr := scanPlaylistItem(rows)
+		if scanErr != nil {
+			rows.Close()
+			return fmt.Errorf("scan playlist row: %w", scanErr)
+		}
+		items = append(items, item)
+	}
+	if rowsErr := rows.Err(); rowsErr != nil {
+		rows.Close()
+		return fmt.Errorf("iterate playlist rows: %w", rowsErr)
+	}
+	rows.Close()
+
+	playlist := BuildLatestPlaylist(items)
+	if err := uploadFn(opCtx, playlist); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(opCtx); err != nil {
+		return fmt.Errorf("commit playlist refresh transaction: %w", err)
+	}
+	return nil
 }
 
 type scanner interface {
@@ -232,13 +492,22 @@ type scanner interface {
 
 func scanContent(row scanner) (*domain.Content, error) {
 	var c domain.Content
+	var title sql.NullString
+	var description sql.NullString
+	var is360 sql.NullBool
 	err := row.Scan(
-		&c.ID, &c.ShortID, &c.ContentType, &c.ChannelID, &c.DiscID, &c.Title, &c.Description,
-		&c.DurationSeconds, &c.Is360, &c.Tags, &c.Status, &c.DocumentKey, &c.DocumentMimeType,
+		&c.ID, &c.ShortID, &c.ContentType, &c.ChannelID, &c.DiscID, &title, &description,
+		&c.DurationSeconds, &is360, &c.Tags, &c.Status, &c.DocumentKey, &c.DocumentMimeType,
 		&c.PublishedAt, &c.ArchivedAt, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
+	}
+	c.Title = title.String
+	c.Description = description.String
+	c.Is360 = is360.Bool
+	if c.Tags == nil {
+		c.Tags = []string{}
 	}
 	return &c, nil
 }

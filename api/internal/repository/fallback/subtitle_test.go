@@ -43,6 +43,9 @@ func TestBuildSubtitleQuery(t *testing.T) {
 	if !strings.Contains(q, "c.archived_at IS NULL") {
 		t.Errorf("query missing archived_at check: %s", q)
 	}
+	if !strings.Contains(q, "c.deleted_at IS NULL") {
+		t.Errorf("query missing deleted_at check: %s", q)
+	}
 	if !strings.Contains(q, "ORDER BY cu.seq, cu.start_ms, cu.id") {
 		t.Errorf("query missing cue sorting: %s", q)
 	}

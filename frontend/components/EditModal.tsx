@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useRef, useState } from "react";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import type { Channel, Content, ContentStatus, UpdateContentRequest } from "@/lib/types";
+import { useDialogA11y } from "@/lib/useDialogA11y";
 
 const FALLBACK_CHANNELS: Pick<Channel, "id" | "name">[] = [
   { id: "bluray", name: "Blu-ray" },
@@ -23,11 +24,15 @@ export default function EditModal({ content, channels, onClose, onSave }: Props)
   const [channelId, setChannelId] = useState(content.channel_id ?? "bluray");
   const [title, setTitle] = useState(content.title);
   const [description, setDescription] = useState(content.description);
-  const [tags, setTags] = useState(content.tags.join(", "));
+  const [tags, setTags] = useState((content.tags ?? []).join(", "));
   const [status, setStatus] = useState<ContentStatus>(content.status);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { t } = useLanguage();
+  const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useDialogA11y({ dialogRef, onClose, closeDisabled: saving });
 
   async function handleSave() {
     setSaving(true);
@@ -70,9 +75,14 @@ export default function EditModal({ content, channels, onClose, onSave }: Props)
         justifyContent: "center",
         padding: 16,
       }}
-      onClick={onClose}
+      onClick={saving ? undefined : onClose}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
         style={{
           width: "100%",
           maxWidth: 560,
@@ -94,9 +104,14 @@ export default function EditModal({ content, channels, onClose, onSave }: Props)
             borderBottom: "1px solid var(--line)",
           }}
         >
-          <h2 style={{ margin: 0, fontSize: 16, color: "var(--fg)" }}>{t("editModal.title")}</h2>
+          <h2 id={titleId} style={{ margin: 0, fontSize: 16, color: "var(--fg)" }}>
+            {t("editModal.title")}
+          </h2>
           <button
+            type="button"
             onClick={onClose}
+            disabled={saving}
+            aria-label={t("settings.close")}
             className="edit-modal-close"
             style={{
               background: "none",
