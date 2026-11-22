@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -640,6 +642,9 @@ func TestDecodeAdminCursor_Errors(t *testing.T) {
 		{"null v", base64.RawURLEncoding.EncodeToString([]byte(`{"sort":"updated_desc","v":null,"id":"s1"}`)), domain.ContentSortUpdatedDesc},
 		{"string v for time sort", base64.RawURLEncoding.EncodeToString([]byte(`{"sort":"updated_desc","v":"123","id":"s1"}`)), domain.ContentSortUpdatedDesc},
 		{"float v for time sort", base64.RawURLEncoding.EncodeToString([]byte(`{"sort":"updated_desc","v":123.4,"id":"s1"}`)), domain.ContentSortUpdatedDesc},
+		{"whole float v for time sort", base64.RawURLEncoding.EncodeToString([]byte(`{"sort":"updated_desc","v":1.0,"id":"s1"}`)), domain.ContentSortUpdatedDesc},
+		{"scientific v for time sort", base64.RawURLEncoding.EncodeToString([]byte(`{"sort":"updated_desc","v":1e3,"id":"s1"}`)), domain.ContentSortUpdatedDesc},
+		{"int64 overflow v for time sort", base64.RawURLEncoding.EncodeToString([]byte(`{"sort":"updated_desc","v":9223372036854775808,"id":"s1"}`)), domain.ContentSortUpdatedDesc},
 		{"number v for title sort", base64.RawURLEncoding.EncodeToString([]byte(`{"sort":"title_asc","v":123,"id":"s1"}`)), domain.ContentSortTitleAsc},
 	}
 
@@ -650,6 +655,11 @@ func TestDecodeAdminCursor_Errors(t *testing.T) {
 				t.Errorf("expected ErrInvalidCursor, got %v", err)
 			}
 		})
+	}
+
+	maxInt64Tok := base64.RawURLEncoding.EncodeToString([]byte(`{"sort":"updated_desc","v":9223372036854775807,"id":"s1"}`))
+	if cur, err := DecodeAdminCursor(maxInt64Tok, domain.ContentSortUpdatedDesc); err != nil || cur.ID != "s1" {
+		t.Fatalf("expected int64 max boundary cursor to decode, got cur=%+v err=%v", cur, err)
 	}
 }
 
@@ -1023,12 +1033,15 @@ func TestListAdminWithStore_PageAssemblyAndBoundaries(t *testing.T) {
 }
 
 func TestContentRepository_MigrationCheckTimeoutAndStartupCheck(t *testing.T) {
-	t.Run("independent migration check timeout completes slow scan despite short request deadline", func(t *testing.T) {
+	t.Run("first slow request falls back on deadline while singleflight scan finishes in background", func(t *testing.T) {
 		repo := (&ContentRepository{}).WithMigrationCheckTimeout(500 * time.Millisecond)
-		var checkCalls int
+		var checkCalls atomic.Int32
+		var countCalls atomic.Int32
+		scanDone := make(chan struct{})
 		store := &mockAdminDocStore{
 			findUnmigratedFn: func(ctx context.Context, _ bson.M) (bool, error) {
-				checkCalls++
+				checkCalls.Add(1)
+				defer close(scanDone)
 				select {
 				case <-time.After(80 * time.Millisecond):
 					return false, nil
@@ -1036,30 +1049,135 @@ func TestContentRepository_MigrationCheckTimeoutAndStartupCheck(t *testing.T) {
 					return false, ctx.Err()
 				}
 			},
-			countFn: func(_ context.Context, _ bson.M) (int64, error) { return 0, nil },
-			findDocsFn: func(_ context.Context, _ bson.M, _ bson.D, _ int64) ([]mongoAdminDoc, error) {
+			countFn: func(ctx context.Context, _ bson.M) (int64, error) {
+				countCalls.Add(1)
+				if err := ctx.Err(); err != nil {
+					return 0, err
+				}
+				return 0, nil
+			},
+			findDocsFn: func(ctx context.Context, _ bson.M, _ bson.D, _ int64) ([]mongoAdminDoc, error) {
+				if err := ctx.Err(); err != nil {
+					return nil, err
+				}
 				return nil, nil
 			},
 		}
 
-		// ブレーカー風の短い期限（20ms）でも未移行検査は独立期限（500ms）で完了し migrated=true になる
+		// ブレーカー風の短い期限（20ms）を超える未移行検査では、初回要求は DeadlineExceeded で返り
+		// CountDocuments に期限切れコンテキストを渡さず PostgreSQL 退避させる。
 		reqCtx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 		defer cancel()
-		page, err := repo.listAdminWithStore(reqCtx, store, AdminListParams{Limit: 10})
-		if err != nil {
-			t.Fatalf("expected migration check and list to succeed, got %v", err)
+		_, err := repo.listAdminWithStore(reqCtx, store, AdminListParams{Limit: 10})
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("expected initial request to fail with DeadlineExceeded for fallback, got %v", err)
 		}
-		if len(page.Contents) != 0 || checkCalls != 1 || !repo.migrated.Load() {
-			t.Fatalf("unexpected state: page=%+v checkCalls=%d migrated=%v", page, checkCalls, repo.migrated.Load())
+		if countCalls.Load() != 0 {
+			t.Fatalf("expected CountDocuments not to run after expired check, got %d calls", countCalls.Load())
 		}
 
-		// 2回目は FindUnmigrated を再実行しない
-		_, err = repo.listAdminWithStore(context.Background(), store, AdminListParams{Limit: 10})
+		// 一方で裏の単一検査は独立期限（500ms）で完了し migrated=true になる
+		select {
+		case <-scanDone:
+		case <-time.After(500 * time.Millisecond):
+			t.Fatal("background migration check did not finish")
+		}
+		// goroutine 側の Store(true) 完了まで 2回目呼び出しが待てるよう少し待つ（またはそのまま実行）
+		deadline := time.Now().Add(200 * time.Millisecond)
+		for !repo.migrated.Load() && time.Now().Before(deadline) {
+			time.Sleep(5 * time.Millisecond)
+		}
+		if !repo.migrated.Load() {
+			t.Fatal("expected migrated=true after background scan completion")
+		}
+
+		// 2回目は FindUnmigrated を再実行せず成功する
+		page, err := repo.listAdminWithStore(context.Background(), store, AdminListParams{Limit: 10})
 		if err != nil {
 			t.Fatalf("second call failed: %v", err)
 		}
-		if checkCalls != 1 {
-			t.Errorf("expected FindUnmigrated to run once, ran %d times", checkCalls)
+		if len(page.Contents) != 0 || checkCalls.Load() != 1 {
+			t.Errorf("expected FindUnmigrated to run once and succeed on second call, calls=%d", checkCalls.Load())
+		}
+	})
+
+	t.Run("concurrent requests share a single migration scan and sole client cancellation aborts scan", func(t *testing.T) {
+		// 1. 同時アクセス 3 件で 1 回しかスキャンが走らない
+		repo := (&ContentRepository{}).WithMigrationCheckTimeout(500 * time.Millisecond)
+		var checkCalls atomic.Int32
+		gate := make(chan struct{})
+		store := &mockAdminDocStore{
+			findUnmigratedFn: func(ctx context.Context, _ bson.M) (bool, error) {
+				checkCalls.Add(1)
+				select {
+				case <-gate:
+					return false, nil
+				case <-ctx.Done():
+					return false, ctx.Err()
+				}
+			},
+			countFn: func(_ context.Context, _ bson.M) (int64, error) { return 1, nil },
+			findDocsFn: func(_ context.Context, _ bson.M, _ bson.D, _ int64) ([]mongoAdminDoc, error) {
+				return []mongoAdminDoc{makeMongoDoc("u1", "s1", "T1", time.Now().UTC())}, nil
+			},
+		}
+
+		var wg sync.WaitGroup
+		errs := make([]error, 3)
+		ctxCancel, cancelFirst := context.WithCancel(context.Background())
+		for i := 0; i < 3; i++ {
+			wg.Add(1)
+			go func(idx int) {
+				defer wg.Done()
+				c := context.Background()
+				if idx == 0 {
+					c = ctxCancel
+				}
+				_, errs[idx] = repo.listAdminWithStore(c, store, AdminListParams{Limit: 10})
+			}(i)
+		}
+		// 1 番目のクライアントだけ切断しても、残りの待機者がいるため検査はキャンセルされない
+		time.Sleep(20 * time.Millisecond)
+		cancelFirst()
+		time.Sleep(20 * time.Millisecond)
+		close(gate)
+		wg.Wait()
+
+		if !errors.Is(errs[0], context.Canceled) {
+			t.Errorf("expected canceled waiter to return context.Canceled, got %v", errs[0])
+		}
+		if errs[1] != nil || errs[2] != nil {
+			t.Errorf("expected remaining concurrent waiters to succeed, got errs[1]=%v errs[2]=%v", errs[1], errs[2])
+		}
+		if checkCalls.Load() != 1 {
+			t.Errorf("expected exactly 1 shared FindUnmigrated call, got %d", checkCalls.Load())
+		}
+
+		// 2. 単独の呼び出し元が切断したときは、進行中の検査コンテキストも即座にキャンセルされる
+		repo2 := (&ContentRepository{}).WithMigrationCheckTimeout(5 * time.Second)
+		scanCanceled := make(chan struct{})
+		store2 := &mockAdminDocStore{
+			findUnmigratedFn: func(ctx context.Context, _ bson.M) (bool, error) {
+				<-ctx.Done()
+				close(scanCanceled)
+				return false, ctx.Err()
+			},
+		}
+		reqCtx, cancelReq := context.WithCancel(context.Background())
+		errCh := make(chan error, 1)
+		go func() {
+			_, err := repo2.listAdminWithStore(reqCtx, store2, AdminListParams{Limit: 10})
+			errCh <- err
+		}()
+		time.Sleep(20 * time.Millisecond)
+		cancelReq()
+		select {
+		case <-scanCanceled:
+		case <-time.After(300 * time.Millisecond):
+			t.Fatal("expected FindUnmigrated context to be canceled when sole client disconnects")
+		}
+		if err := <-errCh; !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected context.Canceled, got %v", err)
 		}
 	})
 
@@ -1074,6 +1192,77 @@ func TestContentRepository_MigrationCheckTimeoutAndStartupCheck(t *testing.T) {
 		}
 		if repo.migrated.Load() {
 			t.Fatal("migrated must stay false when unmigrated doc exists")
+		}
+	})
+}
+
+func TestContentRepository_EnsureIndexesSharedTimeoutAndIsolation(t *testing.T) {
+	t.Run("slow index build outlives short breaker deadline and client cancel without aborting standalone build", func(t *testing.T) {
+		repo := (&ContentRepository{}).
+			WithIndexEnsureTimeout(500 * time.Millisecond).
+			WithMigrationCheckTimeout(500 * time.Millisecond)
+		cat := newMockMongo7IndexCatalog([]existingIndexSpec{
+			{Name: "_id_", Key: bson.D{{Key: "_id", Value: int32(1)}}},
+		})
+		buildFinished := make(chan struct{})
+		cat.createHook = func(ctx context.Context, _ *mockMongo7IndexCatalog, _ []mongo.IndexModel) error {
+			defer close(buildFinished)
+			select {
+			case <-time.After(80 * time.Millisecond):
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		store := &mockAdminDocStore{
+			findUnmigratedFn: func(_ context.Context, _ bson.M) (bool, error) { return false, nil },
+			countFn:          func(_ context.Context, _ bson.M) (int64, error) { return 0, nil },
+			findDocsFn:       func(_ context.Context, _ bson.M, _ bson.D, _ int64) ([]mongoAdminDoc, error) { return nil, nil },
+		}
+
+		// クライアント切断と短いブレーカー期限の双方が起きても、進行中の単一インデックス構築は打ち切られない
+		cancelCtx, cancel := context.WithCancel(context.Background())
+		errCh := make(chan error, 1)
+		go func() {
+			_, err := repo.listAdminWithDeps(cancelCtx, cat, store, AdminListParams{Limit: 10})
+			errCh <- err
+		}()
+
+		shortCtx, shortCancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		defer shortCancel()
+		_, shortErr := repo.listAdminWithDeps(shortCtx, cat, store, AdminListParams{Limit: 10})
+		if !errors.Is(shortErr, context.DeadlineExceeded) {
+			t.Fatalf("expected short breaker ctx to fail with DeadlineExceeded, got %v", shortErr)
+		}
+
+		cancel()
+		if err := <-errCh; !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected canceled request to return context.Canceled, got %v", err)
+		}
+
+		select {
+		case <-buildFinished:
+		case <-time.After(500 * time.Millisecond):
+			t.Fatal("expected shared index build to finish independently")
+		}
+		deadline := time.Now().Add(200 * time.Millisecond)
+		for !repo.indexesEnsured.Load() && time.Now().Before(deadline) {
+			time.Sleep(5 * time.Millisecond)
+		}
+		if !repo.indexesEnsured.Load() {
+			t.Fatal("expected indexesEnsured=true even after client cancel/deadline")
+		}
+		if cat.createCalls != 1 {
+			t.Fatalf("expected exactly 1 CreateMany call across concurrent requests, got %d", cat.createCalls)
+		}
+
+		// 以降の要求は即座に成功する
+		page, err := repo.listAdminWithDeps(context.Background(), cat, store, AdminListParams{Limit: 10})
+		if err != nil {
+			t.Fatalf("subsequent request failed: %v", err)
+		}
+		if len(page.Contents) != 0 || cat.createCalls != 1 {
+			t.Errorf("unexpected result after ensure completed: page=%+v createCalls=%d", page, cat.createCalls)
 		}
 	})
 }

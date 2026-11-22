@@ -64,6 +64,25 @@ async function runContractSuite(get: (pathAndQuery: string) => Promise<QueryResu
     `/api/v1/admin/contents?after=${encodeURIComponent(`${String(validCursor)}+`)}`,
   );
   expect(plusCursor.status).toBe(400);
+
+  // Time cursor v must be a strict int64 JSON literal (reject 1.0, 1e3, 9223372036854775808 like Go json.Unmarshal -> int64)
+  for (const invalidRawJson of [
+    '{"sort":"updated_desc","v":1.0,"id":"s1"}',
+    '{"sort":"updated_desc","v":1e3,"id":"s1"}',
+    '{"sort":"updated_desc","v":9223372036854775808,"id":"s1"}',
+  ]) {
+    const tok = Buffer.from(invalidRawJson, "utf8").toString("base64url");
+    const res = await get(`/api/v1/admin/contents?after=${encodeURIComponent(tok)}`);
+    expect(res.status).toBe(400);
+  }
+
+  // Max int64 boundary (9223372036854775807) is valid for Go int64
+  const maxInt64Tok = Buffer.from(
+    '{"sort":"updated_desc","v":9223372036854775807,"id":"s1"}',
+    "utf8",
+  ).toString("base64url");
+  const maxInt64Res = await get(`/api/v1/admin/contents?after=${encodeURIComponent(maxInt64Tok)}`);
+  expect(maxInt64Res.status).toBe(200);
 }
 
 describe("admin contents API contract parity (MSW & E2E mock-server)", () => {

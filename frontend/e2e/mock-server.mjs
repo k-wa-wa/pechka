@@ -218,19 +218,133 @@ function encodeAdminCursor(sort, item) {
   return Buffer.from(json, "utf8").toString("base64url");
 }
 
+const INT64_MAX_DIGITS = "9223372036854775807";
+const INT64_MIN_ABS_DIGITS = "9223372036854775808";
+
+function extractRawJsonObjectField(jsonText, targetKey) {
+  let i = 0;
+  const n = jsonText.length;
+  const skipWs = () => {
+    while (
+      i < n &&
+      (jsonText[i] === " " || jsonText[i] === "\t" || jsonText[i] === "\r" || jsonText[i] === "\n")
+    ) {
+      i++;
+    }
+  };
+  const readString = () => {
+    if (jsonText[i] !== '"') return null;
+    const start = i++;
+    while (i < n) {
+      const ch = jsonText[i++];
+      if (ch === "\\") {
+        if (i >= n) return null;
+        i++;
+      } else if (ch === '"') {
+        return jsonText.slice(start, i);
+      }
+    }
+    return null;
+  };
+  const skipValue = () => {
+    skipWs();
+    if (i >= n) return null;
+    const start = i;
+    const ch = jsonText[i];
+    if (ch === '"') {
+      if (readString() === null) return null;
+      return jsonText.slice(start, i);
+    }
+    if (ch === "{" || ch === "[") {
+      const open = ch;
+      const close = ch === "{" ? "}" : "]";
+      let depth = 0;
+      while (i < n) {
+        const c = jsonText[i];
+        if (c === '"') {
+          if (readString() === null) return null;
+        } else if (c === open) {
+          depth++;
+          i++;
+        } else if (c === close) {
+          depth--;
+          i++;
+          if (depth === 0) return jsonText.slice(start, i);
+        } else {
+          i++;
+        }
+      }
+      return null;
+    }
+    while (i < n && !",}] \t\r\n".includes(jsonText[i])) {
+      i++;
+    }
+    return jsonText.slice(start, i);
+  };
+
+  skipWs();
+  if (jsonText[i] !== "{") return null;
+  i++;
+  let found = null;
+  while (i < n) {
+    skipWs();
+    if (jsonText[i] === "}") break;
+    const rawKey = readString();
+    if (rawKey === null) return null;
+    const key = JSON.parse(rawKey);
+    skipWs();
+    if (jsonText[i] !== ":") return null;
+    i++;
+    const rawVal = skipValue();
+    if (rawVal === null) return null;
+    if (key === targetKey) {
+      found = rawVal;
+    }
+    skipWs();
+    if (jsonText[i] === ",") {
+      i++;
+    } else if (jsonText[i] === "}") {
+      break;
+    } else {
+      return null;
+    }
+  }
+  return found;
+}
+
+function parseStrictInt64Token(rawToken) {
+  if (rawToken === null || !/^-?(?:0|[1-9][0-9]*)$/.test(rawToken)) {
+    return null;
+  }
+  const negative = rawToken.startsWith("-");
+  const digits = negative ? rawToken.slice(1) : rawToken;
+  const maxDigits = negative ? INT64_MIN_ABS_DIGITS : INT64_MAX_DIGITS;
+  if (
+    digits.length > maxDigits.length ||
+    (digits.length === maxDigits.length && digits > maxDigits)
+  ) {
+    return null;
+  }
+  const num = Number(rawToken);
+  return num === 0 ? 0 : num;
+}
+
 function decodeAdminCursor(token, expectedSort) {
   if (!token || !/^[A-Za-z0-9_-]+$/.test(token) || token.length % 4 === 1) return null;
   try {
     const decoded = Buffer.from(token, "base64url").toString("utf8");
     const parsed = JSON.parse(decoded);
-    if (!parsed || typeof parsed !== "object") return null;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
     if (!VALID_ADMIN_SORTS.has(parsed.sort) || parsed.sort !== expectedSort) return null;
     if (typeof parsed.id !== "string" || parsed.id === "") return null;
     const meta = sortMeta(parsed.sort);
     if (meta.isTitle) {
       if (typeof parsed.v !== "string") return null;
-    } else if (typeof parsed.v !== "number" || !Number.isInteger(parsed.v)) {
-      return null;
+    } else {
+      const rawV = extractRawJsonObjectField(decoded, "v");
+      const int64V = parseStrictInt64Token(rawV);
+      if (int64V === null) return null;
+      parsed.v = int64V;
     }
     return parsed;
   } catch {

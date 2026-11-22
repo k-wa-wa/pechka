@@ -8,9 +8,8 @@ Bloblang 式（mapping / unarchive / document_map / filter_map / switch 分岐�
 from __future__ import annotations
 
 import json
-import re
+import os
 import shutil
-import sqlite3
 import subprocess
 import tempfile
 from pathlib import Path
@@ -18,6 +17,113 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 STREAMS_DIR = ROOT / "k8s" / "base" / "infra" / "benthos" / "streams"
+MIGRATIONS_DIR = ROOT / "k8s" / "base" / "infra" / "postgres" / "migrations"
+
+
+class TempPostgres:
+    def __init__(self, tmpdir: Path) -> None:
+        self.tmpdir = tmpdir
+        self.data_dir = tmpdir / "pgdata"
+        self.sock_dir = tmpdir / "sock"
+        self.log_file = tmpdir / "postgres.log"
+        self.sock_dir.mkdir(parents=True, exist_ok=True)
+
+    def __enter__(self) -> "TempPostgres":
+        subprocess.run(
+            [
+                "initdb",
+                "-D",
+                str(self.data_dir),
+                "-U",
+                "postgres",
+                "-A",
+                "trust",
+                "--encoding=UTF8",
+                "--locale=C",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(
+            [
+                "pg_ctl",
+                "-D",
+                str(self.data_dir),
+                "-l",
+                str(self.log_file),
+                "-o",
+                f"-k {self.sock_dir} -h ''",
+                "start",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        subprocess.run(
+            ["pg_ctl", "-D", str(self.data_dir), "-m", "immediate", "stop"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    def create_db(self, db_name: str) -> None:
+        subprocess.run(
+            ["createdb", "-h", str(self.sock_dir), "-U", "postgres", db_name],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    def psql_file(self, db_name: str, path: Path) -> None:
+        proc = subprocess.run(
+            [
+                "psql",
+                "-h",
+                str(self.sock_dir),
+                "-U",
+                "postgres",
+                "-d",
+                db_name,
+                "-v",
+                "ON_ERROR_STOP=1",
+                "-f",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if proc.returncode != 0:
+            raise AssertionError(f"psql failed for {path}:\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}")
+
+    def psql_query(self, db_name: str, sql: str) -> str:
+        proc = subprocess.run(
+            [
+                "psql",
+                "-h",
+                str(self.sock_dir),
+                "-U",
+                "postgres",
+                "-d",
+                db_name,
+                "-v",
+                "ON_ERROR_STOP=1",
+                "-t",
+                "-A",
+                "-c",
+                sql,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if proc.returncode != 0:
+            raise AssertionError(f"psql query failed:\n{sql}\nSTDERR:\n{proc.stderr}")
+        return proc.stdout.strip()
 
 
 def run_benthos_pipeline(pipeline_cfg: dict, inputs: list[str]) -> list[dict]:
@@ -172,110 +278,66 @@ def test_contents_stream() -> None:
     assert m1_set["deleted_at"] == {"$date": {"$numberLong": "1738544523456"}}
 
 
-def strip_sql_comments(sql: str) -> str:
-    """SQL 内の -- 単行コメントと /* ... */ ブロックコメントを除去する。"""
-    without_block = re.sub(r"/\*.*?\*/", " ", sql, flags=re.DOTALL)
-    return re.sub(r"--[^\n]*", "", without_block)
-
-
-def extract_subtitles_from_where(sql_query: str) -> str:
-    """subtitles.yaml のコメント除去済み SQL から FROM ... WHERE ... 句を抽出する。"""
-    stripped = strip_sql_comments(sql_query)
-    match = re.search(r"\bFROM\s+subtitle_tracks\b.*", stripped, flags=re.IGNORECASE | re.DOTALL)
-    if match is None:
-        raise AssertionError(f"failed to extract FROM/WHERE clause from subtitles sql_raw:\n{sql_query}")
-    return match.group(0).strip().rstrip(";")
-
-
-def query_subtitles_with_sqlite(sql_query: str) -> list[dict]:
+def query_subtitles_with_postgres(sql_query: str) -> list[dict]:
     """
-    subtitles.yaml の実 SQL（コメント除去後）の FROM/WHERE 句を SQLite インメモリ DB で実行し、
-    同期停止から 10 秒以上経過した論理削除済み親の draft トラックが抽出されることを検証する。
+    subtitles.yaml の実 SQL 全文（CASE WHEN ... json_agg / FROM / JOIN / WHERE）を
+    実際の PostgreSQL 16 インスタンスでそのまま実行し、抽出行とキュー本文・順序を検証する。
     """
-    stripped_sql = strip_sql_comments(sql_query)
-    # 本文の集約が配信対象（t.status = 'published' AND c.deleted_at IS NULL）のみに限定されていることを検証
-    assert re.search(
-        r"CASE\s+WHEN\s+t\.status\s*=\s*'published'\s+AND\s+c\.deleted_at\s+IS\s+NULL\s+THEN",
-        stripped_sql,
-        flags=re.IGNORECASE,
-    ), "subtitles sql_raw must aggregate cues only when t.status = 'published' AND c.deleted_at IS NULL"
+    raw_select = sql_query.strip().rstrip(";")
+    with tempfile.TemporaryDirectory() as tmp:
+        with TempPostgres(Path(tmp)) as pg:
+            db = "subtitles_stream_test"
+            pg.create_db(db)
+            for mig in sorted(MIGRATIONS_DIR.glob("*.up.sql")):
+                pg.psql_file(db, mig)
 
-    from_where = extract_subtitles_from_where(sql_query)
-    sqlite_from_where, replaced = re.subn(
-        r"NOW\(\)\s*-\s*INTERVAL\s*'10 seconds'",
-        ":cutoff",
-        from_where,
-        flags=re.IGNORECASE,
-    )
-    assert replaced == 1, f"expected 10 seconds grace window in WHERE clause, got: {from_where}"
+            pg.psql_query(
+                db,
+                """
+                INSERT INTO contents (id, short_id, content_type, channel_id, title, status, deleted_at)
+                VALUES
+                    ('11111111-1111-1111-1111-111111111111', 's-active', 'video', 'bluray', 'Active', 'ready', NULL),
+                    ('22222222-2222-2222-2222-222222222222', 's-deleted', 'video', 'bluray', 'Deleted', 'ready', NOW() - INTERVAL '1 hour');
 
-    conn = sqlite3.connect(":memory:")
-    try:
-        conn.executescript(
-            """
-            CREATE TABLE contents (
-                id TEXT PRIMARY KEY,
-                short_id TEXT NOT NULL,
-                deleted_at TEXT
-            );
-            CREATE TABLE subtitle_tracks (
-                id TEXT PRIMARY KEY,
-                content_id TEXT NOT NULL,
-                language TEXT NOT NULL,
-                status TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-            """
-        )
-        conn.executemany(
-            "INSERT INTO contents (id, short_id, deleted_at) VALUES (?, ?, ?)",
-            [
-                ("c-active", "s-active", None),
-                ("c-deleted", "s-deleted", "2025-02-03T01:02:03.456Z"),
-            ],
-        )
-        cutoff = "2025-02-03T02:00:00Z"
-        # 10秒猶予境界の外（1時間前）と内（2秒後）のレコードを混在させる
-        old_ts = "2025-02-03T01:00:00Z"
-        recent_ts = "2025-02-03T02:00:02Z"
-        conn.executemany(
-            "INSERT INTO subtitle_tracks (id, content_id, language, status, updated_at) VALUES (?, ?, ?, ?, ?)",
-            [
-                ("t-pub-active", "c-active", "ja", "published", old_ts),
-                ("t-draft-active-old", "c-active", "en", "draft", old_ts),
-                ("t-draft-active-recent", "c-active", "fr", "draft", recent_ts),
-                ("t-pub-deleted-old", "c-deleted", "ja", "published", old_ts),
-                ("t-draft-deleted-old", "c-deleted", "en", "draft", old_ts),
-            ],
-        )
+                INSERT INTO subtitle_tracks (id, content_id, language, status, updated_at)
+                VALUES
+                    ('aaaa1111-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 'ja', 'published', NOW() - INTERVAL '1 hour'),
+                    ('aaaa2222-2222-2222-2222-222222222222', '11111111-1111-1111-1111-111111111111', 'en', 'draft', NOW() - INTERVAL '1 hour'),
+                    ('aaaa3333-3333-3333-3333-333333333333', '11111111-1111-1111-1111-111111111111', 'fr', 'draft', NOW() - INTERVAL '1 second'),
+                    ('bbbb1111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', 'ja', 'published', NOW() - INTERVAL '1 hour'),
+                    ('bbbb2222-2222-2222-2222-222222222222', '22222222-2222-2222-2222-222222222222', 'en', 'draft', NOW() - INTERVAL '1 hour');
 
-        select_sql = (
-            "SELECT c.short_id, t.language, t.status, c.deleted_at, '[]' AS cues "
-            + sqlite_from_where
-        )
-        cur = conn.execute(select_sql, {"cutoff": cutoff})
-        extracted = []
-        for short_id, language, status, deleted_at, cues in cur.fetchall():
-            if short_id == "s-active" and language == "ja":
-                cues = '[{"start_ms":0,"end_ms":1000,"text":"hi"}]'
-            extracted.append(
-                {
-                    "short_id": short_id,
-                    "language": language,
-                    "status": status,
-                    "deleted_at": deleted_at,
-                    "cues": cues,
-                }
+                INSERT INTO subtitle_cues (id, track_id, seq, start_ms, end_ms, text, original_text)
+                VALUES
+                    ('00000000-0000-0000-0000-000000000002', 'aaaa1111-1111-1111-1111-111111111111', 2, 2000, 3000, 'third', 'third'),
+                    ('00000000-0000-0000-0000-000000000001', 'aaaa1111-1111-1111-1111-111111111111', 1, 1000, 1500, 'second', 'second'),
+                    ('00000000-0000-0000-0000-000000000003', 'aaaa1111-1111-1111-1111-111111111111', 0, 0, 900, 'first', 'first'),
+                    ('00000000-0000-0000-0000-000000000004', 'aaaa2222-2222-2222-2222-222222222222', 0, 0, 1000, 'old-draft-hidden', 'old-draft-hidden'),
+                    ('00000000-0000-0000-0000-000000000005', 'aaaa3333-3333-3333-3333-333333333333', 0, 0, 1000, 'recent-draft-must-clear', 'recent-draft-must-clear'),
+                    ('00000000-0000-0000-0000-000000000006', 'bbbb1111-1111-1111-1111-111111111111', 0, 0, 1000, 'deleted-pub-must-clear', 'deleted-pub-must-clear'),
+                    ('00000000-0000-0000-0000-000000000007', 'bbbb2222-2222-2222-2222-222222222222', 0, 0, 1000, 'deleted-draft-must-clear', 'deleted-draft-must-clear');
+                """,
             )
-        return extracted
-    finally:
-        conn.close()
+
+            wrapper_sql = (
+                "SELECT COALESCE("
+                "json_agg(json_build_object("
+                "'short_id', q.short_id, "
+                "'language', q.language, "
+                "'status', q.status, "
+                "'deleted_at', q.deleted_at, "
+                "'cues', q.cues::text"
+                ")), '[]'::json) "
+                f"FROM ({raw_select}) q;"
+            )
+            raw_json = pg.psql_query(db, wrapper_sql)
+            return json.loads(raw_json)
 
 
 def test_subtitles_stream() -> None:
     cfg = yaml.safe_load((STREAMS_DIR / "subtitles.yaml").read_text(encoding="utf-8"))
     sql_query = cfg["pipeline"]["processors"][0]["sql_raw"]["query"]
-    extracted_rows = query_subtitles_with_sqlite(sql_query)
+    extracted_rows = query_subtitles_with_postgres(sql_query)
     extracted_ids = {f"{r['short_id']}:{r['language']}" for r in extracted_rows}
     assert extracted_ids == {
         "s-active:ja",
@@ -345,15 +407,22 @@ def test_subtitles_stream() -> None:
         by_id[doc_id] = out
 
     assert by_id["s-active:ja"]["op"] == "update-one"
-    assert by_id["s-active:ja"]["doc"]["$set"]["cues"] == [{"start_ms": 0, "end_ms": 1000, "text": "hi"}]
+    assert by_id["s-active:ja"]["doc"]["$set"]["cues"] == [
+        {"start_ms": 0, "end_ms": 900, "text": "first"},
+        {"start_ms": 1000, "end_ms": 1500, "text": "second"},
+        {"start_ms": 2000, "end_ms": 3000, "text": "third"},
+    ]
     assert by_id["s-active:fr"] == {"op": "delete-one", "filter": {"_id": "s-active:fr"}}
     assert by_id["s-deleted:ja"] == {"op": "delete-one", "filter": {"_id": "s-deleted:ja"}}
     assert by_id["s-deleted:en"] == {"op": "delete-one", "filter": {"_id": "s-deleted:en"}}
 
 
 def main() -> int:
-    if shutil.which("benthos") is None:
-        raise RuntimeError("benthos command is required in PATH (run inside k8s/lint.sh nix-shell)")
+    for cmd in ("benthos", "initdb", "pg_ctl", "createdb", "psql"):
+        if shutil.which(cmd) is None:
+            raise RuntimeError(f"{cmd} is required in PATH (run inside k8s/lint.sh nix-shell)")
+    if os.geteuid() == 0:
+        raise RuntimeError("PostgreSQL initdb cannot run as root")
     test_contents_stream()
     test_subtitles_stream()
     print("OK: Benthos contents.yaml and subtitles.yaml Bloblang mappings & switch routing verified.")

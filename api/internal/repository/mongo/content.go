@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -24,21 +25,143 @@ var (
 	ErrInvalidCursor       = errors.New("invalid cursor")
 )
 
+const (
+	defaultIndexEnsureTimeout    = 30 * time.Second
+	defaultMigrationCheckTimeout = 5 * time.Second
+)
+
+type flightState struct {
+	done                chan struct{}
+	err                 error
+	cancel              context.CancelFunc
+	activeWaiters       int
+	keepAliveOnDeadline bool
+}
+
+type sharedOnceFlight struct {
+	mu       sync.Mutex
+	inFlight *flightState
+}
+
+// run はプロセス内で同時に 1 つだけ fn を実行し、成功時に doneFlag を立てる。
+// cancelOnAllClientsCanceled が true の場合、全待機者が context.Canceled（クライアント切断）で
+// 抜けた時点で進行中ジョブをキャンセルする。context.DeadlineExceeded（ブレーカー期限切れ等）で
+// 抜けた呼び出し元がある場合は、独立期限 timeout まで裏で完了を継続する。
+func (f *sharedOnceFlight) run(
+	ctx context.Context,
+	doneFlag *atomic.Bool,
+	timeout time.Duration,
+	cancelOnAllClientsCanceled bool,
+	fn func(jobCtx context.Context) error,
+) error {
+	if doneFlag.Load() {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	f.mu.Lock()
+	if doneFlag.Load() {
+		f.mu.Unlock()
+		return nil
+	}
+	state := f.inFlight
+	if state == nil {
+		jobCtx, cancel := context.WithTimeout(context.Background(), timeout)
+		state = &flightState{
+			done:   make(chan struct{}),
+			cancel: cancel,
+		}
+		f.inFlight = state
+		go func(s *flightState) {
+			err := fn(jobCtx)
+			cancel()
+			if err == nil {
+				doneFlag.Store(true)
+			}
+			s.err = err
+			f.mu.Lock()
+			if f.inFlight == s {
+				f.inFlight = nil
+			}
+			f.mu.Unlock()
+			close(s.done)
+		}(state)
+	}
+	state.activeWaiters++
+	f.mu.Unlock()
+
+	select {
+	case <-state.done:
+		f.mu.Lock()
+		state.activeWaiters--
+		f.mu.Unlock()
+		if state.err != nil {
+			return state.err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return nil
+	case <-ctx.Done():
+		f.mu.Lock()
+		state.activeWaiters--
+		if cancelOnAllClientsCanceled {
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				state.keepAliveOnDeadline = true
+			}
+			if state.activeWaiters == 0 && !state.keepAliveOnDeadline {
+				state.cancel()
+			}
+		}
+		f.mu.Unlock()
+		return ctx.Err()
+	}
+}
+
 type ContentRepository struct {
 	col                   *mongo.Collection
 	indexesEnsured        atomic.Bool
 	migrated              atomic.Bool
+	indexEnsureTimeout    time.Duration
 	migrationCheckTimeout time.Duration
+	indexFlight           sharedOnceFlight
+	migrationFlight       sharedOnceFlight
 }
 
 func NewContentRepository(db *mongo.Database) *ContentRepository {
-	return &ContentRepository{col: db.Collection("contents")}
+	return &ContentRepository{
+		col:                   db.Collection("contents"),
+		indexEnsureTimeout:    defaultIndexEnsureTimeout,
+		migrationCheckTimeout: defaultMigrationCheckTimeout,
+	}
+}
+
+// WithIndexEnsureTimeout はインデックス構築・確認に独立したタイムアウトを設定する。
+func (r *ContentRepository) WithIndexEnsureTimeout(d time.Duration) *ContentRepository {
+	r.indexEnsureTimeout = d
+	return r
 }
 
 // WithMigrationCheckTimeout は未移行データ初回検査に独立したタイムアウトを設定する。
 func (r *ContentRepository) WithMigrationCheckTimeout(d time.Duration) *ContentRepository {
 	r.migrationCheckTimeout = d
 	return r
+}
+
+func (r *ContentRepository) effectiveIndexEnsureTimeout() time.Duration {
+	if r.indexEnsureTimeout > 0 {
+		return r.indexEnsureTimeout
+	}
+	return defaultIndexEnsureTimeout
+}
+
+func (r *ContentRepository) effectiveMigrationCheckTimeout() time.Duration {
+	if r.migrationCheckTimeout > 0 {
+		return r.migrationCheckTimeout
+	}
+	return defaultMigrationCheckTimeout
 }
 
 type ListParams struct {
@@ -474,7 +597,15 @@ func (r *ContentRepository) EnsureIndexes(ctx context.Context) error {
 	if r.col == nil {
 		return errors.New("mongo collection is nil")
 	}
-	return r.ensureIndexesWithManager(ctx, mongoAdminIndexManager{col: r.col})
+	return r.ensureIndexesShared(ctx, mongoAdminIndexManager{col: r.col})
+}
+
+func (r *ContentRepository) ensureIndexesShared(ctx context.Context, mgr adminIndexManager) error {
+	// 単相ビルドやレプリカ間構築がクライアント切断や300msブレーカー期限で途中打ち切りにならないよう、
+	// プロセス内で1つの独立期限ジョブに集約して裏で完了まで継続させる。
+	return r.indexFlight.run(ctx, &r.indexesEnsured, r.effectiveIndexEnsureTimeout(), false, func(jobCtx context.Context) error {
+		return r.ensureIndexesWithManager(jobCtx, mgr)
+	})
 }
 
 func findReusablePlainIndex(existing []existingIndexSpec, desiredName string, desiredKeys bson.D) (existingIndexSpec, bool) {
@@ -861,7 +992,13 @@ func (r *ContentRepository) CheckMigrated(ctx context.Context) error {
 	if r.col == nil {
 		return errors.New("mongo collection is nil")
 	}
-	return r.checkMigratedWithStore(ctx, &mongoCollectionAdminStore{col: r.col})
+	return r.checkMigratedShared(ctx, &mongoCollectionAdminStore{col: r.col})
+}
+
+func (r *ContentRepository) checkMigratedShared(ctx context.Context, store adminDocStore) error {
+	return r.migrationFlight.run(ctx, &r.migrated, r.effectiveMigrationCheckTimeout(), true, func(jobCtx context.Context) error {
+		return r.checkMigratedWithStore(jobCtx, store)
+	})
 }
 
 func (r *ContentRepository) checkMigratedWithStore(ctx context.Context, store adminDocStore) error {
@@ -884,12 +1021,16 @@ func (r *ContentRepository) ListAdmin(ctx context.Context, params AdminListParam
 	if r.col == nil {
 		return nil, errors.New("mongo collection is nil")
 	}
+	return r.listAdminWithDeps(ctx, mongoAdminIndexManager{col: r.col}, &mongoCollectionAdminStore{col: r.col}, params)
+}
+
+func (r *ContentRepository) listAdminWithDeps(ctx context.Context, mgr adminIndexManager, store adminDocStore, params AdminListParams) (*domain.AdminContentPage, error) {
 	if !r.indexesEnsured.Load() {
-		if err := r.EnsureIndexes(ctx); err != nil {
+		if err := r.ensureIndexesShared(ctx, mgr); err != nil {
 			return nil, err
 		}
 	}
-	return r.listAdminWithStore(ctx, &mongoCollectionAdminStore{col: r.col}, params)
+	return r.listAdminWithStore(ctx, store, params)
 }
 
 func (r *ContentRepository) listAdminWithStore(ctx context.Context, store adminDocStore, params AdminListParams) (*domain.AdminContentPage, error) {
@@ -914,16 +1055,7 @@ func (r *ContentRepository) listAdminWithStore(ctx context.Context, store adminD
 	}
 
 	if !r.migrated.Load() {
-		checkCtx := ctx
-		var cancelCheck context.CancelFunc
-		if r.migrationCheckTimeout > 0 {
-			checkCtx, cancelCheck = context.WithTimeout(context.WithoutCancel(ctx), r.migrationCheckTimeout)
-		}
-		err := r.checkMigratedWithStore(checkCtx, store)
-		if cancelCheck != nil {
-			cancelCheck()
-		}
-		if err != nil {
+		if err := r.checkMigratedShared(ctx, store); err != nil {
 			return nil, err
 		}
 	}

@@ -10,11 +10,15 @@ on:
       - 'k8s/**'
       - '.yamllint'
       - '.github/workflows/k8s.yml'
+      - 'scripts/test-benthos-streams.py'
+      - 'scripts/test-postgres-migrations.py'
   pull_request:
     paths:
       - 'k8s/**'
       - '.yamllint'
       - '.github/workflows/k8s.yml'
+      - 'scripts/test-benthos-streams.py'
+      - 'scripts/test-postgres-migrations.py'
 
 jobs:
   lint-k8s:

@@ -111,7 +111,9 @@ func main() {
 	pgChannel := pgRepo.NewChannelRepository(pgPool)
 	pgDisc := pgRepo.NewDiscRepository(pgPool)
 	pgSubtitle := pgRepo.NewSubtitleRepository(pgPool)
-	mgContent := mongoRepo.NewContentRepository(mongoDB).WithMigrationCheckTimeout(5 * time.Second)
+	mgContent := mongoRepo.NewContentRepository(mongoDB).
+		WithIndexEnsureTimeout(30 * time.Second).
+		WithMigrationCheckTimeout(5 * time.Second)
 	mgSubtitle := mongoRepo.NewSubtitleRepository(mongoDB)
 	esContent := elasticRepo.NewContentRepository(esClient)
 
