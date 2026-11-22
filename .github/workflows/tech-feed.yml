@@ -96,7 +96,7 @@ jobs:
           npm ci
 
   # 本番は :latest のイメージを使う。PR から push するとマージ前に本番のイメージが
-  # PR の内容に置き換わるため、push (master・タグ) のときだけ動かす。
+  # PR の内容に置き換わるため、master への push 時のみ動かす（共通 docker-build-push.yml の条件によりタグ push 時はスキップされる）。
   push-image:
     name: Push Image
     if: github.event_name == 'push'

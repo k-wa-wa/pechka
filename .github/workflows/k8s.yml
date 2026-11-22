@@ -41,31 +41,4 @@ jobs:
         uses: DeterminateSystems/nix-installer-action@v14
 
       - name: Run pechka-specific K8s and DB checks
-        run: |
-          nix-shell -p benthos kustomize kubeconform pluto python3Packages.pyyaml postgresql_16 -I nixpkgs=channel:nixpkgs-unstable --run '
-            set -euo pipefail
-            python3 scripts/check-k8s-env-vars.py
-            python3 scripts/test-benthos-streams.py
-            python3 scripts/test-postgres-migrations.py
-
-            PROD_MANIFESTS=$(mktemp --suffix=.yaml)
-            trap "rm -f \"$PROD_MANIFESTS\"" EXIT
-            kustomize build k8s/overlays/prod > "$PROD_MANIFESTS"
-            if grep -qF "s3-fallback-endpoint: minio:9000" "$PROD_MANIFESTS"; then
-              echo "❌ prod pechka-config has unresolved base fallback endpoint minio:9000!"
-              exit 1
-            fi
-            if grep -qF "s3-endpoint: minio:9000" "$PROD_MANIFESTS"; then
-              echo "❌ prod pechka-config has unresolved base endpoint minio:9000!"
-              exit 1
-            fi
-
-            SECRET_MANIFESTS=$(mktemp --suffix=.yaml)
-            trap "rm -f \"$PROD_MANIFESTS\" \"$SECRET_MANIFESTS\"" EXIT
-            kustomize build k8s/overlays/preview-secret > "$SECRET_MANIFESTS"
-            kubeconform -summary -strict -ignore-missing-schemas \
-              -schema-location default \
-              -schema-location "https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
-              "$SECRET_MANIFESTS"
-            pluto detect "$SECRET_MANIFESTS"
-          '
+        run: ./k8s/lint.sh --only-pechka
