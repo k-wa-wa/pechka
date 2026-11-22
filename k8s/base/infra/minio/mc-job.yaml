@@ -48,6 +48,13 @@ spec:
       containers:
         - name: s3-setup
           image: curlimages/curl:latest
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
           env:
             - name: S3_ENDPOINT
               valueFrom:

@@ -7,11 +7,11 @@
     "render": "remotion render src/index.ts"
   },
   "dependencies": {
-    "@remotion/cli": "4.0.503",
+    "@remotion/cli": "4.0.545",
     "mermaid": "^11",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "remotion": "4.0.503"
+    "remotion": "4.0.545"
   },
   "devDependencies": {
     "@types/react": "^19",

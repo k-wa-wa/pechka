@@ -5,6 +5,14 @@ metadata:
   namespace: pechka
   labels:
     app.kubernetes.io/name: aivisspeech
+  annotations:
+    keel.sh/policy: force
+    keel.sh/trigger: poll
+    keel.sh/pollSchedule: "@every 2m"
+    keel.sh/monitorContainers: "aivisspeech"
+    keel.sh/matchTag: "true"
+    # 日次バッチ用エンジンでメモリ上限 4Gi のため単一稼働前提とし、HA ポリシーを除外する
+    nuage.io/ignore-ha: "true"
 spec:
   replicas: 1
   selector:
@@ -18,6 +26,7 @@ spec:
       containers:
         - name: aivisspeech
           image: ghcr.io/k-wa-wa/pechka/aivisspeech-engine:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 10101
               name: http

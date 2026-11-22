@@ -5,6 +5,12 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: vrt-report
+  annotations:
+    keel.sh/policy: force
+    keel.sh/trigger: poll
+    keel.sh/pollSchedule: "@every 2m"
+    keel.sh/monitorContainers: "vrt-report"
+    keel.sh/matchTag: "true"
 spec:
   replicas: 1
   selector:
@@ -43,6 +49,14 @@ spec:
               port: 8080
             initialDelaySeconds: 3
             periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /vrt-report/
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
           resources:
             requests:
               cpu: 10m

@@ -49,6 +49,13 @@ spec:
       containers:
         - name: migrate
           image: postgres:16
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
           command:
             - sh
             - -c

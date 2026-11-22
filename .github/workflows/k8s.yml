@@ -21,8 +21,17 @@ on:
       - 'scripts/test-postgres-migrations.py'
 
 jobs:
-  lint-k8s:
-    name: Lint K8s Manifests
+  validate-k8s:
+    name: Validate K8s Manifests
+    uses: k-wa-wa/nuage-workspace/.github/workflows/k8s-validate.yml@master
+    with:
+      yamllint-path: "k8s"
+      prod-overlays: "k8s/overlays/prod"
+      preview-overlays: "k8s/overlays/preview"
+      fail-on-policy: true
+
+  validate-pechka-specific:
+    name: Validate Pechka Specific Checks
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
@@ -31,5 +40,5 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v14
 
-      - name: Run k8s/lint.sh
-        run: ./k8s/lint.sh
+      - name: Run pechka-specific K8s and DB checks
+        run: ./k8s/lint.sh --only-pechka
