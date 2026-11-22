@@ -1,20 +1,29 @@
 package main
 
 import (
+	"context"
+	"errors"
+	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/minio/minio-go/v7"
 )
 
 func TestBuildPlaylist(t *testing.T) {
+	now := time.Now()
 	t.Run("single item", func(t *testing.T) {
 		rows := []contentRow{
 			{
 				shortID:     "abc1",
 				title:       "Video 1",
-				publishedAt: time.Now(),
+				publishedAt: &now,
 			},
 		}
 		pl := buildPlaylist(rows)
@@ -24,8 +33,16 @@ func TestBuildPlaylist(t *testing.T) {
 		if expected := "#EXTINF:-1,Video 1\n"; !contains(pl, expected) {
 			t.Errorf("expected playlist to contain %s, got: %s", expected, pl)
 		}
-		if expected := "resources/hls/abc1/master.m3u8\n"; !contains(pl, expected) {
+		if expected := "abc1/master.m3u8\n"; !contains(pl, expected) {
 			t.Errorf("expected playlist to contain %s, got: %s", expected, pl)
+		}
+		baseURL, _ := url.Parse("https://pechka.example/resources/hls/latest.m3u8")
+		ref, err := url.Parse("abc1/master.m3u8")
+		if err != nil {
+			t.Fatalf("parse ref: %v", err)
+		}
+		if gotPath := baseURL.ResolveReference(ref).Path; gotPath != "/resources/hls/abc1/master.m3u8" {
+			t.Errorf("resolved path = %q, want /resources/hls/abc1/master.m3u8", gotPath)
 		}
 	})
 
@@ -38,16 +55,18 @@ func TestBuildPlaylist(t *testing.T) {
 	})
 
 	t.Run("multiple items and special characters", func(t *testing.T) {
+		t1 := time.Now()
+		t2 := t1.Add(-1 * time.Hour)
 		rows := []contentRow{
 			{
 				shortID:     "id-001",
 				title:       "タイトル: 日本語 / 特殊文字 & < > \" '",
-				publishedAt: time.Now(),
+				publishedAt: &t1,
 			},
 			{
 				shortID:     "id-002",
 				title:       "Commas, and quotes \"here\"",
-				publishedAt: time.Now().Add(-1 * time.Hour),
+				publishedAt: &t2,
 			},
 		}
 		pl := buildPlaylist(rows)
@@ -55,25 +74,25 @@ func TestBuildPlaylist(t *testing.T) {
 		if !strings.HasPrefix(pl, expectedStart) {
 			t.Errorf("expected playlist to start with %q, got: %s", expectedStart, pl)
 		}
-		if !contains(pl, "#EXTINF:-1,タイトル: 日本語 / 特殊文字 & < > \" '\nresources/hls/id-001/master.m3u8\n") {
+		if !contains(pl, "#EXTINF:-1,タイトル: 日本語 / 特殊文字 & < > \" '\nid-001/master.m3u8\n") {
 			t.Errorf("playlist missing first item, got: %s", pl)
 		}
-		if !contains(pl, "#EXTINF:-1,Commas, and quotes \"here\"\nresources/hls/id-002/master.m3u8\n") {
+		if !contains(pl, "#EXTINF:-1,Commas, and quotes \"here\"\nid-002/master.m3u8\n") {
 			t.Errorf("playlist missing second item, got: %s", pl)
 		}
 	})
 
-	t.Run("title with embedded newlines", func(t *testing.T) {
+	t.Run("title with embedded newlines is sanitized to single line", func(t *testing.T) {
+		t1 := time.Now()
 		rows := []contentRow{
 			{
 				shortID:     "id-newline",
-				title:       "Line 1\nLine 2",
-				publishedAt: time.Now(),
+				title:       "Line 1\n#EXT-X-KEY:METHOD=AES-128\r\nLine 2\rLine 3",
+				publishedAt: &t1,
 			},
 		}
 		pl := buildPlaylist(rows)
-		// Currently buildPlaylist formats title directly with %s, so newlines are preserved across lines
-		expected := "#EXTM3U\n#EXTINF:-1,Line 1\nLine 2\nresources/hls/id-newline/master.m3u8\n"
+		expected := "#EXTM3U\n#EXTINF:-1,Line 1 #EXT-X-KEY:METHOD=AES-128 Line 2 Line 3\nid-newline/master.m3u8\n"
 		if pl != expected {
 			t.Errorf("expected %q, got %q", expected, pl)
 		}
@@ -157,4 +176,199 @@ func TestMustGetenv(t *testing.T) {
 
 func contains(s, substr string) bool {
 	return strings.Contains(s, substr)
+}
+
+type mockPlaylistRows struct {
+	items []contentRow
+	idx   int
+}
+
+func (r *mockPlaylistRows) Next() bool {
+	if r.idx < len(r.items) {
+		r.idx++
+		return true
+	}
+	return false
+}
+
+func (r *mockPlaylistRows) Scan(dest ...any) error {
+	item := r.items[r.idx-1]
+	*(dest[0].(*string)) = item.shortID
+	*(dest[1].(*string)) = item.title
+	*(dest[2].(**time.Time)) = item.publishedAt
+	return nil
+}
+
+func (r *mockPlaylistRows) Err() error { return nil }
+func (r *mockPlaylistRows) Close()     {}
+
+type mockPlaylistTx struct {
+	events *[]string
+	items  []contentRow
+}
+
+func (tx *mockPlaylistTx) Exec(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	if strings.Contains(sql, "pg_advisory_xact_lock") {
+		if len(args) != 1 || args[0] != latestPlaylistLockKey {
+			return pgconn.CommandTag{}, errors.New("unexpected lock key")
+		}
+		*tx.events = append(*tx.events, "lock")
+	}
+	return pgconn.CommandTag{}, nil
+}
+
+func (tx *mockPlaylistTx) Query(_ context.Context, sql string, args ...any) (playlistRows, error) {
+	if sql != latestPlaylistQuery {
+		return nil, errors.New("unexpected query")
+	}
+	if len(args) != 1 || args[0] != latestPlaylistLimit {
+		return nil, errors.New("unexpected limit")
+	}
+	*tx.events = append(*tx.events, "query")
+	return &mockPlaylistRows{items: tx.items}, nil
+}
+
+func (tx *mockPlaylistTx) Commit(_ context.Context) error {
+	*tx.events = append(*tx.events, "commit")
+	return nil
+}
+
+func (tx *mockPlaylistTx) Rollback(_ context.Context) error {
+	*tx.events = append(*tx.events, "rollback")
+	return nil
+}
+
+type mockBeginner struct {
+	tx      *mockPlaylistTx
+	gotOpts pgx.TxOptions
+	events  *[]string
+}
+
+func (b *mockBeginner) BeginTx(_ context.Context, txOptions pgx.TxOptions) (playlistTx, error) {
+	b.gotOpts = txOptions
+	*b.events = append(*b.events, "begin")
+	return b.tx, nil
+}
+
+type mockUploader struct {
+	events   *[]string
+	uploaded string
+	err      error
+}
+
+func (u *mockUploader) PutObject(_ context.Context, bucketName, objectName string, reader io.Reader, _ int64, opts minio.PutObjectOptions) (minio.UploadInfo, error) {
+	*u.events = append(*u.events, "put")
+	if u.err != nil {
+		return minio.UploadInfo{}, u.err
+	}
+	data, _ := io.ReadAll(reader)
+	u.uploaded = string(data)
+	if bucketName != "test-bucket" || objectName != latestPlaylistKey || opts.ContentType != "application/vnd.apple.mpegurl" {
+		return minio.UploadInfo{}, errors.New("unexpected PutObject arguments")
+	}
+	return minio.UploadInfo{}, nil
+}
+
+func TestRefreshPlaylist_LockOrderAndNullPublishedAt(t *testing.T) {
+	if latestPlaylistLockKey != 0x706563686b610001 {
+		t.Fatalf("unexpected lock key: %x", latestPlaylistLockKey)
+	}
+	if !strings.Contains(latestPlaylistQuery, "c.deleted_at IS NULL") ||
+		!strings.Contains(latestPlaylistQuery, "c.archived_at IS NULL") ||
+		!strings.Contains(latestPlaylistQuery, "video_variants v") ||
+		!strings.Contains(latestPlaylistQuery, "v.variant_type = 'master'") ||
+		!strings.Contains(latestPlaylistQuery, "ORDER BY c.published_at DESC NULLS LAST, c.updated_at DESC, c.short_id ASC") {
+		t.Fatalf("unexpected latestPlaylistQuery: %s", latestPlaylistQuery)
+	}
+	if strings.Index(latestPlaylistQuery, "v.variant_type = 'master'") > strings.Index(latestPlaylistQuery, "LIMIT $1") {
+		t.Fatalf("latestPlaylistQuery must filter master variant before LIMIT: %s", latestPlaylistQuery)
+	}
+
+	now := time.Now().UTC()
+	events := []string{}
+	beginner := &mockBeginner{
+		events: &events,
+		tx: &mockPlaylistTx{
+			events: &events,
+			items: []contentRow{
+				{shortID: "s1", title: "With PublishedAt", publishedAt: &now},
+				{shortID: "s2", title: "Null PublishedAt", publishedAt: nil},
+			},
+		},
+	}
+	uploader := &mockUploader{events: &events}
+
+	count, err := refreshPlaylist(context.Background(), beginner, uploader, "test-bucket")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("expected count 2, got %d", count)
+	}
+	if beginner.gotOpts.IsoLevel != pgx.ReadCommitted {
+		t.Errorf("expected ReadCommitted isolation, got %v", beginner.gotOpts.IsoLevel)
+	}
+	wantOrder := "begin,lock,query,put,commit,rollback"
+	if got := strings.Join(events, ","); got != wantOrder {
+		t.Errorf("execution order = %q, want %q", got, wantOrder)
+	}
+	wantBody := "#EXTM3U\n#EXTINF:-1,With PublishedAt\ns1/master.m3u8\n#EXTINF:-1,Null PublishedAt\ns2/master.m3u8\n"
+	if uploader.uploaded != wantBody {
+		t.Errorf("uploaded playlist = %q, want %q", uploader.uploaded, wantBody)
+	}
+
+	// PutObject failure rolls back without commit
+	failEvents := []string{}
+	failBeginner := &mockBeginner{
+		events: &failEvents,
+		tx: &mockPlaylistTx{
+			events: &failEvents,
+			items:  []contentRow{{shortID: "s1", title: "V1"}},
+		},
+	}
+	failUploader := &mockUploader{events: &failEvents, err: errors.New("upload failed")}
+	if _, err := refreshPlaylist(context.Background(), failBeginner, failUploader, "test-bucket"); err == nil {
+		t.Fatal("expected error on upload failure")
+	}
+	if got := strings.Join(failEvents, ","); got != "begin,lock,query,put,rollback" {
+		t.Errorf("fail execution order = %q", got)
+	}
+}
+
+type blockingUploader struct {
+	events      *[]string
+	hasDeadline bool
+}
+
+func (u *blockingUploader) PutObject(ctx context.Context, _, _ string, _ io.Reader, _ int64, _ minio.PutObjectOptions) (minio.UploadInfo, error) {
+	_, u.hasDeadline = ctx.Deadline()
+	*u.events = append(*u.events, "put_wait")
+	<-ctx.Done()
+	return minio.UploadInfo{}, ctx.Err()
+}
+
+func TestRefreshPlaylistWithTimeout_DeadlineReleasesLock(t *testing.T) {
+	if latestPlaylistTimeout <= 0 {
+		t.Fatalf("latestPlaylistTimeout must be positive, got %v", latestPlaylistTimeout)
+	}
+	events := []string{}
+	beginner := &mockBeginner{
+		events: &events,
+		tx: &mockPlaylistTx{
+			events: &events,
+			items:  []contentRow{{shortID: "s1", title: "V1"}},
+		},
+	}
+	uploader := &blockingUploader{events: &events}
+
+	_, err := refreshPlaylistWithTimeout(context.Background(), beginner, uploader, "test-bucket", 20*time.Millisecond)
+	if !uploader.hasDeadline {
+		t.Fatal("expected uploader context to have a deadline")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context.DeadlineExceeded, got %v", err)
+	}
+	if got := strings.Join(events, ","); got != "begin,lock,query,put_wait,rollback" {
+		t.Errorf("expected rollback without commit on deadline, got %q", got)
+	}
 }

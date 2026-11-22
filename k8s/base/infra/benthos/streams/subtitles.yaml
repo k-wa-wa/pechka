@@ -1,12 +1,10 @@
 # 字幕は published のトラックのみ配信用の subtitles コレクションに同期する。
-# draft（未レビュー）のトラックは同期対象から外れる（＝視聴者には見えない）ことで、
-# 公開ゲートを兼ねる。draft に戻された場合は delete-one で既存ドキュメントを削除する。
+# draft（未レビュー）のトラックや、親コンテンツが論理削除済み（c.deleted_at IS NOT NULL）のトラックは
+# delete-one で既存ドキュメントを削除することで非配信にする。
 #
-# 既知の制約: このJOINは subtitle_tracks が存在する行しか拾えないため、
-# コンテンツ自体が削除されて subtitle_tracks が ON DELETE CASCADE で消えた場合、
-# 対応する delete-one が一度も発行されず MongoDB 側にドキュメントが残り続ける
-# （既存の contents.yaml ストリームも同種の限界を抱えている、ポーリング型CDC共通の制約）。
-# 真に解決するには論理レプリケーション等の real CDC への切り替えが必要で、v1のスコープ外とする。
+# 既知の制約: 親コンテンツの削除は contents.deleted_at による論理削除へ移行したため、
+# c.deleted_at IS NOT NULL を条件に含めることでステータス（draft含む）や経過時間によらず delete-one を発行できる。
+# 一方、subtitle_tracks 行自体が物理削除された場合のみポーリング型CDC共通の制約が残る。
 input:
   generate:
     mapping: 'root = {}'
@@ -22,22 +20,28 @@ pipeline:
               c.short_id,
               t.language,
               t.status,
-              COALESCE(
-                  (SELECT json_agg(json_build_object(
-                      'start_ms', cu.start_ms,
-                      'end_ms', cu.end_ms,
-                      'text', cu.text
-                   ) ORDER BY cu.seq, cu.start_ms, cu.id)
-                   FROM subtitle_cues cu
-                   WHERE cu.track_id = t.id
-                  ), '[]'::json
-              ) AS cues
+              c.deleted_at,
+              CASE
+                  WHEN t.status = 'published' AND c.deleted_at IS NULL THEN
+                      COALESCE(
+                          (SELECT json_agg(json_build_object(
+                              'start_ms', cu.start_ms,
+                              'end_ms', cu.end_ms,
+                              'text', cu.text
+                           ) ORDER BY cu.seq, cu.start_ms, cu.id)
+                           FROM subtitle_cues cu
+                           WHERE cu.track_id = t.id
+                          ), '[]'::json
+                      )
+                  ELSE '[]'::json
+              END AS cues
           FROM subtitle_tracks t
           JOIN contents c ON c.id = t.content_id
-          -- published は常に対象、draft はステータス変更直後の短い猶予期間のみ対象にする。
-          -- こうしないと draft トラックに対して2秒おきに delete-one が永続的に送られ続けてしまう
+          -- published および親が論理削除済み（c.deleted_at IS NOT NULL）のトラックは常に対象、
+          -- 未削除親の draft はステータス変更直後の短い猶予期間のみ対象にする。
+          -- こうしないと未削除親の draft トラックに対して2秒おきに delete-one が永続的に送られ続けてしまう
           -- (delete-one 自体は冪等だが、無駄なDB書き込みが積み重なる)。
-          WHERE t.status = 'published' OR t.updated_at > NOW() - INTERVAL '10 seconds';
+          WHERE t.status = 'published' OR c.deleted_at IS NOT NULL OR t.updated_at > NOW() - INTERVAL '10 seconds';
     - mapping: |
         root = if this.type() == "object" {
           if this.short_id != null {
@@ -46,6 +50,7 @@ pipeline:
               "short_id": this.short_id,
               "language": this.language,
               "status": this.status,
+              "deleted_at": this.deleted_at,
               "cues": this.cues.parse_json().catch(this.cues)
             }]
           } else { deleted() }
@@ -58,6 +63,7 @@ pipeline:
               "short_id": item.short_id,
               "language": item.language,
               "status": item.status,
+              "deleted_at": item.deleted_at,
               "cues": item.cues.parse_json().catch(item.cues)
             })
           }
@@ -78,7 +84,7 @@ output:
         output:
           switch:
             cases:
-              - check: 'this.status == "published"'
+              - check: 'this.status == "published" && this.deleted_at == null'
                 output:
                   mongodb:
                     url: "${MONGO_URL}"

@@ -56,11 +56,12 @@ test.describe("Channel E2E Functional Tests", () => {
     await page.goto("/admin");
     await page.waitForSelector("h1", { timeout: 10_000 });
 
-    // Open edit modal for the first row (インターステラー)
+    // Open edit modal for the first row
     const editButtons = page.locator('button:has-text("編集"), button:has-text("Edit")');
     await editButtons.first().click();
 
-    const select = page.locator("select").first();
+    const dialog = page.getByRole("dialog");
+    const select = dialog.getByLabel(/チャンネル|Channel/);
     await expect(select).toBeVisible();
     await expect(select).toHaveValue("bluray");
 
@@ -69,17 +70,23 @@ test.describe("Channel E2E Functional Tests", () => {
       (req) => req.url().includes("/api/v1/admin/contents/") && req.method() === "PUT",
     );
     await select.selectOption("tech-feed");
-    await page.locator('button:has-text("保存"), button:has-text("Save")').click();
+    await dialog.locator('button:has-text("保存"), button:has-text("Save")').click();
 
     const putReq = await putPromise;
     expect(putReq.postDataJSON()).toMatchObject({ channel_id: "tech-feed" });
-    await expect(page.locator("select")).toHaveCount(0);
+    await expect(dialog).toHaveCount(0);
 
     // Restore back to bluray so mock state stays clean for subsequent tests
     await editButtons.first().click();
-    await page.locator("select").first().selectOption("bluray");
-    await page.locator('button:has-text("保存"), button:has-text("Save")').click();
-    await expect(page.locator("select")).toHaveCount(0);
+    await page
+      .getByRole("dialog")
+      .getByLabel(/チャンネル|Channel/)
+      .selectOption("bluray");
+    await page
+      .getByRole("dialog")
+      .locator('button:has-text("保存"), button:has-text("Save")')
+      .click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
   });
 
   test("admin upload modal sends X-Channel-Id header and API rejects missing X-Channel-Id", async ({
@@ -105,9 +112,9 @@ test.describe("Channel E2E Functional Tests", () => {
     await page.waitForSelector("h1", { timeout: 10_000 });
 
     await page
-      .locator('button:has-text("動画アップロード"), button:has-text("Upload Video")')
+      .locator('button:has-text("動画をアップロード"), button:has-text("Upload Video")')
       .click();
-    const channelSelect = page.locator("select").first();
+    const channelSelect = page.getByRole("dialog").getByLabel(/チャンネル|Channel/);
     await expect(channelSelect).toBeVisible();
     await channelSelect.selectOption("tech-feed");
     await expect(channelSelect).toHaveValue("tech-feed");

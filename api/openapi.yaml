@@ -166,25 +166,40 @@ paths:
           in: query
           schema:
             $ref: "#/components/schemas/ContentStatus"
+        - name: channel_id
+          in: query
+          schema:
+            type: string
         - name: limit
           in: query
           schema:
             type: integer
             default: 20
-        - name: offset
+            minimum: 1
+            maximum: 100
+        - name: sort
           in: query
           schema:
-            type: integer
-            default: 0
+            $ref: "#/components/schemas/ContentSort"
+        - name: after
+          in: query
+          description: 次ページ取得用の不透明カーソル（before と同時指定不可）
+          schema:
+            type: string
+        - name: before
+          in: query
+          description: 前ページ取得用の不透明カーソル（after と同時指定不可）
+          schema:
+            type: string
       responses:
         "200":
           description: OK
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Content"
+                $ref: "#/components/schemas/AdminContentsResponse"
+        "400":
+          description: Bad Request (invalid sort, channel_id, or cursor)
     post:
       summary: コンテンツ登録
       parameters:
@@ -295,7 +310,10 @@ paths:
         "404":
           description: Not Found
     delete:
-      summary: コンテンツ削除
+      summary: コンテンツ削除（論理削除）
+      description: >
+        物理削除ではなく PostgreSQL の deleted_at を設定する論理削除を行う。
+        論理削除は復元不可であり、管理一覧・総件数・公開API・検索・字幕配信・latest.m3u8 プレイリストから除外される。
       parameters:
         - name: id
           in: path
@@ -402,6 +420,34 @@ components:
     ContentStatus:
       type: string
       enum: [pending, processing, ready, error]
+
+    ContentSort:
+      type: string
+      default: updated_desc
+      enum: [updated_desc, updated_asc, created_desc, created_asc, title_asc, title_desc]
+
+    AdminContentsResponse:
+      type: object
+      required: [contents, total, limit, next_cursor, prev_cursor, has_next, has_prev]
+      properties:
+        contents:
+          type: array
+          items:
+            $ref: "#/components/schemas/Content"
+        total:
+          type: integer
+        limit:
+          type: integer
+        next_cursor:
+          type: string
+          nullable: true
+        prev_cursor:
+          type: string
+          nullable: true
+        has_next:
+          type: boolean
+        has_prev:
+          type: boolean
 
     Content:
       type: object

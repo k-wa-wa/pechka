@@ -91,7 +91,7 @@ SELECT
     ) AS cues_json
 FROM subtitle_tracks t
 JOIN contents c ON c.id = t.content_id
-WHERE c.short_id = $1 AND t.language = $2 AND t.status = 'published' AND c.archived_at IS NULL
+WHERE c.short_id = $1 AND t.language = $2 AND t.status = 'published' AND c.archived_at IS NULL AND c.deleted_at IS NULL
 `
 }
 

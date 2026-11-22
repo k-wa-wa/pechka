@@ -1,4 +1,5 @@
 import type {
+  AdminContentSort,
   AdminContentsResponse,
   Channel,
   Content,
@@ -85,12 +86,16 @@ export async function searchContents(
 export async function getAdminContents(params?: {
   status?: ContentStatus;
   limit?: number;
-  offset?: number;
+  sort?: AdminContentSort;
+  after?: string;
+  before?: string;
 }): Promise<AdminContentsResponse> {
   const query = new URLSearchParams();
   if (params?.status) query.set("status", params.status);
   if (params?.limit != null) query.set("limit", String(params.limit));
-  if (params?.offset != null) query.set("offset", String(params.offset));
+  if (params?.sort) query.set("sort", params.sort);
+  if (params?.after) query.set("after", params.after);
+  if (params?.before) query.set("before", params.before);
   const qs = query.toString();
   return fetchJson<AdminContentsResponse>(
     `${API_BASE}/api/v1/admin/contents${qs ? `?${qs}` : ""}`,

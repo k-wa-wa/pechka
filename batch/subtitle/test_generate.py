@@ -2,6 +2,86 @@ import unittest
 from unittest.mock import MagicMock, patch
 import generate
 
+
+class FakeSubtitleCursor:
+    def __init__(self, db):
+        self.db = db
+        self._result = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def execute(self, sql, params=None):
+        norm = " ".join(sql.split())
+        if norm.startswith("SELECT deleted_at FROM contents WHERE id = %s"):
+            c = self.db["contents"].get(params[0])
+            self._result = None if c is None else (c["deleted_at"],)
+        elif norm.startswith("SELECT 1 FROM contents WHERE id = %s AND deleted_at IS NULL FOR UPDATE"):
+            c = self.db["contents"].get(params[0])
+            self._result = (1,) if c is not None and c["deleted_at"] is None else None
+        elif norm.startswith("SELECT id, status FROM subtitle_tracks WHERE content_id = %s AND language = %s"):
+            t = self.db["tracks"].get((params[0], params[1]))
+            self._result = None if t is None else (t["id"], t["status"])
+        elif norm.startswith("SELECT COUNT(*) FROM subtitle_cues WHERE track_id = %s AND text != original_text"):
+            track_id = params[0]
+            cnt = sum(1 for cu in self.db["cues"] if cu["track_id"] == track_id and cu["text"] != cu["original_text"])
+            self._result = (cnt,)
+        elif norm.startswith("DELETE FROM subtitle_tracks WHERE content_id = %s AND language = %s"):
+            t = self.db["tracks"].pop((params[0], params[1]), None)
+            if t is not None:
+                self.db["cues"] = [cu for cu in self.db["cues"] if cu["track_id"] != t["id"]]
+            self._result = None
+        elif norm.startswith("INSERT INTO subtitle_tracks"):
+            content_id, language, model = params
+            track_id = f"track-{len(self.db['tracks']) + 1}-new"
+            self.db["tracks"][(content_id, language)] = {
+                "id": track_id,
+                "status": "draft",
+                "model": model,
+            }
+            self._result = (track_id,)
+        else:
+            raise AssertionError(f"Unexpected SQL: {norm}")
+
+    def fetchone(self):
+        return self._result
+
+
+class FakeSubtitleConn:
+    def __init__(self, db):
+        self.db = db
+        self.committed = False
+        self.rolled_back = False
+
+    def cursor(self):
+        return FakeSubtitleCursor(self.db)
+
+    def commit(self):
+        self.committed = True
+
+    def rollback(self):
+        self.rolled_back = True
+
+
+def make_fake_db(*, status="draft", cues=None):
+    return {
+        "contents": {"c1": {"deleted_at": None}},
+        "tracks": {
+            ("c1", "ja"): {
+                "id": "track-1",
+                "status": status,
+                "model": "large-v3",
+            }
+        },
+        "cues": list(cues) if cues is not None else [
+            {"id": "cu-1", "track_id": "track-1", "text": "Hello", "original_text": "Hello", "start_ms": 0, "end_ms": 1000},
+        ],
+    }
+
+
 class TestGenerate(unittest.TestCase):
     def test_flag_hallucinations(self):
         segments = [
@@ -23,20 +103,96 @@ class TestGenerate(unittest.TestCase):
         mock_cur = MagicMock()
         mock_conn.cursor.return_value.__enter__.return_value = mock_cur
 
-        # Case 1: no existing track
-        mock_cur.fetchone.return_value = None
+        # Case 1: content missing
+        mock_cur.fetchone.side_effect = [None]
+        reason = generate.find_unsafe_overwrite_reason(mock_conn, "missing", "ja")
+        self.assertIn("does not exist", reason)
+
+        # Case 2: content soft-deleted
+        mock_cur.fetchone.side_effect = [("2026-01-01T00:00:00Z",)]
+        reason = generate.find_unsafe_overwrite_reason(mock_conn, "deleted", "ja")
+        self.assertIn("is deleted", reason)
+
+        # Case 3: active content, no existing track
+        mock_cur.fetchone.side_effect = [(None,), None]
         reason = generate.find_unsafe_overwrite_reason(mock_conn, "c1", "ja")
         self.assertIsNone(reason)
 
-        # Case 2: existing track is published
-        mock_cur.fetchone.return_value = ("track-1", "published")
+        # Case 4: existing track is published
+        mock_cur.fetchone.side_effect = [(None,), ("track-1", "published")]
         reason = generate.find_unsafe_overwrite_reason(mock_conn, "c1", "ja")
         self.assertIn("published", reason)
 
-        # Case 3: existing track has edited cues
-        mock_cur.fetchone.side_effect = [("track-1", "draft"), (3,)]
+        # Case 5: existing track has text != original_text cues
+        mock_cur.fetchone.side_effect = [(None,), ("track-1", "draft"), (3,)]
         reason = generate.find_unsafe_overwrite_reason(mock_conn, "c1", "ja")
         self.assertIn("3 manually edited cue(s)", reason)
+
+    def test_register_track_deleted_parent_rolls_back(self):
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+        mock_cur.fetchone.return_value = None
+
+        segments = [{"start_ms": 0, "end_ms": 1000, "text": "Hello", "flagged": False}]
+        with self.assertRaises(RuntimeError):
+            generate.register_track(mock_conn, "deleted-c1", "ja", segments)
+
+        self.assertEqual(mock_cur.execute.call_count, 1)
+        self.assertIn("deleted_at IS NULL FOR UPDATE", mock_cur.execute.call_args[0][0])
+        mock_conn.rollback.assert_called_once()
+        mock_conn.commit.assert_not_called()
+
+    def test_register_track_protects_manual_edits_performed_during_transcription(self):
+        segments = [{"start_ms": 0, "end_ms": 1000, "text": "Regenerated", "flagged": False}]
+
+        # Case A: Track published during transcription
+        db_pub = make_fake_db(status="published")
+        conn_pub = FakeSubtitleConn(db_pub)
+        with self.assertRaisesRegex(RuntimeError, "published"):
+            generate.register_track(conn_pub, "c1", "ja", segments)
+        self.assertTrue(conn_pub.rolled_back)
+        self.assertFalse(conn_pub.committed)
+        self.assertIn(("c1", "ja"), db_pub["tracks"])
+        self.assertEqual(len(db_pub["cues"]), 1)
+
+        # Case B: Cue text edited during transcription (text != original_text)
+        db_edited = make_fake_db(
+            cues=[
+                {"id": "cu-1", "track_id": "track-1", "text": "Fixed", "original_text": "Hello", "start_ms": 0, "end_ms": 1000},
+            ],
+        )
+        conn_edited = FakeSubtitleConn(db_edited)
+        with self.assertRaisesRegex(RuntimeError, "1 manually edited cue"):
+            generate.register_track(conn_edited, "c1", "ja", segments)
+        self.assertTrue(conn_edited.rolled_back)
+        self.assertEqual(db_edited["cues"][0]["text"], "Fixed")
+
+    def test_register_track_success(self):
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+        mock_cur.fetchone.side_effect = [(1,), None, ("track-uuid",)]
+
+        segments = [{"start_ms": 0, "end_ms": 1000, "text": "Hello", "flagged": False}]
+        with patch("generate.psycopg2") as mock_pg:
+            generate.register_track(mock_conn, "active-c1", "ja", segments)
+            mock_pg.extras.execute_values.assert_called_once()
+
+        mock_conn.commit.assert_called_once()
+        mock_conn.rollback.assert_not_called()
+
+    def test_register_track_replaces_unedited_draft_success(self):
+        db = make_fake_db(status="draft")
+        conn = FakeSubtitleConn(db)
+        segments = [{"start_ms": 0, "end_ms": 1000, "text": "Hello", "flagged": False}]
+        with patch("generate.psycopg2") as mock_pg:
+            generate.register_track(conn, "c1", "ja", segments)
+            mock_pg.extras.execute_values.assert_called_once()
+
+        self.assertTrue(conn.committed)
+        self.assertFalse(conn.rolled_back)
+        self.assertNotEqual(db["tracks"][("c1", "ja")]["id"], "track-1")
 
     @patch("generate.subprocess.run")
     def test_extract_audio_http(self, mock_run):
@@ -82,6 +238,7 @@ class TestGenerate(unittest.TestCase):
         dsn = "postgres://usr:pwd@host1:5432,host2:5432/db"
         resolved = generate.resolve_postgres_dsn(dsn)
         self.assertEqual(resolved, dsn)
+
 
 if __name__ == "__main__":
     unittest.main()
