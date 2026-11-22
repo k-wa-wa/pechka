@@ -11,8 +11,8 @@
         "subtitle": "2026年8月1日"
       },
       "narration": [
-        "こんにちは。今日の技術トピックを3件お届けする。",
-        "取り上げるのは、コンテナ基盤、ビルドツール、そして観測性まわりの話題である。"
+        { "text": "こんにちは。今日の技術トピックを3件お届けする。", "focus": null },
+        { "text": "取り上げるのは、コンテナ基盤、ビルドツール、そして観測性まわりの話題である。", "focus": null }
       ]
     },
     {
@@ -48,9 +48,9 @@
         "caption": "`--dry-run` は変更を加えずに、注意が必要な設定だけを一覧する"
       },
       "narration": [
-        "実際の手順を見てみる。",
-        "アップグレードコマンドには dry-run オプションがあり、変更を加えずに確認だけができる。",
-        "先ほどの非互換な設定が2件、ここで警告として出ている。"
+        { "text": "実際の手順を見てみる。", "focus": null },
+        { "text": "アップグレードコマンドには dry-run オプションがあり、変更を加えずに確認だけができる。", "focus": null },
+        { "text": "先ほどの非互換な設定が2件、ここで警告として出ている。", "focus": null }
       ],
       "sources": [
         { "title": "Sample CLI Reference", "url": "https://example.com/cli", "publisher": "example.com" }
@@ -66,9 +66,9 @@
         "code": "build:\n  target: release\n  cache:\n    enabled: true\n    scope: workspace\n  output:\n    format: oci"
       },
       "narration": [
-        "2つ目は、ビルドツールの設定形式の変更について。",
-        "キャッシュの指定が、これまでのフラグ形式からブロック形式に変わった。",
-        "スコープを明示できるようになったため、ワークスペース単位でキャッシュを共有できる。"
+        { "text": "2つ目は、ビルドツールの設定形式の変更について。", "focus": null },
+        { "text": "キャッシュの指定が、これまでのフラグ形式からブロック形式に変わった。", "focus": null },
+        { "text": "スコープを明示できるようになったため、ワークスペース単位でキャッシュを共有できる。", "focus": null }
       ],
       "sources": [
         { "title": "Sample Changelog", "url": "https://example.com/changelog", "publisher": "example.com" }
@@ -84,9 +84,9 @@
         "caption": "同一ワークスペース内のビルドだけがキャッシュを共有する"
       },
       "narration": [
-        "図にすると分かりやすい。",
-        "同じワークスペースに属するビルドどうしは、ひとつのキャッシュを読み書きする。",
-        "別のワークスペースからは参照されないため、意図しない混線は起きない。"
+        { "text": "図にすると分かりやすい。", "focus": null },
+        { "text": "同じワークスペースに属するビルドどうしは、ひとつのキャッシュを読み書きする。", "focus": null },
+        { "text": "別のワークスペースからは参照されないため、意図しない混線は起きない。", "focus": null }
       ],
       "sources": [
         { "title": "Sample Changelog", "url": "https://example.com/changelog", "publisher": "example.com" }
