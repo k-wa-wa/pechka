@@ -3,6 +3,9 @@ kind: Deployment
 metadata:
   name: benthos
   namespace: pechka
+  annotations:
+    # CDC ストリーム同期の重複実行を防ぐ単一稼働前提とし、HA ポリシーを除外する
+    nuage.io/ignore-ha: "true"
 spec:
   replicas: 1
   selector:

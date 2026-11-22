@@ -20,3 +20,29 @@ patches:
       - op: replace
         path: /spec/template/spec/containers/0/readinessProbe/httpGet/scheme
         value: HTTP
+  # 上流マニフェスト（namespace-install.yaml）由来の argo-server と workflow-controller は
+  # 単一稼働・上流設定のまま運用するため、HA / probe / resources ポリシーを除外する
+  - target:
+      kind: Deployment
+      name: argo-server
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: argo-server
+        annotations:
+          nuage.io/ignore-ha: "true"
+          nuage.io/ignore-probes: "true"
+          nuage.io/ignore-resources: "true"
+  - target:
+      kind: Deployment
+      name: workflow-controller
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: workflow-controller
+        annotations:
+          nuage.io/ignore-ha: "true"
+          nuage.io/ignore-probes: "true"
+          nuage.io/ignore-resources: "true"
