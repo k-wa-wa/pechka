@@ -73,13 +73,11 @@ func TestContentQueriesExcludeDeletedAt(t *testing.T) {
 		!strings.Contains(deleteContentQuery, "deleted_at IS NULL") {
 		t.Errorf("Delete query must be soft-delete, got %q", deleteContentQuery)
 	}
-	if !strings.Contains(setArchivedTrueQuery, "deleted_at IS NULL") ||
-		!strings.Contains(setArchivedTrueQuery, "archived_at IS NULL") ||
-		!strings.Contains(setArchivedTrueQuery, "NOT EXISTS (SELECT 1 FROM updated)") ||
-		!strings.Contains(setArchivedFalseQuery, "deleted_at IS NULL") ||
-		!strings.Contains(setArchivedFalseQuery, "archived_at IS NOT NULL") ||
-		!strings.Contains(setArchivedFalseQuery, "NOT EXISTS (SELECT 1 FROM updated)") {
-		t.Errorf("SetArchived queries must be idempotent CTEs preserving timestamps when already in target state")
+	if !strings.Contains(lockContentForUpdateQuery, "deleted_at IS NULL") ||
+		!strings.Contains(lockContentForUpdateQuery, "FOR UPDATE") ||
+		!strings.Contains(updateArchivedTrueQuery, "deleted_at IS NULL") ||
+		!strings.Contains(updateArchivedFalseQuery, "deleted_at IS NULL") {
+		t.Errorf("SetArchived queries must lock with FOR UPDATE and require deleted_at IS NULL")
 	}
 	if !strings.Contains(getContentByIDQuery, "deleted_at IS NULL") {
 		t.Errorf("GetByID query must require deleted_at IS NULL, got %q", getContentByIDQuery)
@@ -431,4 +429,174 @@ func TestRefreshLatestPlaylistWithTimeout_DeadlineReleasesLock(t *testing.T) {
 	if got := strings.Join(events, ","); got != "begin,lock,query,upload_wait,rollback" {
 		t.Errorf("expected rollback without commit on deadline, got %q", got)
 	}
+}
+
+type mockArchiveRow struct {
+	scanner func(dest ...any) error
+}
+
+func (r mockArchiveRow) Scan(dest ...any) error {
+	return r.scanner(dest...)
+}
+
+type mockArchiveTx struct {
+	events       *[]string
+	lockRow      pgx.Row
+	updateRow    pgx.Row
+	committed    bool
+	rolledBack   bool
+	commitErr    error
+	sawLockQuery bool
+	sawUpdateSQL string
+}
+
+func (tx *mockArchiveTx) QueryRow(_ context.Context, sql string, _ ...any) pgx.Row {
+	if strings.Contains(sql, "FOR UPDATE") {
+		tx.sawLockQuery = true
+		*tx.events = append(*tx.events, "lock")
+		return tx.lockRow
+	}
+	tx.sawUpdateSQL = sql
+	*tx.events = append(*tx.events, "update")
+	return tx.updateRow
+}
+
+func (tx *mockArchiveTx) Commit(_ context.Context) error {
+	*tx.events = append(*tx.events, "commit")
+	tx.committed = true
+	return tx.commitErr
+}
+
+func (tx *mockArchiveTx) Rollback(_ context.Context) error {
+	if !tx.committed {
+		*tx.events = append(*tx.events, "rollback")
+	}
+	tx.rolledBack = true
+	return nil
+}
+
+type mockArchiveBeginner struct {
+	tx      *mockArchiveTx
+	gotOpts pgx.TxOptions
+	events  *[]string
+}
+
+func (b *mockArchiveBeginner) BeginTx(_ context.Context, txOptions pgx.TxOptions) (archiveTx, error) {
+	b.gotOpts = txOptions
+	*b.events = append(*b.events, "begin")
+	return b.tx, nil
+}
+
+func makeArchiveRowScanner(id string, archivedAt *time.Time, updatedAt time.Time) func(dest ...any) error {
+	return fullContentRowScanner{
+		vals: []any{
+			id,
+			"short-1",
+			domain.ContentTypeVideo,
+			"bluray",
+			nil,
+			"Title",
+			"Desc",
+			nil,
+			false,
+			[]string{},
+			domain.ContentStatusReady,
+			nil,
+			nil,
+			nil,
+			archivedAt,
+			updatedAt.Add(-time.Hour),
+			updatedAt,
+		},
+	}.Scan
+}
+
+func TestSetArchivedWithBeginner_ConcurrencyAndIdempotency(t *testing.T) {
+	t.Run("skips UPDATE and returns committed archived_at when concurrent archive already committed before FOR UPDATE", func(t *testing.T) {
+		committedArchiveAt := time.Date(2025, 5, 1, 12, 0, 0, 0, time.UTC)
+		committedUpdatedAt := committedArchiveAt
+		events := []string{}
+		tx := &mockArchiveTx{
+			events:  &events,
+			lockRow: mockArchiveRow{scanner: makeArchiveRowScanner("id-1", &committedArchiveAt, committedUpdatedAt)},
+		}
+		beginner := &mockArchiveBeginner{events: &events, tx: tx}
+
+		got, err := setArchivedWithBeginner(context.Background(), beginner, "id-1", true)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if beginner.gotOpts.IsoLevel != pgx.ReadCommitted {
+			t.Errorf("expected ReadCommitted isolation, got %v", beginner.gotOpts.IsoLevel)
+		}
+		if !tx.sawLockQuery || tx.sawUpdateSQL != "" {
+			t.Fatalf("expected FOR UPDATE without UPDATE, sawLock=%v sawUpdate=%q", tx.sawLockQuery, tx.sawUpdateSQL)
+		}
+		if strings.Join(events, ",") != "begin,lock,commit" {
+			t.Errorf("unexpected events: %v", events)
+		}
+		if got.ArchivedAt == nil || !got.ArchivedAt.Equal(committedArchiveAt) || !got.UpdatedAt.Equal(committedUpdatedAt) {
+			t.Errorf("expected committed timestamps preserved, got %+v", got)
+		}
+	})
+
+	t.Run("skips UPDATE and returns committed unarchived state when concurrent unarchive already committed", func(t *testing.T) {
+		committedUpdatedAt := time.Date(2025, 5, 1, 13, 0, 0, 0, time.UTC)
+		events := []string{}
+		tx := &mockArchiveTx{
+			events:  &events,
+			lockRow: mockArchiveRow{scanner: makeArchiveRowScanner("id-1", nil, committedUpdatedAt)},
+		}
+		beginner := &mockArchiveBeginner{events: &events, tx: tx}
+
+		got, err := setArchivedWithBeginner(context.Background(), beginner, "id-1", false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if tx.sawUpdateSQL != "" || strings.Join(events, ",") != "begin,lock,commit" {
+			t.Fatalf("expected no UPDATE on already-unarchived row, events=%v sql=%q", events, tx.sawUpdateSQL)
+		}
+		if got.ArchivedAt != nil || !got.UpdatedAt.Equal(committedUpdatedAt) {
+			t.Errorf("expected nil ArchivedAt and committed UpdatedAt, got %+v", got)
+		}
+	})
+
+	t.Run("returns pgx.ErrNoRows and rolls back when concurrent delete committed before FOR UPDATE", func(t *testing.T) {
+		events := []string{}
+		tx := &mockArchiveTx{
+			events:  &events,
+			lockRow: mockArchiveRow{scanner: func(_ ...any) error { return pgx.ErrNoRows }},
+		}
+		beginner := &mockArchiveBeginner{events: &events, tx: tx}
+
+		_, err := setArchivedWithBeginner(context.Background(), beginner, "id-1", true)
+		if !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatalf("expected pgx.ErrNoRows, got %v", err)
+		}
+		if strings.Join(events, ",") != "begin,lock,rollback" {
+			t.Errorf("expected rollback on ErrNoRows, got %v", events)
+		}
+	})
+
+	t.Run("executes UPDATE when transition is needed", func(t *testing.T) {
+		now := time.Date(2025, 5, 1, 14, 0, 0, 0, time.UTC)
+		events := []string{}
+		tx := &mockArchiveTx{
+			events:    &events,
+			lockRow:   mockArchiveRow{scanner: makeArchiveRowScanner("id-1", nil, now.Add(-time.Minute))},
+			updateRow: mockArchiveRow{scanner: makeArchiveRowScanner("id-1", &now, now)},
+		}
+		beginner := &mockArchiveBeginner{events: &events, tx: tx}
+
+		got, err := setArchivedWithBeginner(context.Background(), beginner, "id-1", true)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if strings.Join(events, ",") != "begin,lock,update,commit" {
+			t.Errorf("unexpected events: %v", events)
+		}
+		if got.ArchivedAt == nil || !got.ArchivedAt.Equal(now) {
+			t.Errorf("expected archived_at=%v, got %+v", now, got)
+		}
+	})
 }

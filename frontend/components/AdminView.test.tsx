@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as api from "@/lib/api";
 import { LanguageProvider } from "@/lib/i18n/LanguageContext";
@@ -263,5 +263,121 @@ describe("AdminView", () => {
     expect((screen.getByDisplayValue("In-Progress Draft Title") as HTMLInputElement).value).toBe(
       "In-Progress Draft Title",
     );
+  });
+
+  it("keeps saved row when stale sort arrives after save and adopts synced poll with matching updated_at", async () => {
+    vi.useFakeTimers();
+    const originalFetch = global.fetch;
+
+    const processingRow = {
+      ...ADMIN_CONTENTS[0],
+      id: "p-race",
+      status: "processing" as const,
+      title: "Original Processing Title",
+      updated_at: "2025-01-01T00:00:00Z",
+    };
+
+    let resolveSort:
+      | ((value: Awaited<ReturnType<typeof api.getAdminContents>>) => void)
+      | undefined;
+
+    const getSpy = vi
+      .spyOn(api, "getAdminContents")
+      // 1回目: 遅れて届く並び替え応答（保存前の古い値）
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveSort = resolve;
+          }),
+      )
+      // 2回目: 同期後のポーリング応答（保存時刻と同じ updated_at で status が ready に進む）
+      .mockResolvedValueOnce({
+        contents: [
+          {
+            ...processingRow,
+            title: "Saved Title",
+            status: "ready",
+            updated_at: "2025-01-01T00:01:00Z",
+          },
+        ],
+        total: 1,
+        limit: 100,
+        next_cursor: null,
+        prev_cursor: null,
+        has_next: false,
+        has_prev: false,
+      });
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        ...processingRow,
+        title: "Saved Title",
+        updated_at: "2025-01-01T00:01:00Z",
+      }),
+    }) as typeof fetch;
+
+    try {
+      render(
+        <LanguageProvider>
+          <AdminView
+            contents={[processingRow]}
+            total={1}
+            limit={10}
+            nextCursor={null}
+            prevCursor={null}
+            hasNext={false}
+            hasPrev={false}
+            channels={CHANNELS}
+          />
+        </LanguageProvider>,
+      );
+
+      // 1. 並び替え開始（応答はまだ返らない）
+      fireEvent.change(screen.getByLabelText("Sort by"), { target: { value: "title_asc" } });
+
+      // 2. 同じ行を編集・保存（updated_at = 00:01:00Z）
+      fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+      fireEvent.change(screen.getByDisplayValue("Original Processing Title"), {
+        target: { value: "Saved Title" },
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Save" }));
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(screen.getByText("Saved Title")).toBeDefined();
+
+      // 3. 保存前の一覧応答（updated_at = 00:00:00Z）が遅れて届くが、保存値で上書きされない
+      await act(async () => {
+        resolveSort?.({
+          contents: [processingRow],
+          total: 1,
+          limit: 10,
+          next_cursor: null,
+          prev_cursor: null,
+          has_next: false,
+          has_prev: false,
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(screen.getByText("Saved Title")).toBeDefined();
+      expect(screen.queryByText("Original Processing Title")).toBeNull();
+
+      // 4. 保存時刻と同じ updated_at の同期済みポーリング応答が反映される
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(getSpy).toHaveBeenCalledTimes(2);
+      expect(screen.getByText("Saved Title")).toBeDefined();
+      expect(screen.getByText("Ready")).toBeDefined();
+    } finally {
+      vi.useRealTimers();
+      global.fetch = originalFetch;
+    }
   });
 });

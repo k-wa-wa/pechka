@@ -11,6 +11,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/k-wa-wa/pechka/api/internal/domain"
 )
@@ -90,18 +91,33 @@ func TestAdminIndexModels(t *testing.T) {
 }
 
 type mockMongo7IndexCatalog struct {
-	indexes     []existingIndexSpec
-	events      []string
-	createCalls int
-	dropCalls   int
-	failCreate  error
-	createHook  func(ctx context.Context, cat *mockMongo7IndexCatalog, models []mongo.IndexModel) error
+	indexes            []existingIndexSpec
+	standaloneBuilding map[string]bool
+	events             []string
+	createCalls        int
+	dropCalls          int
+	failCreate         error
+	createHook         func(ctx context.Context, cat *mockMongo7IndexCatalog, models []mongo.IndexModel) error
 }
 
 func newMockMongo7IndexCatalog(initial []existingIndexSpec) *mockMongo7IndexCatalog {
 	return &mockMongo7IndexCatalog{
-		indexes: append([]existingIndexSpec(nil), initial...),
+		indexes:            append([]existingIndexSpec(nil), initial...),
+		standaloneBuilding: make(map[string]bool),
 	}
+}
+
+func indexModelName(model mongo.IndexModel) string {
+	if model.Options == nil {
+		return ""
+	}
+	var opts options.IndexOptions
+	for _, fn := range model.Options.List() {
+		if err := fn(&opts); err == nil && opts.Name != nil {
+			return *opts.Name
+		}
+	}
+	return ""
 }
 
 func (m *mockMongo7IndexCatalog) List(_ context.Context) ([]existingIndexSpec, error) {
@@ -169,19 +185,10 @@ func (m *mockMongo7IndexCatalog) CreateMany(ctx context.Context, models []mongo.
 	if m.failCreate != nil {
 		return nil, m.failCreate
 	}
-	desiredNames := desiredAdminIndexNames()
 	created := make([]string, 0, len(models))
 	for _, model := range models {
 		keys, _ := model.Keys.(bson.D)
-		name := ""
-		// AdminIndexModels の定義順と名前を照合してモック側の名前を解決する
-		for i, am := range AdminIndexModels() {
-			ak, _ := am.Keys.(bson.D)
-			if indexKeysEqual(ak, keys) {
-				name = desiredNames[i]
-				break
-			}
-		}
+		name := indexModelName(model)
 		for i, ex := range m.indexes {
 			if ex.Name == name && !hasSameKeysAndPlainOptions(ex, keys) {
 				return nil, mongo.CommandError{Code: 86, Name: "IndexKeySpecsConflict", Message: "same name with different keys: " + name}
@@ -194,9 +201,10 @@ func (m *mockMongo7IndexCatalog) CreateMany(ctx context.Context, models []mongo.
 				// 非表示インデックスが残存したまま別名で同一キーを作ろうとすると MongoDB 7 は IndexOptionsConflict (85) を返す
 				return nil, mongo.CommandError{Code: 85, Name: "IndexOptionsConflict", Message: "hidden index exists with a different name: " + ex.Name}
 			}
-			if ex.Name == name && hasSameKeysAndPlainOptions(ex, keys) && ex.BuildUUID != nil {
-				// 先行する構築中インデックスの完了を模倣して BuildUUID をクリアする
+			if ex.Name == name && hasSameKeysAndPlainOptions(ex, keys) && (ex.BuildUUID != nil || m.standaloneBuilding[name]) {
+				// サーバー側で先行構築（レプリカセット buildUUID / 単体単相ビルド）の完了待機を模倣
 				m.indexes[i].BuildUUID = nil
+				delete(m.standaloneBuilding, name)
 			}
 		}
 		alreadySame := false
@@ -244,7 +252,7 @@ func assertAll7AdminIndexesReady(t *testing.T, indexes []existingIndexSpec) {
 }
 
 func TestEnsureIndexesWithManager_Mongo7CompatibilityAndReentrancy(t *testing.T) {
-	t.Run("fresh collection creates 7 v2 indexes and second init is a no-op", func(t *testing.T) {
+	t.Run("fresh collection creates 7 v2 indexes and second replica verifies server-side without drops", func(t *testing.T) {
 		cat := newMockMongo7IndexCatalog([]existingIndexSpec{
 			{Name: "_id_", Key: bson.D{{Key: "_id", Value: int32(1)}}},
 		})
@@ -252,15 +260,15 @@ func TestEnsureIndexesWithManager_Mongo7CompatibilityAndReentrancy(t *testing.T)
 		if err := repo1.ensureIndexesWithManager(context.Background(), cat); err != nil {
 			t.Fatalf("first init failed: %v", err)
 		}
-		if cat.createCalls != 1 || cat.dropCalls != 0 {
-			t.Errorf("unexpected calls on fresh init: create=%d drop=%d", cat.createCalls, cat.dropCalls)
+		if cat.createCalls != 1 || cat.dropCalls != 0 || !repo1.indexesEnsured.Load() {
+			t.Errorf("unexpected calls on fresh init: create=%d drop=%d ensured=%v", cat.createCalls, cat.dropCalls, repo1.indexesEnsured.Load())
 		}
 		repo2 := &ContentRepository{}
 		if err := repo2.ensureIndexesWithManager(context.Background(), cat); err != nil {
-			t.Fatalf("second init failed: %v", err)
+			t.Fatalf("second replica init failed: %v", err)
 		}
-		if cat.createCalls != 1 || cat.dropCalls != 0 {
-			t.Errorf("second init should be no-op, got create=%d drop=%d", cat.createCalls, cat.dropCalls)
+		if cat.createCalls != 2 || cat.dropCalls != 0 || !repo2.indexesEnsured.Load() {
+			t.Errorf("second replica should confirm via CreateMany with 0 drops, got create=%d drop=%d ensured=%v", cat.createCalls, cat.dropCalls, repo2.indexesEnsured.Load())
 		}
 	})
 
@@ -284,8 +292,8 @@ func TestEnsureIndexesWithManager_Mongo7CompatibilityAndReentrancy(t *testing.T)
 		if err := repo2.ensureIndexesWithManager(context.Background(), cat); err != nil {
 			t.Fatalf("second consecutive init failed: %v", err)
 		}
-		if cat.createCalls != 0 {
-			t.Errorf("expected 0 CreateMany calls when matching keys exist under legacy names, got %d", cat.createCalls)
+		if cat.createCalls != 2 {
+			t.Errorf("expected CreateMany called once per replica to confirm completion on standalone MongoDB, got %d", cat.createCalls)
 		}
 		if cat.dropCalls != 0 {
 			t.Errorf("expected 0 DropOne calls for equivalent legacy-named indexes, got %d", cat.dropCalls)
@@ -321,13 +329,13 @@ func TestEnsureIndexesWithManager_Mongo7CompatibilityAndReentrancy(t *testing.T)
 			}
 		}
 
-		// Second init must be clean no-op
+		// Second replica confirms v2 indexes via CreateMany without any drops
 		repo2 := &ContentRepository{}
 		if err := repo2.ensureIndexesWithManager(context.Background(), cat); err != nil {
 			t.Fatalf("second init failed: %v", err)
 		}
-		if cat.createCalls != 1 || cat.dropCalls != 6 {
-			t.Errorf("second init should not create or drop, create=%d drop=%d", cat.createCalls, cat.dropCalls)
+		if cat.createCalls != 2 || cat.dropCalls != 6 {
+			t.Errorf("second replica should confirm without drops, create=%d drop=%d", cat.createCalls, cat.dropCalls)
 		}
 	})
 
@@ -432,6 +440,82 @@ func TestEnsureIndexesWithManager_Mongo7CompatibilityAndReentrancy(t *testing.T)
 		}
 		if len(cat.indexes) != 8 {
 			t.Errorf("expected 8 visible indexes (_id_ + 7 admin), got %d", len(cat.indexes))
+		}
+	})
+
+	t.Run("standalone MongoDB 7 single-phase build without buildUUID/spec waits via CreateMany before dropping legacy or setting indexesEnsured", func(t *testing.T) {
+		models := AdminIndexModels()
+		cat := newMockMongo7IndexCatalog([]existingIndexSpec{
+			{Name: "_id_", Key: bson.D{{Key: "_id", Value: int32(1)}}},
+			{Name: "idx_admin_updated_desc", Key: bson.D{{Key: "updated_at", Value: int32(-1)}, {Key: "_id", Value: int32(1)}}},
+			// 単体 MongoDB 7 で1台目が構築中の v2 インデックス: listIndexes には buildUUID も spec も現れない
+			{Name: "idx_admin_v2_updated_desc", Key: models[0].Keys.(bson.D)},
+		})
+		cat.standaloneBuilding["idx_admin_v2_updated_desc"] = true
+
+		// 1台目の単相ビルドが失敗した場合、CreateMany がエラーを返し、旧インデックス撤去も indexesEnsured=true も行われない
+		cat.createHook = func(_ context.Context, c *mockMongo7IndexCatalog, gotModels []mongo.IndexModel) error {
+			if len(gotModels) != 7 {
+				return errors.New("expected all 7 models passed to CreateMany")
+			}
+			delete(c.standaloneBuilding, "idx_admin_v2_updated_desc")
+			c.indexes = c.indexes[:2]
+			return errors.New("standalone index build aborted")
+		}
+		repo2 := &ContentRepository{}
+		err := repo2.ensureIndexesWithManager(context.Background(), cat)
+		if err == nil || !containsStr(err.Error(), "standalone index build aborted") {
+			t.Fatalf("expected build failure error, got %v", err)
+		}
+		if repo2.indexesEnsured.Load() {
+			t.Fatal("indexesEnsured must stay false when standalone build fails")
+		}
+		if cat.dropCalls != 0 {
+			t.Fatalf("must not drop legacy index when standalone build fails, got dropCalls=%d", cat.dropCalls)
+		}
+
+		// 再試行では CreateMany 成功後に旧インデックスを撤去し、indexesEnsured=true になる
+		cat.createHook = nil
+		if err := repo2.ensureIndexesWithManager(context.Background(), cat); err != nil {
+			t.Fatalf("retry after standalone failure failed: %v", err)
+		}
+		if !repo2.indexesEnsured.Load() || cat.dropCalls != 1 {
+			t.Fatalf("expected ensured=true and 1 drop on retry, got ensured=%v dropCalls=%d", repo2.indexesEnsured.Load(), cat.dropCalls)
+		}
+		assertAll7AdminIndexesReady(t, cat.indexes)
+	})
+
+	t.Run("standalone MongoDB 7 waits server-side via CreateMany even for reused legacy-named index without buildUUID/spec", func(t *testing.T) {
+		models := AdminIndexModels()
+		cat := newMockMongo7IndexCatalog([]existingIndexSpec{
+			{Name: "_id_", Key: bson.D{{Key: "_id", Value: int32(1)}}},
+			// 再利用可能な旧名インデックスだが単相ビルド進行中（buildUUID/spec なし）
+			{Name: "idx_admin_updated_desc", Key: models[0].Keys.(bson.D)},
+		})
+		cat.standaloneBuilding["idx_admin_updated_desc"] = true
+
+		var waitedLegacyName string
+		cat.createHook = func(_ context.Context, c *mockMongo7IndexCatalog, gotModels []mongo.IndexModel) error {
+			for _, m := range gotModels {
+				if indexModelName(m) == "idx_admin_updated_desc" {
+					waitedLegacyName = "idx_admin_updated_desc"
+				}
+			}
+			delete(c.standaloneBuilding, "idx_admin_updated_desc")
+			c.indexes = c.indexes[:1] // 再利用予定だったビルドが失敗して消えた場合を再現
+			return errors.New("legacy-named standalone build failed")
+		}
+
+		repo2 := &ContentRepository{}
+		err := repo2.ensureIndexesWithManager(context.Background(), cat)
+		if err == nil || !containsStr(err.Error(), "legacy-named standalone build failed") {
+			t.Fatalf("expected build failure error, got %v", err)
+		}
+		if waitedLegacyName != "idx_admin_updated_desc" {
+			t.Fatalf("expected CreateMany to wait on reused legacy index name, got %q", waitedLegacyName)
+		}
+		if repo2.indexesEnsured.Load() {
+			t.Fatal("indexesEnsured must stay false when reused index build fails")
 		}
 	})
 }

@@ -133,46 +133,107 @@ func (r *ContentRepository) Delete(ctx context.Context, id string) error {
 }
 
 const (
-	// SetArchived は対象が既に目的のアーカイブ状態にある場合 UPDATE を実行せず（archived_at とトリガーによる updated_at を維持し）、
-	// 既存行を返すことでプレイリスト再生成のみの再試行を安全に行えるようにする。
-	setArchivedTrueQuery = `
-		WITH updated AS (
-			UPDATE contents SET archived_at = CURRENT_TIMESTAMP
-			WHERE id = $1 AND deleted_at IS NULL AND archived_at IS NULL
-			RETURNING *
-		)
-		SELECT ` + contentColumns + ` FROM updated
-		UNION ALL
-		SELECT ` + contentColumns + ` FROM contents
-		WHERE id = $1 AND deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM updated)`
-	setArchivedFalseQuery = `
-		WITH updated AS (
-			UPDATE contents SET archived_at = NULL
-			WHERE id = $1 AND deleted_at IS NULL AND archived_at IS NOT NULL
-			RETURNING *
-		)
-		SELECT ` + contentColumns + ` FROM updated
-		UNION ALL
-		SELECT ` + contentColumns + ` FROM contents
-		WHERE id = $1 AND deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM updated)`
+	// SetArchived は FOR UPDATE で対象行の最新確定状態を取得してから状態遷移要否を判定する。
+	// 1文の CTE + UNION ALL では Read Committed 下で競合更新後に文開始時スナップショットを読んで
+	// 更新前の archived_at や削除前の行を返し得るため、トランザクション内で明示的に行ロックを取得する。
+	lockContentForUpdateQuery = `
+		SELECT ` + contentColumns + `
+		FROM contents WHERE id = $1 AND deleted_at IS NULL
+		FOR UPDATE`
+	updateArchivedTrueQuery = `
+		UPDATE contents SET archived_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND deleted_at IS NULL
+		RETURNING ` + contentColumns
+	updateArchivedFalseQuery = `
+		UPDATE contents SET archived_at = NULL
+		WHERE id = $1 AND deleted_at IS NULL
+		RETURNING ` + contentColumns
 	getContentByIDQuery = `
 		SELECT ` + contentColumns + `
 		FROM contents WHERE id = $1 AND deleted_at IS NULL`
 )
+
+type archiveTx interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Commit(ctx context.Context) error
+	Rollback(ctx context.Context) error
+}
+
+type archiveBeginner interface {
+	BeginTx(ctx context.Context, txOptions pgx.TxOptions) (archiveTx, error)
+}
+
+type pgxArchiveTx struct {
+	tx pgx.Tx
+}
+
+func (t pgxArchiveTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	return t.tx.QueryRow(ctx, sql, args...)
+}
+
+func (t pgxArchiveTx) Commit(ctx context.Context) error {
+	return t.tx.Commit(ctx)
+}
+
+func (t pgxArchiveTx) Rollback(ctx context.Context) error {
+	return t.tx.Rollback(ctx)
+}
+
+type pgxArchiveBeginner struct {
+	pool *pgxpool.Pool
+}
+
+func (b pgxArchiveBeginner) BeginTx(ctx context.Context, txOptions pgx.TxOptions) (archiveTx, error) {
+	tx, err := b.pool.BeginTx(ctx, txOptions)
+	if err != nil {
+		return nil, err
+	}
+	return pgxArchiveTx{tx: tx}, nil
+}
 
 // SetArchived はコンテンツのアーカイブ状態を切り替える。
 // 実データは削除せず archived_at にタイムスタンプを立てる/クリアするだけのアーカイブ。
 // deleted_at IS NULL を条件とし、論理削除済みレコードへの誤操作・誤復元を防ぐ。
 func (r *ContentRepository) SetArchived(ctx context.Context, id string, archived bool) (*domain.Content, error) {
 	return WithRetry(ctx, r.pool, func() (*domain.Content, error) {
-		var row scanner
-		if archived {
-			row = r.pool.QueryRow(ctx, setArchivedTrueQuery, id)
-		} else {
-			row = r.pool.QueryRow(ctx, setArchivedFalseQuery, id)
-		}
-		return scanContent(row)
+		return setArchivedWithBeginner(ctx, pgxArchiveBeginner{pool: r.pool}, id, archived)
 	})
+}
+
+func setArchivedWithBeginner(ctx context.Context, beginner archiveBeginner, id string, archived bool) (*domain.Content, error) {
+	tx, err := beginner.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	current, err := scanContent(tx.QueryRow(ctx, lockContentForUpdateQuery, id))
+	if err != nil {
+		return nil, err
+	}
+
+	alreadyInTargetState := (archived && current.ArchivedAt != nil) || (!archived && current.ArchivedAt == nil)
+	if alreadyInTargetState {
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
+		}
+		return current, nil
+	}
+
+	updateQuery := updateArchivedFalseQuery
+	if archived {
+		updateQuery = updateArchivedTrueQuery
+	}
+	updated, err := scanContent(tx.QueryRow(ctx, updateQuery, id))
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return updated, nil
 }
 
 func (r *ContentRepository) GetByID(ctx context.Context, id string) (*domain.Content, error) {

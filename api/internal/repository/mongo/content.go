@@ -467,15 +467,28 @@ func hasInProgressLegacyMatch(existing []existingIndexSpec, models []mongo.Index
 }
 
 // EnsureIndexes は管理一覧用複合インデックスを冪等に作成する。
-// 既存のインデックス定義をキー・オプションおよび構築完了状態（buildUUID 不在）で照合し、
-// 完成済みの同一キー定義があれば再作成せず再利用する。名前衝突する不一致定義を先に撤去した上で
-// 残存定義を基準に不足分（構築中の同一 v2 定義を含む）を作成・待機し、全7本の完了確認後にのみ
-// 不要な旧定義を撤去する。
+// 既存のインデックス定義をキー・オプション・可視性で照合し、名前衝突する不一致定義や非表示の旧定義を先に撤去した上で、
+// 残存定義を再利用する場合も（MongoDB 7 単体構成の単相ビルドを含め）必ず CreateMany でサーバー側の構築完了を確認し、
+// 全7本の完了確認後にのみ不要な旧定義を撤去する。
 func (r *ContentRepository) EnsureIndexes(ctx context.Context) error {
 	if r.col == nil {
 		return errors.New("mongo collection is nil")
 	}
 	return r.ensureIndexesWithManager(ctx, mongoAdminIndexManager{col: r.col})
+}
+
+func findReusablePlainIndex(existing []existingIndexSpec, desiredName string, desiredKeys bson.D) (existingIndexSpec, bool) {
+	for _, ex := range existing {
+		if ex.Name == desiredName && ex.BuildUUID == nil && hasSameKeysAndPlainOptions(ex, desiredKeys) {
+			return ex, true
+		}
+	}
+	for _, ex := range existing {
+		if ex.BuildUUID == nil && hasSameKeysAndPlainOptions(ex, desiredKeys) {
+			return ex, true
+		}
+	}
+	return existingIndexSpec{}, false
 }
 
 func (r *ContentRepository) ensureIndexesWithManager(ctx context.Context, mgr adminIndexManager) error {
@@ -501,7 +514,7 @@ func (r *ContentRepository) ensureIndexesWithManager(ctx context.Context, mgr ad
 
 	// 1. まず名前が衝突してキー・オプションが不一致の v2 定義、および再利用不可な非表示の旧定義を特定し、
 	// 撤去して残存集合（surviving）を確定する。
-	// 撤去後に残る定義だけを基準に作成対象を決めることで、別ソートで再利用予定だった定義を後から消す欠落を防ぐ。
+	// 撤去後に残る定義だけを基準に作成・確認対象を決めることで、別ソートで再利用予定だった定義を後から消す欠落を防ぐ。
 	dropSet := make(map[string]bool)
 	for i, model := range models {
 		desiredKeys, _ := model.Keys.(bson.D)
@@ -529,43 +542,37 @@ func (r *ContentRepository) ensureIndexesWithManager(ctx context.Context, mgr ad
 		}
 	}
 
-	// 2. 撤去後の残存集合から「完成済み（buildUUID == nil）かつ同等キー」が存在しないモデルを作成対象にする。
-	// 他レプリカが同一 v2 定義を構築中（buildUUID != nil）の場合も CreateMany に含め、MongoDB 側で完了/失敗を待機する。
-	var toCreate []mongo.IndexModel
-	for _, model := range models {
+	// 2. 撤去後の残存集合を基準に、全7本について CreateMany を実行してサーバー側の構築完了を待つ。
+	// MongoDB 7 単体構成（レプリカセットなし）では単相ビルドとなるため listIndexes に buildUUID/spec が現れず、
+	// 再利用する旧名定義や先行レプリカが構築中の v2 定義も、既存名を指定した CreateMany で完了/失敗を待機する必要がある。
+	toEnsure := make([]mongo.IndexModel, 0, len(models))
+	reusedNames := make(map[string]bool)
+	for i, model := range models {
 		desiredKeys, _ := model.Keys.(bson.D)
-		matchedReady := false
-		for _, ex := range surviving {
-			if isReadyEquivalentPlainIndex(ex, desiredKeys) {
-				matchedReady = true
-				break
-			}
-		}
-		if !matchedReady {
-			toCreate = append(toCreate, model)
+		desiredName := names[i]
+		if match, ok := findReusablePlainIndex(surviving, desiredName, desiredKeys); ok {
+			toEnsure = append(toEnsure, mongo.IndexModel{
+				Keys:    model.Keys,
+				Options: options.Index().SetName(match.Name),
+			})
+			reusedNames[match.Name] = true
+		} else {
+			toEnsure = append(toEnsure, model)
 		}
 	}
 
-	if len(toCreate) > 0 {
-		if _, err := mgr.CreateMany(ctx, toCreate); err != nil {
+	if len(toEnsure) > 0 {
+		if _, err := mgr.CreateMany(ctx, toEnsure); err != nil {
 			return err
 		}
 	}
 
-	// 3. 新定義（または再利用する旧名定義）がすべて利用可能になった後でのみ、不要な旧定義を撤去する。
+	// 3. 全7本の作成・構築完了が確認できた後でのみ、不要な旧定義を撤去する。
 	for _, ex := range surviving {
 		if !slices.Contains(legacyAdminIndexNames, ex.Name) {
 			continue
 		}
-		reused := false
-		for _, model := range models {
-			desiredKeys, _ := model.Keys.(bson.D)
-			if isReadyEquivalentPlainIndex(ex, desiredKeys) {
-				reused = true
-				break
-			}
-		}
-		if reused {
+		if reusedNames[ex.Name] {
 			continue
 		}
 		if err := mgr.DropOne(ctx, ex.Name); err != nil && !isIndexNotFoundError(err) {

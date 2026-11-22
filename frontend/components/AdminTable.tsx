@@ -55,16 +55,30 @@ export default function AdminTable({
   const [archivingId, setArchivingId] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const { t, language } = useLanguage();
-  // 編集・アーカイブ成功直後の行が、CQRS 同期前のポーリング応答で古い値に巻き戻るのを防ぐため
-  // 保存済み行の updated_at（ms）を記録し、それより新しい応答が返るまで上書きしない。
-  const protectedUpdatedAtRef = useRef<Map<string, number>>(new Map());
+  // 編集・アーカイブ成功直後の行が、CQRS 同期前の並び替え/ページ応答やポーリング応答で古い値に巻き戻るのを防ぐため
+  // 保存済み行を保持し、応答側の updated_at が保存値より新しい（ポーリングでは同等以上）ときにのみ反映する。
+  const protectedSavedRef = useRef<Map<string, Content>>(new Map());
   const prevInitialContentsRef = useRef(initialContents);
 
   // ページ送り・並び替え応答が届いてもモーダル状態を保つため、AdminTable を再マウントせず一覧だけ同期する。
+  // 保存後に遅延到着したページ応答が保存済みの同一 ID 行を古い値で上書きしないよう保護する。
   useEffect(() => {
     if (prevInitialContentsRef.current !== initialContents) {
       prevInitialContentsRef.current = initialContents;
-      setContents(initialContents);
+      setContents(
+        initialContents.map((incoming) => {
+          const saved = protectedSavedRef.current.get(incoming.id);
+          if (!saved) return incoming;
+
+          const incomingMs = Date.parse(incoming.updated_at);
+          const savedMs = Date.parse(saved.updated_at);
+          if (!Number.isFinite(incomingMs) || !Number.isFinite(savedMs) || incomingMs <= savedMs) {
+            return saved;
+          }
+          protectedSavedRef.current.delete(incoming.id);
+          return incoming;
+        }),
+      );
     }
   }, [initialContents]);
 
@@ -89,12 +103,13 @@ export default function AdminTable({
             if (!polled) return c;
 
             const polledMs = Date.parse(polled.updated_at);
-            const savedMs = protectedUpdatedAtRef.current.get(c.id);
-            if (savedMs !== undefined) {
-              if (!Number.isFinite(polledMs) || !Number.isFinite(savedMs) || polledMs <= savedMs) {
-                return c;
+            const saved = protectedSavedRef.current.get(c.id);
+            if (saved) {
+              const savedMs = Date.parse(saved.updated_at);
+              if (!Number.isFinite(polledMs) || !Number.isFinite(savedMs) || polledMs < savedMs) {
+                return saved;
               }
-              protectedUpdatedAtRef.current.delete(c.id);
+              protectedSavedRef.current.delete(c.id);
             }
 
             const currentMs = Date.parse(c.updated_at);
@@ -122,7 +137,7 @@ export default function AdminTable({
   }, [hasInProgress]);
 
   function handleSave(updated: Content) {
-    protectedUpdatedAtRef.current.set(updated.id, Date.parse(updated.updated_at));
+    protectedSavedRef.current.set(updated.id, updated);
     setContents((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
     setEditingContent(null);
   }
@@ -145,7 +160,7 @@ export default function AdminTable({
       const updated = archiving
         ? await archiveContent(content.id)
         : await unarchiveContent(content.id);
-      protectedUpdatedAtRef.current.set(updated.id, Date.parse(updated.updated_at));
+      protectedSavedRef.current.set(updated.id, updated);
       setContents((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
     } catch (e) {
       window.alert(e instanceof Error ? e.message : t("admin.table.archiveError"));
