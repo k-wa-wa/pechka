@@ -22,12 +22,27 @@ on:
 
 jobs:
   validate-k8s:
-    name: Validate K8s Manifests
+    name: Validate K8s (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: prod
+            targets: "k8s/overlays/prod"
+            prod: true
+            preview: false
+            yamllint-path: "k8s"
+          - name: preview
+            targets: "k8s/overlays/preview"
+            prod: false
+            preview: true
+            yamllint-path: ""
     uses: k-wa-wa/nuage-workspace/.github/workflows/k8s-validate.yml@master
     with:
-      yamllint-path: "k8s"
-      prod-overlays: "k8s/overlays/prod"
-      preview-overlays: "k8s/overlays/preview"
+      yamllint-path: ${{ matrix.yamllint-path }}
+      targets: ${{ matrix.targets }}
+      prod: ${{ matrix.prod }}
+      preview: ${{ matrix.preview }}
       fail-on-policy: true
 
   validate-pechka-specific:

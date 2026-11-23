@@ -44,11 +44,10 @@ run_common_validation() {
   fi
 
   echo "=== Running nuage-workspace common K8s validation ==="
-  if ! "$runner" \
-    --yamllint-path "k8s" \
-    --prod-overlays "k8s/overlays/prod" \
-    --preview-overlays "k8s/overlays/preview" \
-    --fail-on-policy "true"; then
+  if ! "$runner" --yamllint-path "k8s" --prod "k8s/overlays/prod"; then
+    FAILED=1
+  fi
+  if ! "$runner" --preview "k8s/overlays/preview"; then
     FAILED=1
   fi
   echo ""
