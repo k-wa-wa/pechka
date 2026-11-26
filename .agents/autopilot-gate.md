@@ -5,8 +5,8 @@ CI（型検査・`go test`・Storybook・モックを使った VRT）は、実�
 
 ## 守ること: 読み取り専用
 
-Preview の MinIO は本番の実体を共有している（`k8s/overlays/preview/README.md`）。
-書き込みは本番のバケットに入るため、**GET / HEAD 以外のリクエスト（POST・PUT・PATCH・DELETE）は送らない**。
+Preview 環境の MinIO は PR ごとのローカルコンテナ（`k8s/overlays/preview/minio-local.yaml` の `adobe/s3mock`）であり、書き込みはローカルに閉じ、ローカルに無い既存リソースの読み取り（GET / HEAD）のみ本番 swfs へフォールバックする（`k8s/base/infra/nginx/nginx.conf` の `@minio_prod_fallback`）。
+ただし確認ゲートとしての安全性・再現性を保つため、**GET / HEAD 以外のリクエスト（POST・PUT・PATCH・DELETE）は送らない**。
 `/api/v1/admin/...` の書き込み系や `/api/v1/contents/ingest` も対象外。
 書き込み系を変更する PR は、実行せずハンドラのコードとテストを読んで確認する。
 
@@ -69,7 +69,7 @@ api "/api/v1/admin/contents?limit=3"     200   # 管理用の一覧（PostgreSQL
   （`total` があれば 1 以上、配列なら 1 件以上）。
 - 応答の形は `api/openapi.yaml` と一致していること。食い違う場合は不合格とする。
 
-### 3. メディア配信（nginx から本番共有の MinIO への経路）
+### 3. メディア配信（nginx からローカル MinIO / 本番フォールバックへの経路）
 
 管理用の一覧（PostgreSQL 由来）から `ready` のコンテンツを 1 件選び、HLS を辿る。
 
