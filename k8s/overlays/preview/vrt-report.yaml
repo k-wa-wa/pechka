@@ -1,6 +1,5 @@
 # VRT (Playwright) レポートだけを配信する軽量な静的配信コンテナ。preview専用。
-# イメージタグ (pr-<N>) の自動差し替えはこのoverlay単体では行われない
-# (nuage-cluster側のArgoCD ApplicationSetの対応が別途必要)。
+# イメージタグ (pr-<N>) への差し替えは nuage-cluster 側の ApplicationSet (pechka-preview) が行う。
 apiVersion: apps/v1
 kind: Deployment
 metadata:

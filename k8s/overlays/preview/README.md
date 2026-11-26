@@ -9,6 +9,8 @@ PR を立てれば生え、close / merge すれば namespace ごと消える。
 
 ![prod / preview 比較](./preview-vs-prod.drawio.svg)
 
+> ※ 図中の MinIO（prod 実体共有）などは旧構成のままであり、現行の MinIO や上書き対象などの構成は下の「運用メモ」のとおりである。
+
 ## 運用メモ
 
 - `nuage-cluster` 側の ApplicationSet（`pechka-preview-appset.yaml` / `pechka-preview-secret-appset.yaml`）により、`pechka-pr-<N>` と `pechka-pr-<N>-secret` の 2 つの Application がデプロイされる。`pechka-api` / `pechka-frontend` / `pechka-vrt-report` / `pechka-storybook-report` / `etl-*` / `aivisspeech-engine` / `tech-feed-*` のイメージタグは `:pr-<N>` へ、Ingress のホスト名と Namespace は PR 番号ごとに自動上書きされる。
