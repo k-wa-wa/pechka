@@ -172,10 +172,20 @@ jobs:
           path: frontend/e2e/vrt-snapshots/
           retention-days: 14
 
+  validate-ui:
+    name: Validate UI
+    permissions:
+      contents: read
+    uses: k-wa-wa/nuage-workspace/.github/workflows/ui-validate.yml@master
+    with:
+      target-dir: "frontend"
+      entry-css: "app/globals.css"
+      fail-on-policy: true
+
   push-preview-image:
     name: Push Preview Image
-    needs: [pr-context, test-frontend, test-vrt]
-    if: always() && needs.test-frontend.result == 'success' && (needs.test-vrt.result == 'success' || needs.test-vrt.result == 'failure') && needs.pr-context.result == 'success' && needs.pr-context.outputs.number != ''
+    needs: [pr-context, test-frontend, test-vrt, validate-ui]
+    if: always() && needs.test-frontend.result == 'success' && (needs.test-vrt.result == 'success' || needs.test-vrt.result == 'failure') && needs.validate-ui.result == 'success' && needs.pr-context.result == 'success' && needs.pr-context.outputs.number != ''
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -234,8 +244,8 @@ jobs:
 
   push-vrt-report-image:
     name: Push VRT Report Image
-    needs: [pr-context, test-frontend, test-vrt]
-    if: always() && needs.test-frontend.result == 'success' && (needs.test-vrt.result == 'success' || needs.test-vrt.result == 'failure') && needs.pr-context.result == 'success' && needs.pr-context.outputs.number != ''
+    needs: [pr-context, test-frontend, test-vrt, validate-ui]
+    if: always() && needs.test-frontend.result == 'success' && (needs.test-vrt.result == 'success' || needs.test-vrt.result == 'failure') && needs.validate-ui.result == 'success' && needs.pr-context.result == 'success' && needs.pr-context.outputs.number != ''
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -270,8 +280,8 @@ jobs:
 
   push-storybook-report-image:
     name: Push Storybook Report Image
-    needs: [pr-context, test-frontend]
-    if: needs.test-frontend.result == 'success' && needs.pr-context.outputs.number != ''
+    needs: [pr-context, test-frontend, validate-ui]
+    if: needs.test-frontend.result == 'success' && needs.validate-ui.result == 'success' && needs.pr-context.outputs.number != ''
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -306,7 +316,7 @@ jobs:
 
   push-image:
     name: Push Image
-    needs: [test-frontend, test-vrt]
+    needs: [test-frontend, test-vrt, validate-ui]
     if: github.ref == 'refs/heads/master' && github.event_name == 'push'
     uses: k-wa-wa/nuage-workspace/.github/workflows/docker-build-push.yml@master
     with:
